@@ -9,45 +9,6 @@ export type LoginResult = {
   expiresAt?: number;
 };
 
-const fallbackUsers: AppUser[] = [
-  {
-    id: 'local-admin',
-    username: 'admin',
-    password: 'admin123',
-    full_name: 'Administrator',
-    role: 1,
-    is_active: true,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'local-operator',
-    username: 'operator',
-    password: 'operator123',
-    full_name: 'Operator',
-    role: 2,
-    is_active: true,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'local-staff',
-    username: 'staff',
-    password: 'staff123',
-    full_name: 'Staff',
-    role: 3,
-    is_active: true,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'local-viewer',
-    username: 'viewer',
-    password: 'viewer123',
-    full_name: 'Viewer',
-    role: 4,
-    is_active: true,
-    created_at: new Date().toISOString(),
-  },
-];
-
 async function unwrap<T>(request: PromiseLike<{ data: T | null; error: { message: string } | null }>): Promise<T> {
   const { data, error } = await request;
   if (error) throw new Error(error.message);
@@ -69,19 +30,7 @@ class ApiClient {
       });
 
       if (error) {
-        const fallbackUser = fallbackUsers.find(
-          (user) => user.username === username && user.password === password && user.is_active
-        );
-
-        if (!fallbackUser) {
-          return null;
-        }
-
-        return {
-          user: fallbackUser,
-          token: `supabase-fallback-token-${Date.now()}`,
-          expiresAt: Date.now() + (8 * 60 * 60 * 1000),
-        };
+        return null;
       }
 
       const user = (data as AppUser[] | null)?.[0] ?? null;
