@@ -1,0 +1,133 @@
+import { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Alert } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { KeyRound, Plus, ChevronRight } from 'lucide-react-native';
+import { apiClient } from '@/lib/api';
+import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
+import { formatDate, formatCurrency } from '@/lib/format';
+import { Sheet } from '@/components/Sheet';
+import { Field } from '@/components/Field';
+import { DateField } from '@/components/DateField';
+import { Button } from '@/components/Button';
+import { EmptyState } from '@/components/EmptyState';
+import type { RentalStatus } from '@/lib/types';
+
+type RentalWithCar = {
+  id: string;
+  car_id: string;
+  renter_name: string;
+  renter_email: string;
+  start_date: string;
+  end_date: string | null;
+  total_cost: number | null;
+  purpose: string;
+  status: RentalStatus;
+  notes: string;
+  car_name: string;
+};
+
+const statusConfig: Record<RentalStatus, { label: string; bg: string; text: string }> = {
+  pending: { label: 'Menunggu persetujuan', bg: '#FEF3C7', text: '#92400E' },
+  active: { label: 'Aktif', bg: Colors.primaryLight, text: Colors.primary },
+  approved: { label: 'Disetujui', bg: '#DCFCE7', text: '#15803D' },
+  rejected: { label: 'Ditolak', bg: '#FEE2E2', text: Colors.error },
+  returned: { label: 'Dikembalikan', bg: Colors.surfaceAlt, text: Colors.textSecondary },
+  cancelled: { label: 'Dibatalkan', bg: '#FEE2E2', text: Colors.error },
+  completed: { label: 'Selesai', bg: '#DCFCE7', text: '#15803D' },
+};
+
+export default function RentalScreen() {
+  const [rentals, setRentals] = useState<RentalWithCar[]>([]);
+  const [cars, setCars] = useState<{ id: string; name: string }[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [sheet, setSheet] = useState(false);
+  const [form, setForm] = useState({ car_id: '', renter_name: '', renter_email: '', start_date: '', end_date: '', purpose: '', notes: '' });
+
+  const fetchRentals = useCallback(async () => {
+    try {
+      const [rentalData, carData] = await Promise.all([apiClient.rentals.getAll(), apiClient.cars.getAll()]);
+      setRentals(rentalData);
+      setCars(carData);
+    } catch (error) { console.error('Error fetching rentals:', error); }
+    setRefreshing(false);
+  }, []);
+
+  useFocusEffect(useCallback(() => { fetchRentals(); }, [fetchRentals]));
+
+  const addRental = async () => {
+    if (!form.car_id || !form.renter_name.trim()) return;
+    if (!/^\S+@\S+\.\S+$/.test(form.renter_email.trim())) {
+      Alert.alert('Email wajib diisi', 'Masukkan alamat email penyewa yang valid.');
+      return;
+    }
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      await apiClient.rentals.create({ car_id: form.car_id, renter_name: form.renter_name.trim(), renter_email: form.renter_email.trim(), start_date: form.start_date || today, end_date: form.end_date || null, purpose: form.purpose.trim(), notes: form.notes.trim() });
+      setForm({ car_id: '', renter_name: '', renter_email: '', start_date: '', end_date: '', purpose: '', notes: '' });
+      setSheet(false);
+      fetchRentals();
+    } catch (error) { Alert.alert('Gagal menyimpan rental', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
+  };
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}><Text style={styles.greeting}>Rental Mobil</Text><Text style={styles.title}>Daftar Penyewaan</Text></View>
+      <FlatList data={rentals} keyExtractor={(item) => item.id} contentContainerStyle={styles.list}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchRentals(); }} colors={[Colors.primary]} />}
+        renderItem={({ item }) => { const st = statusConfig[item.status] ?? statusConfig.active; return (
+          <TouchableOpacity style={styles.card} onPress={() => router.push(`/car/rental/${item.id}` as never)} activeOpacity={0.85}>
+            <View style={styles.rentalIcon}><KeyRound size={16} color={Colors.primary} strokeWidth={2.2} /></View>
+            <View style={styles.cardBody}>
+              <Text style={styles.renterName} numberOfLines={1}>{item.renter_name}</Text>
+              <Text style={styles.carName} numberOfLines={1}>{item.car_name ?? 'Mobil tidak diketahui'}</Text>
+              <Text style={styles.emailText} numberOfLines={1}>{item.renter_email}</Text>
+              <View style={styles.metaRow}><Text style={styles.metaText}>{formatDate(item.start_date)}</Text>{item.end_date ? <Text style={styles.metaText}> - {formatDate(item.end_date)}</Text> : null}</View>
+              <View style={styles.metaRow}>{item.purpose ? <Text style={styles.metaText}>Tujuan: {item.purpose}</Text> : null}{item.total_cost ? <Text style={styles.costText}>{formatCurrency(item.total_cost)}</Text> : null}</View>
+              <View style={[styles.statusPill, { backgroundColor: st.bg }]}><Text style={[styles.statusText, { color: st.text }]}>{st.label}</Text></View>
+            </View>
+            <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2.2} />
+          </TouchableOpacity>
+        ); }}
+        ListEmptyComponent={<EmptyState icon={<KeyRound size={32} color={Colors.primary} strokeWidth={2} />} title="Belum ada rental" subtitle="Catat penyewaan mobil di sini." />}
+      />
+      <TouchableOpacity style={styles.fab} onPress={() => setSheet(true)} activeOpacity={0.85}><Plus size={26} color={Colors.white} strokeWidth={2.6} /></TouchableOpacity>
+      <Sheet visible={sheet} onClose={() => setSheet(false)} title="Tambah Rental Mobil">
+        <Text style={styles.label}>Pilih Mobil</Text>
+        <View style={styles.carPicker}>{cars.map((c) => { const active = form.car_id === c.id; return <TouchableOpacity key={c.id} onPress={() => setForm({ ...form, car_id: c.id })} style={[styles.carChip, active && styles.carChipActive]}><Text style={[styles.carChipText, active && styles.carChipTextActive]}>{c.name}</Text></TouchableOpacity>; })}</View>
+        <Field label="Nama Penyewa*" value={form.renter_name} onChangeText={(t) => setForm({ ...form, renter_name: t })} placeholder="Contoh: Budi Santoso" />
+        <Field label="Email Penyewa*" value={form.renter_email} onChangeText={(t) => setForm({ ...form, renter_email: t })} placeholder="contoh@email.com" keyboardType="default" />
+        <DateField label="Tanggal Mulai" value={form.start_date} onChange={(value) => setForm({ ...form, start_date: value })} placeholder="Pilih tanggal (kosongkan = hari ini)" />
+        <DateField label="Tanggal Selesai" value={form.end_date} onChange={(value) => setForm({ ...form, end_date: value })} placeholder="Pilih tanggal (kosongkan = masih berjalan)" minimumDate={form.start_date ? new Date(`${form.start_date}T00:00:00`) : undefined} />
+        <Field label="Tujuan Peminjaman" value={form.purpose} onChangeText={(t) => setForm({ ...form, purpose: t })} placeholder="Contoh: Perjalanan dinas, liburan keluarga" />
+        <Field label="Catatan" value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} placeholder="Catatan tambahan..." multiline />
+        <View style={{ height: Spacing.sm }} /><Button label="Simpan Rental" onPress={addRental} disabled={!form.car_id || !form.renter_name.trim() || !form.renter_email.trim()} />
+      </Sheet>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.background },
+  header: { backgroundColor: Colors.primary, paddingTop: Spacing.xl + 18, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, borderBottomLeftRadius: Radius.xl, borderBottomRightRadius: Radius.xl },
+  greeting: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.primarySoft, marginBottom: 2 },
+  title: { fontSize: Typography.xxxl, fontFamily: Typography.fontBold, color: Colors.white },
+  list: { padding: Spacing.lg, paddingBottom: 100 },
+  card: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight },
+  rentalIcon: { width: 36, height: 36, borderRadius: Radius.md, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: Spacing.md, marginTop: 2 },
+  cardBody: { flex: 1, marginRight: Spacing.xs },
+  renterName: { fontSize: Typography.base, fontFamily: Typography.fontSemiBold, color: Colors.textPrimary, marginBottom: 2 },
+  carName: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.primary, marginBottom: Spacing.xs },
+  emailText: { fontSize: Typography.xs, fontFamily: Typography.fontRegular, color: Colors.textSecondary, marginBottom: Spacing.xs },
+  metaRow: { flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap' },
+  metaText: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textTertiary },
+  costText: { fontSize: Typography.sm, fontFamily: Typography.fontSemiBold, color: Colors.primary },
+  statusPill: { alignSelf: 'flex-start', paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: Radius.pill, marginTop: Spacing.xs },
+  statusText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
+  fab: { position: 'absolute', right: Spacing.lg, bottom: Spacing.lg, width: 58, height: 58, borderRadius: Radius.pill, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', elevation: 8 },
+  label: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary, marginBottom: Spacing.xs },
+  carPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginBottom: Spacing.sm },
+  carChip: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.pill, backgroundColor: Colors.surfaceAlt },
+  carChipActive: { backgroundColor: Colors.primary },
+  carChipText: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary },
+  carChipTextActive: { color: Colors.white },
+});
