@@ -10,6 +10,19 @@ export type AuthSession = {
 };
 
 let currentSession: AuthSession | null = null;
+const SESSION_STORAGE_KEY = 'garaciku.auth.session';
+
+function loadStoredSession(): AuthSession | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const stored = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    return stored ? JSON.parse(stored) as AuthSession : null;
+  } catch {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    return null;
+  }
+}
 
 export function createSession(user: AppUser, token?: string, expiresAt?: number): AuthSession {
   const issuedAt = Date.now();
@@ -22,16 +35,24 @@ export function createSession(user: AppUser, token?: string, expiresAt?: number)
     issuedAt,
   };
 
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(currentSession));
+  }
+
   return currentSession;
 }
 
 export function getSession(): AuthSession | null {
   if (!currentSession) {
+    currentSession = loadStoredSession();
+  }
+
+  if (!currentSession) {
     return null;
   }
 
   if (Date.now() >= currentSession.expiresAt) {
-    currentSession = null;
+    clearSession();
     return null;
   }
 
@@ -40,6 +61,9 @@ export function getSession(): AuthSession | null {
 
 export function clearSession() {
   currentSession = null;
+  if (typeof window !== 'undefined') {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+  }
 }
 
 export function hasValidSession() {
