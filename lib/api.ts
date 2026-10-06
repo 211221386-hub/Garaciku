@@ -124,6 +124,21 @@ class ApiClient {
       if (session && !isAdmin) query = query.eq('user_id', session.user.id);
       return unwrap<RentalRecord>(query.select().single());
     },
+    decideApproval: async (id: string, data: { status: 'approved' | 'rejected'; car_id: string; approved_by: string; approved_at: string }) => {
+      const session = getSession();
+      if (!session || ![1, 2].includes(session.user.role)) {
+        throw new Error('Hanya role 1 atau 2 yang dapat memproses approval.');
+      }
+
+      const rental = await unwrap<RentalRecord>(
+        supabase.from('rental_records').select('*').eq('id', id).eq('status', 'pending').single()
+      );
+      if (!rental) throw new Error('Permintaan rental tidak ditemukan atau sudah diproses.');
+
+      return unwrap<RentalRecord>(
+        supabase.from('rental_records').update(data).eq('id', id).eq('status', 'pending').select().single()
+      );
+    },
     delete: async (id: string) => {
       const session = getSession();
       const isAdmin = session?.user.role === 1 || session?.user.role === 2;

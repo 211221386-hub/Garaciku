@@ -45,12 +45,13 @@ export default function ApprovalScreen() {
   useFocusEffect(useCallback(() => { fetchApprovals(); }, [fetchApprovals]));
 
   const decide = async (rental: ApprovalRental, status: 'approved' | 'rejected') => {
-    if (!isAdmin()) return;
+    const session = getSession();
+    if (!session || ![1, 2].includes(session.user.role)) return;
     try {
-      await apiClient.rentals.update(rental.id, {
+      await apiClient.rentals.decideApproval(rental.id, {
         status,
         car_id: status === 'approved' ? (selectedCars[rental.id] ?? rental.car_id) : rental.car_id,
-        approved_by: getSession()?.user.id ?? null,
+        approved_by: session.user.id,
         approved_at: new Date().toISOString(),
       });
       fetchApprovals();

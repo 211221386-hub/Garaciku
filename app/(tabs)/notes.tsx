@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Alert } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
-import { Wrench, Plus, ChevronRight } from 'lucide-react-native';
+import { Wrench, Plus, ChevronRight, Trash2 } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
 import { formatDate, formatCurrency, todayISO } from '@/lib/format';
@@ -89,6 +89,24 @@ export default function ServiceScreen() {
     }
   };
 
+  const deleteService = (service: ServiceWithCar) => {
+    Alert.alert('Hapus Service', `Hapus catatan service "${service.service_type}"?`, [
+      { text: 'Batal', style: 'cancel' },
+      {
+        text: 'Hapus',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await apiClient.services.delete(service.id);
+            fetchServices();
+          } catch (error) {
+            Alert.alert('Gagal menghapus service', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+          }
+        },
+      },
+    ]);
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -101,7 +119,8 @@ export default function ServiceScreen() {
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchServices(); }} colors={[Colors.primary]} />}
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.card} onPress={() => router.push(`/car/${item.car_id}`)} activeOpacity={0.85}>
+          <View style={styles.card}>
+            <TouchableOpacity style={styles.cardMain} onPress={() => router.push(`/car/${item.car_id}`)} activeOpacity={0.85}>
             <View style={styles.serviceIcon}><Wrench size={18} color={Colors.primary} strokeWidth={2.2} /></View>
             <View style={styles.cardBody}>
               <Text style={styles.serviceType} numberOfLines={1}>{item.service_type}</Text>
@@ -118,7 +137,11 @@ export default function ServiceScreen() {
               {item.description ? <Text style={styles.description} numberOfLines={2}>{item.description}</Text> : null}
             </View>
             <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2.2} />
-          </TouchableOpacity>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.deleteButton} onPress={() => deleteService(item)} hitSlop={10} accessibilityLabel={`Hapus service ${item.service_type}`}>
+              <Trash2 size={18} color={Colors.error} strokeWidth={2.2} />
+            </TouchableOpacity>
+          </View>
         )}
         ListEmptyComponent={<EmptyState icon={<Wrench size={32} color={Colors.primary} strokeWidth={2} />} title="Belum ada service" subtitle="Tambahkan riwayat service berkala setiap mobil." />}
       />
@@ -160,6 +183,8 @@ const styles = StyleSheet.create({
   title: { fontSize: Typography.xxxl, fontFamily: Typography.fontBold, color: Colors.white },
   list: { padding: Spacing.lg, paddingBottom: 110 },
   card: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight },
+  cardMain: { flex: 1, flexDirection: 'row', alignItems: 'flex-start' },
+  deleteButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', marginLeft: Spacing.xs },
   serviceIcon: { width: 38, height: 38, borderRadius: Radius.md, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: Spacing.md },
   cardBody: { flex: 1, marginRight: Spacing.xs },
   serviceType: { fontSize: Typography.base, fontFamily: Typography.fontSemiBold, color: Colors.textPrimary },
