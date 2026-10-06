@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { createElement, useState, type ChangeEvent } from 'react';
 import { Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Calendar } from 'lucide-react-native';
@@ -37,16 +37,14 @@ export function DateField({ label, value, onChange, placeholder = 'Pilih tanggal
     return (
       <View style={styles.container}>
         <Text style={styles.label}>{label}</Text>
-        <View style={styles.input}>
-          <TextInput
-            value={value}
-            onChangeText={onChange}
-            placeholder={placeholder}
-            placeholderTextColor={Colors.textTertiary}
-            style={[styles.value, !value && styles.placeholder, styles.webInput]}
-          />
-          <Calendar size={19} color={Colors.primary} strokeWidth={2.1} />
-        </View>
+        {createElement('input', {
+          type: 'date',
+          value,
+          min: minimumDate ? toISODate(minimumDate) : undefined,
+          onChange: (event: ChangeEvent<HTMLInputElement>) => onChange(event.currentTarget.value),
+          'aria-label': label,
+          style: webDateInputStyle,
+        })}
       </View>
     );
   }
@@ -86,3 +84,19 @@ const styles = StyleSheet.create({
   doneButton: { alignSelf: 'flex-end', paddingVertical: Spacing.xs, paddingHorizontal: Spacing.sm },
   doneText: { color: Colors.primary, fontFamily: Typography.fontSemiBold, fontSize: Typography.sm },
 });
+
+const webDateInputStyle = {
+  width: '100%',
+  minHeight: 52,
+  boxSizing: 'border-box' as const,
+  borderWidth: 1,
+  borderStyle: 'solid' as const,
+  borderColor: Colors.border,
+  borderRadius: Radius.md,
+  paddingLeft: Spacing.md,
+  paddingRight: Spacing.md,
+  fontSize: Typography.base,
+  fontFamily: Typography.fontRegular,
+  color: Colors.textPrimary,
+  backgroundColor: Colors.surface,
+};

@@ -55,7 +55,14 @@ export default function RentalScreen() {
   useFocusEffect(useCallback(() => { fetchRentals(); }, [fetchRentals]));
 
   const addRental = async () => {
-    if (!form.car_id || !form.renter_name.trim()) return;
+    if (!form.car_id) {
+      Alert.alert('Pilih mobil terlebih dahulu', 'Pilih salah satu mobil sebelum menyimpan rental.');
+      return;
+    }
+    if (!form.renter_name.trim()) {
+      Alert.alert('Nama penyewa wajib diisi', 'Masukkan nama penyewa sebelum menyimpan rental.');
+      return;
+    }
     if (!/^\S+@\S+\.\S+$/.test(form.renter_email.trim())) {
       Alert.alert('Email wajib diisi', 'Masukkan alamat email penyewa yang valid.');
       return;
