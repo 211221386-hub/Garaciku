@@ -165,7 +165,10 @@ class ApiClient {
     getByCar: (carId: string) => unwrap<ServiceRecord[]>(supabase.from('service_records').select('*').eq('car_id', carId).order('service_date', { ascending: false })),
     create: (data: Record<string, unknown>) => unwrap<ServiceRecord>(supabase.from('service_records').insert(data).select().single()),
     update: (id: string, data: Record<string, unknown>) => unwrap<ServiceRecord>(supabase.from('service_records').update(data).eq('id', id).select().single()),
-    delete: async (id: string) => { await unwrap(supabase.from('service_records').delete().eq('id', id)); return { success: true }; },
+    delete: async (id: string) => {
+      await unwrap(supabase.from('service_records').delete().eq('id', id).select('id').single());
+      return { success: true };
+    },
   };
 
   completeness = {
