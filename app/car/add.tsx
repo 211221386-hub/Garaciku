@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
 import { router } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
@@ -7,8 +7,15 @@ import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
 import { Field } from '@/components/Field';
 import { Button } from '@/components/Button';
+import { getSession } from '@/lib/auth';
 
 export default function AddCarScreen() {
+  useEffect(() => {
+    if (![1, 2].includes(getSession()?.user.role ?? 0)) {
+      router.replace('/(tabs)');
+    }
+  }, []);
+
   const [name, setName] = useState('');
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
@@ -19,6 +26,10 @@ export default function AddCarScreen() {
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
+    if (![1, 2].includes(getSession()?.user.role ?? 0)) {
+      router.replace('/(tabs)');
+      return;
+    }
     if (!name.trim()) {
       Alert.alert('Nama wajib diisi', 'Beri nama untuk mobil Anda.');
       return;

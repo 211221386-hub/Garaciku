@@ -85,13 +85,15 @@ export default function CarsScreen() {
         }
       />
 
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => router.push('/car/add')}
-        activeOpacity={0.85}
-      >
-        <Plus size={26} color={Colors.white} strokeWidth={2.6} />
-      </TouchableOpacity>
+      {!isRestrictedRole ? (
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.push('/car/add')}
+          activeOpacity={0.85}
+        >
+          <Plus size={26} color={Colors.white} strokeWidth={2.6} />
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }

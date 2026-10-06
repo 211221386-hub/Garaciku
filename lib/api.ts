@@ -50,7 +50,13 @@ class ApiClient {
   cars = {
     getAll: () => unwrap<Car[]>(supabase.from('cars').select('*').order('created_at', { ascending: false })),
     getById: (id: string) => unwrap<Car>(supabase.from('cars').select('*').eq('id', id).single()),
-    create: (data: Record<string, unknown>) => unwrap<Car>(supabase.from('cars').insert(data).select().single()),
+    create: (data: Record<string, unknown>) => {
+      const session = getSession();
+      if (!session || ![1, 2].includes(session.user.role)) {
+        throw new Error('Hanya role 1 atau 2 yang dapat menambahkan mobil.');
+      }
+      return unwrap<Car>(supabase.from('cars').insert(data).select().single());
+    },
     update: (id: string, data: Record<string, unknown>) => unwrap<Car>(supabase.from('cars').update(data).eq('id', id).select().single()),
     delete: async (id: string) => { await unwrap(supabase.from('cars').delete().eq('id', id)); return { success: true }; },
   };
