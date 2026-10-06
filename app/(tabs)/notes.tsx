@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Alert, Platform } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Wrench, Plus, ChevronRight, Trash2 } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
@@ -90,21 +90,29 @@ export default function ServiceScreen() {
   };
 
   const deleteService = (service: ServiceWithCar) => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      if (!window.confirm(`Hapus catatan service "${service.service_type}"?`)) return;
+      void removeService(service);
+      return;
+    }
+
     Alert.alert('Hapus Service', `Hapus catatan service "${service.service_type}"?`, [
       { text: 'Batal', style: 'cancel' },
       {
         text: 'Hapus',
         style: 'destructive',
-        onPress: async () => {
-          try {
-            await apiClient.services.delete(service.id);
-            fetchServices();
-          } catch (error) {
-            Alert.alert('Gagal menghapus service', error instanceof Error ? error.message : 'Terjadi kesalahan.');
-          }
-        },
+        onPress: () => { void removeService(service); },
       },
     ]);
+  };
+
+  const removeService = async (service: ServiceWithCar) => {
+    try {
+      await apiClient.services.delete(service.id);
+      await fetchServices();
+    } catch (error) {
+      Alert.alert('Gagal menghapus service', error instanceof Error ? error.message : 'Terjadi kesalahan. Jalankan migration policy Supabase terlebih dahulu.');
+    }
   };
 
   return (
