@@ -28,6 +28,9 @@ export default function ApprovalScreen() {
   const [cars, setCars] = useState<{ id: string; name: string }[]>([]);
   const [selectedCars, setSelectedCars] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
+  const [decision, setDecision] = useState<{ rental: ApprovalRental; status: 'approved' | 'rejected' } | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fetchApprovals = useCallback(async () => {
     try {
@@ -47,6 +50,8 @@ export default function ApprovalScreen() {
   const decide = async (rental: ApprovalRental, status: 'approved' | 'rejected') => {
     const session = getSession();
     if (!session || ![1, 2].includes(session.user.role)) return;
+    setProcessingId(rental.id);
+    setErrorMessage(null);
     try {
       await apiClient.rentals.decideApproval(rental.id, {
         status,
@@ -54,18 +59,18 @@ export default function ApprovalScreen() {
         approved_by: session.user.id,
         approved_at: new Date().toISOString(),
       });
-      fetchApprovals();
+      setDecision(null);
+      await fetchApprovals();
     } catch (error) {
-      Alert.alert('Gagal memproses approval', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+      setErrorMessage(error instanceof Error ? error.message : 'Terjadi kesalahan saat memproses approval.');
+    } finally {
+      setProcessingId(null);
     }
   };
 
   const confirmDecision = (rental: ApprovalRental, status: 'approved' | 'rejected') => {
-    const action = status === 'approved' ? 'menyetujui' : 'menolak';
-    Alert.alert(`${status === 'approved' ? 'Approve' : 'Tolak'} rental`, `Anda akan ${action} permintaan ${rental.renter_name}.`, [
-      { text: 'Batal', style: 'cancel' },
-      { text: status === 'approved' ? 'Approve' : 'Tolak', style: status === 'rejected' ? 'destructive' : 'default', onPress: () => decide(rental, status) },
-    ]);
+    setErrorMessage(null);
+    setDecision({ rental, status });
   };
 
   return (
@@ -102,7 +107,7 @@ export default function ApprovalScreen() {
                 </View>
                 <View style={styles.actions}>
                   <TouchableOpacity style={[styles.action, styles.reject]} onPress={() => confirmDecision(item, 'rejected')}><X size={17} color={Colors.error} /><Text style={[styles.actionText, { color: Colors.error }]}>Tolak</Text></TouchableOpacity>
-                  <TouchableOpacity style={[styles.action, styles.approve]} onPress={() => confirmDecision(item, 'approved')}><Check size={17} color={Colors.white} /><Text style={[styles.actionText, { color: Colors.white }]}>Approve</Text></TouchableOpacity>
+                  <TouchableOpacity style={[styles.action, styles.approve, processingId === item.id && styles.actionDisabled]} onPress={() => confirmDecision(item, 'approved')} disabled={processingId === item.id}><Check size={17} color={Colors.white} /><Text style={[styles.actionText, { color: Colors.white }]}>{processingId === item.id ? 'Memproses...' : 'Approve'}</Text></TouchableOpacity>
                 </View>
               </>
             ) : <Text style={styles.waiting}>{item.status === 'pending' ? 'Menunggu admin role 1 atau 2 memilih dan menyetujui mobil.' : item.status === 'approved' || item.status === 'completed' ? 'Permintaan Anda sudah disetujui.' : 'Permintaan Anda ditolak.'}</Text>}
@@ -110,6 +115,30 @@ export default function ApprovalScreen() {
         )}
         ListEmptyComponent={<EmptyState icon={<ClipboardCheck size={32} color={Colors.primary} strokeWidth={2} />} title={isAdmin() ? 'Tidak ada approval pending' : 'Belum ada riwayat approval'} subtitle={isAdmin() ? 'Permintaan baru dari role 3 dan 4 akan muncul di sini.' : 'Permintaan rental Anda akan muncul di sini.'} />}
       />
+      {decision ? (
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmModal}>
+            <View style={[styles.confirmIcon, decision.status === 'rejected' && styles.rejectIcon]}>
+              {decision.status === 'approved' ? <Check size={24} color={Colors.primary} strokeWidth={2.5} /> : <X size={24} color={Colors.error} strokeWidth={2.5} />}
+            </View>
+            <Text style={styles.confirmTitle}>{decision.status === 'approved' ? 'Approve Rental?' : 'Tolak Rental?'}</Text>
+            <Text style={styles.confirmMessage}>{decision.status === 'approved' ? 'Permintaan' : 'Permintaan'} {decision.rental.renter_name} akan {decision.status === 'approved' ? 'disetujui' : 'ditolak'}.</Text>
+            <View style={styles.confirmActions}>
+              <TouchableOpacity style={[styles.confirmButton, styles.cancelButton]} onPress={() => setDecision(null)}><Text style={styles.cancelButtonText}>Batal</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.confirmButton, decision.status === 'approved' ? styles.approve : styles.reject]} onPress={() => { void decide(decision.rental, decision.status); }}><Text style={[styles.actionText, { color: decision.status === 'approved' ? Colors.white : Colors.error }]}>{decision.status === 'approved' ? 'Approve' : 'Tolak'}</Text></TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ) : null}
+      {errorMessage ? (
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmModal}>
+            <Text style={styles.confirmTitle}>Approval gagal</Text>
+            <Text style={styles.confirmMessage}>{errorMessage}</Text>
+            <TouchableOpacity style={[styles.confirmButton, styles.approve, styles.errorClose]} onPress={() => setErrorMessage(null)}><Text style={[styles.actionText, { color: Colors.white }]}>Tutup</Text></TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -142,4 +171,16 @@ const styles = StyleSheet.create({
   approve: { backgroundColor: Colors.primary },
   actionText: { fontSize: Typography.sm, fontFamily: Typography.fontSemiBold },
   waiting: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textSecondary, marginTop: Spacing.md, lineHeight: 20 },
+  actionDisabled: { opacity: 0.6 },
+  modalOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: Spacing.lg },
+  confirmModal: { width: '100%', maxWidth: 430, backgroundColor: Colors.white, borderRadius: Radius.xl, padding: Spacing.xl, alignItems: 'center', elevation: 12 },
+  confirmIcon: { width: 52, height: 52, borderRadius: Radius.pill, backgroundColor: '#DCFCE7', alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.md },
+  rejectIcon: { backgroundColor: '#FEE2E2' },
+  confirmTitle: { fontSize: Typography.xl, fontFamily: Typography.fontBold, color: Colors.textPrimary, textAlign: 'center' },
+  confirmMessage: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textSecondary, lineHeight: 21, textAlign: 'center', marginTop: Spacing.sm },
+  confirmActions: { flexDirection: 'row', gap: Spacing.sm, width: '100%', marginTop: Spacing.lg },
+  confirmButton: { flex: 1, minHeight: 48, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  cancelButton: { backgroundColor: Colors.surfaceAlt },
+  errorClose: { flex: 0, width: '100%', marginTop: Spacing.lg },
+  cancelButtonText: { color: Colors.textPrimary, fontSize: Typography.sm, fontFamily: Typography.fontSemiBold },
 });
