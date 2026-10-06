@@ -11,6 +11,7 @@ import { DateField } from '@/components/DateField';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import type { RentalStatus } from '@/lib/types';
+import { getSession } from '@/lib/auth';
 
 type RentalWithCar = {
   id: string;
@@ -40,14 +41,21 @@ export default function RentalScreen() {
   const [rentals, setRentals] = useState<RentalWithCar[]>([]);
   const [cars, setCars] = useState<{ id: string; name: string }[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [currentlyRentedCarIds, setCurrentlyRentedCarIds] = useState<string[]>([]);
   const [sheet, setSheet] = useState(false);
   const [form, setForm] = useState({ car_id: '', renter_name: '', renter_email: '', start_date: '', end_date: '', purpose: '', notes: '' });
 
   const fetchRentals = useCallback(async () => {
     try {
-      const [rentalData, carData] = await Promise.all([apiClient.rentals.getAll(), apiClient.cars.getAll()]);
+      const [rentalData, carData, rentedIds] = await Promise.all([
+        apiClient.rentals.getAll(),
+        apiClient.cars.getAll(),
+        apiClient.rentals.getCurrentlyRentedCarIds(),
+      ]);
       setRentals(rentalData);
-      setCars(carData);
+      const isRestrictedRole = ![1, 2].includes(getSession()?.user.role ?? 4);
+      setCars(isRestrictedRole ? carData.filter((car) => !rentedIds.includes(car.id)) : carData);
+      setCurrentlyRentedCarIds(rentedIds);
     } catch (error) { console.error('Error fetching rentals:', error); }
     setRefreshing(false);
   }, []);
@@ -61,6 +69,10 @@ export default function RentalScreen() {
     }
     if (!form.renter_name.trim()) {
       Alert.alert('Nama penyewa wajib diisi', 'Masukkan nama penyewa sebelum menyimpan rental.');
+      return;
+    }
+    if (currentlyRentedCarIds.includes(form.car_id)) {
+      Alert.alert('Mobil sudah dibooking', 'Pilih mobil lain karena mobil ini sudah digunakan atau disetujui untuk rental lain.');
       return;
     }
     if (!/^\S+@\S+\.\S+$/.test(form.renter_email.trim())) {

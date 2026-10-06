@@ -91,11 +91,17 @@ class ApiClient {
     create: (data: Record<string, unknown>) => {
       const session = getSession();
       const isRequester = session?.user.role === 3 || session?.user.role === 4;
-      return unwrap<RentalRecord>(supabase.from('rental_records').insert({
-        ...data,
-        status: isRequester ? 'pending' : (data.status ?? 'active'),
-        user_id: session?.user.id ?? null,
-      }).select().single());
+      return (async () => {
+        const activeCarIds = await apiClient.rentals.getCurrentlyRentedCarIds();
+        if (typeof data.car_id === 'string' && activeCarIds.includes(data.car_id)) {
+          throw new Error('Mobil sudah dibooking atau sedang digunakan. Pilih mobil lain.');
+        }
+        return unwrap<RentalRecord>(supabase.from('rental_records').insert({
+          ...data,
+          status: isRequester ? 'pending' : (data.status ?? 'active'),
+          user_id: session?.user.id ?? null,
+        }).select().single());
+      })();
     },
     notifyCreated: async (payload: {
       namaPemesan: string;

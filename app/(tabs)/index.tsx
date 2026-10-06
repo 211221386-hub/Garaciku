@@ -57,7 +57,7 @@ export default function CarsScreen() {
       </View>
 
       <FlatList
-        data={cars}
+        data={isRestrictedRole ? cars.filter((car) => !currentlyRentedCarIds.includes(car.id)) : cars}
         numColumns={2}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
