@@ -135,9 +135,10 @@ class ApiClient {
       );
       if (!rental) throw new Error('Permintaan rental tidak ditemukan atau sudah diproses.');
 
-      return unwrap<RentalRecord>(
-        supabase.from('rental_records').update(data).eq('id', id).eq('status', 'pending').select().single()
+      await unwrap(
+        supabase.from('rental_records').update(data).eq('id', id).eq('status', 'pending')
       );
+      return { ...rental, ...data } as RentalRecord;
     },
     delete: async (id: string) => {
       const session = getSession();
