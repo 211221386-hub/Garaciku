@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Alert } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Wrench, Plus, ChevronRight, Trash2 } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
@@ -47,6 +47,7 @@ export default function ServiceScreen() {
   const [cars, setCars] = useState<{ id: string; name: string }[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [sheet, setSheet] = useState(false);
+  const [serviceToDelete, setServiceToDelete] = useState<ServiceWithCar | null>(null);
   const [form, setForm] = useState<ServiceForm>(emptyForm);
 
   const fetchServices = useCallback(async () => {
@@ -90,25 +91,13 @@ export default function ServiceScreen() {
   };
 
   const deleteService = (service: ServiceWithCar) => {
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      if (!window.confirm(`Hapus catatan service "${service.service_type}"?`)) return;
-      void removeService(service);
-      return;
-    }
-
-    Alert.alert('Hapus Service', `Hapus catatan service "${service.service_type}"?`, [
-      { text: 'Batal', style: 'cancel' },
-      {
-        text: 'Hapus',
-        style: 'destructive',
-        onPress: () => { void removeService(service); },
-      },
-    ]);
+    setServiceToDelete(service);
   };
 
   const removeService = async (service: ServiceWithCar) => {
     try {
       await apiClient.services.delete(service.id);
+      setServiceToDelete(null);
       await fetchServices();
     } catch (error) {
       Alert.alert('Gagal menghapus service', error instanceof Error ? error.message : 'Terjadi kesalahan. Jalankan migration policy Supabase terlebih dahulu.');
@@ -154,6 +143,23 @@ export default function ServiceScreen() {
         ListEmptyComponent={<EmptyState icon={<Wrench size={32} color={Colors.primary} strokeWidth={2} />} title="Belum ada service" subtitle="Tambahkan riwayat service berkala setiap mobil." />}
       />
       <TouchableOpacity style={styles.fab} onPress={() => setSheet(true)} activeOpacity={0.85}><Plus size={26} color={Colors.white} strokeWidth={2.6} /></TouchableOpacity>
+      {serviceToDelete ? (
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmModal}>
+            <View style={styles.confirmIcon}><Trash2 size={24} color={Colors.error} strokeWidth={2.2} /></View>
+            <Text style={styles.confirmTitle}>Hapus Service?</Text>
+            <Text style={styles.confirmMessage}>Catatan service "{serviceToDelete.service_type}" akan dihapus permanen.</Text>
+            <View style={styles.confirmActions}>
+              <TouchableOpacity style={[styles.confirmButton, styles.cancelButton]} onPress={() => setServiceToDelete(null)}>
+                <Text style={styles.cancelButtonText}>Batal</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.confirmButton, styles.deleteConfirmButton]} onPress={() => { void removeService(serviceToDelete); }}>
+                <Text style={styles.deleteConfirmText}>Hapus</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ) : null}
       <Sheet visible={sheet} onClose={() => setSheet(false)} title="Tambah Service">
         <Text style={styles.label}>Pilih Mobil</Text>
         <View style={styles.carPicker}>
@@ -193,6 +199,17 @@ const styles = StyleSheet.create({
   card: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight },
   cardMain: { flex: 1, flexDirection: 'row', alignItems: 'flex-start' },
   deleteButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', marginLeft: Spacing.xs },
+  modalOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: Spacing.lg },
+  confirmModal: { width: '100%', maxWidth: 420, backgroundColor: Colors.white, borderRadius: Radius.xl, padding: Spacing.xl, alignItems: 'center', elevation: 12 },
+  confirmIcon: { width: 52, height: 52, borderRadius: Radius.pill, backgroundColor: '#FEE2E2', alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.md },
+  confirmTitle: { fontSize: Typography.xl, fontFamily: Typography.fontBold, color: Colors.textPrimary, textAlign: 'center' },
+  confirmMessage: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textSecondary, lineHeight: 21, textAlign: 'center', marginTop: Spacing.sm },
+  confirmActions: { flexDirection: 'row', gap: Spacing.sm, width: '100%', marginTop: Spacing.lg },
+  confirmButton: { flex: 1, minHeight: 48, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  cancelButton: { backgroundColor: Colors.surfaceAlt },
+  deleteConfirmButton: { backgroundColor: Colors.error },
+  cancelButtonText: { color: Colors.textPrimary, fontSize: Typography.sm, fontFamily: Typography.fontSemiBold },
+  deleteConfirmText: { color: Colors.white, fontSize: Typography.sm, fontFamily: Typography.fontSemiBold },
   serviceIcon: { width: 38, height: 38, borderRadius: Radius.md, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: Spacing.md },
   cardBody: { flex: 1, marginRight: Spacing.xs },
   serviceType: { fontSize: Typography.base, fontFamily: Typography.fontSemiBold, color: Colors.textPrimary },
