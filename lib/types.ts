@@ -74,7 +74,7 @@ export type Damage = {
   created_at: string;
 };
 
-export type RentalStatus = 'pending' | 'active' | 'approved' | 'rejected' | 'returned' | 'cancelled' | 'completed';
+export type RentalStatus = 'pending' | 'active' | 'approved' | 'overdue' | 'rejected' | 'returned' | 'cancelled' | 'completed';
 
 export type RentalRecord = {
   id: string;
@@ -84,12 +84,16 @@ export type RentalRecord = {
   renter_email: string;
   renter_phone: string;
   start_date: string;
+  start_time: string;
   end_date: string | null;
+  end_time: string | null;
   total_cost: number | null;
   purpose: string;
   status: RentalStatus;
   approved_by: string | null;
   approved_at: string | null;
+  return_confirmed_by: string | null;
+  return_confirmed_at: string | null;
   notes: string;
   created_at: string;
 };

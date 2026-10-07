@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { AppUser, Car, DailyNote, CompletenessItem, Damage, RentalRecord, ServiceRecord } from '@/lib/types';
+import type { AppUser, Car, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStatus, ServiceRecord } from '@/lib/types';
 import { getRentalStatus, todayISO } from '@/lib/format';
 import { getSession } from '@/lib/auth';
 
@@ -18,6 +18,13 @@ async function unwrap<T>(request: PromiseLike<{ data: T | null; error: { message
 function withCarName<T extends { cars?: { name: string } | null }>(row: T): Omit<T, 'cars'> & { car_name: string } {
   const { cars, ...data } = row;
   return { ...data, car_name: cars?.name ?? '' };
+}
+
+function isBlockingRental(rental: { status: RentalStatus; end_date: string | null; end_time: string | null }) {
+  if (rental.status !== 'active' && rental.status !== 'approved' && rental.status !== 'overdue') return false;
+  if (rental.status === 'overdue') return true;
+  if (!rental.end_date || !rental.end_time) return true;
+  return new Date(`${rental.end_date}T${rental.end_time}:00+07:00`).getTime() >= Date.now();
 }
 
 class ApiClient {
@@ -63,30 +70,29 @@ class ApiClient {
 
   rentals = {
     getCurrentlyRentedCarIds: async () => {
-      const rows = await unwrap<{ car_id: string; end_date: string | null }[]>(
-        supabase.from('rental_records').select('car_id, end_date').in('status', ['active', 'approved'])
+      const rows = await unwrap<{ car_id: string; status: RentalStatus; end_date: string | null; end_time: string | null }[]>(
+        supabase.from('rental_records').select('car_id, status, end_date, end_time').in('status', ['active', 'approved', 'overdue'])
       );
-      const today = todayISO();
-      return [...new Set(rows.filter((rental) => !rental.end_date || rental.end_date >= today).map((rental) => rental.car_id))];
+      return [...new Set(rows.filter(isBlockingRental).map((rental) => rental.car_id))];
     },
     getAll: async () => {
       const session = getSession();
       let query = supabase.from('rental_records').select('*, cars(name)').order('created_at', { ascending: false });
       if (session && session.user.role !== 1 && session.user.role !== 2) query = query.eq('user_id', session.user.id);
-      return (await unwrap<(RentalRecord & { cars: { name: string } | null })[]>(query)).map((rental) => withCarName({ ...rental, status: getRentalStatus(rental.status, rental.end_date) })) as (RentalRecord & { car_name: string })[];
+      return (await unwrap<(RentalRecord & { cars: { name: string } | null })[]>(query)).map((rental) => withCarName({ ...rental, status: getRentalStatus(rental.status, rental.end_date, rental.end_time) })) as (RentalRecord & { car_name: string })[];
     },
     getByCar: async (carId: string) => {
       const session = getSession();
       let query = supabase.from('rental_records').select('*').eq('car_id', carId).order('start_date', { ascending: false });
       if (session && session.user.role !== 1 && session.user.role !== 2) query = query.eq('user_id', session.user.id);
-      return (await unwrap<RentalRecord[]>(query)).map((rental) => ({ ...rental, status: getRentalStatus(rental.status, rental.end_date) }));
+      return (await unwrap<RentalRecord[]>(query)).map((rental) => ({ ...rental, status: getRentalStatus(rental.status, rental.end_date, rental.end_time) }));
     },
     getById: async (id: string) => {
       const session = getSession();
       let query = supabase.from('rental_records').select('*').eq('id', id);
       if (session && session.user.role !== 1 && session.user.role !== 2) query = query.eq('user_id', session.user.id);
       const rental = await unwrap<RentalRecord>(query.single());
-      return { ...rental, status: getRentalStatus(rental.status, rental.end_date) };
+      return { ...rental, status: getRentalStatus(rental.status, rental.end_date, rental.end_time) };
     },
     create: (data: Record<string, unknown>) => {
       const session = getSession();
@@ -99,6 +105,7 @@ class ApiClient {
         return unwrap<RentalRecord>(supabase.from('rental_records').insert({
           ...data,
           status: isRequester ? 'pending' : (data.status ?? 'active'),
+          start_time: data.start_time ?? '00:00',
           user_id: session?.user.id ?? null,
         }).select().single());
       })();
@@ -151,6 +158,17 @@ class ApiClient {
         supabase.from('rental_records').update(data).eq('id', id).eq('status', 'pending')
       );
       return { ...rental, ...data } as RentalRecord;
+    },
+    confirmReturn: async (id: string) => {
+      const session = getSession();
+      if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya role 1 atau 2 yang dapat mengonfirmasi pengembalian.');
+      const rental = await unwrap<RentalRecord>(supabase.from('rental_records').select('*').eq('id', id).in('status', ['approved', 'active', 'overdue']).single());
+      await unwrap(supabase.from('rental_records').update({
+        status: 'completed',
+        return_confirmed_by: session.user.id,
+        return_confirmed_at: new Date().toISOString(),
+      }).eq('id', id).in('status', ['approved', 'active', 'overdue']));
+      return { ...rental, status: 'completed' } as RentalRecord;
     },
     delete: async (id: string) => {
       const session = getSession();

@@ -23,8 +23,11 @@ export function todayISO(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-export function getRentalStatus(status: RentalStatus, endDate: string | null): RentalStatus {
-  return (status === 'active' || status === 'approved') && endDate !== null && endDate < todayISO() ? 'completed' : status;
+export function getRentalStatus(status: RentalStatus, endDate: string | null, endTime: string | null = null): RentalStatus {
+  if ((status !== 'active' && status !== 'approved') || !endDate || !endTime) return status;
+  const now = new Date();
+  const end = new Date(`${endDate}T${endTime}:00+07:00`);
+  return end.getTime() <= now.getTime() ? 'overdue' : status;
 }
 
 export function differenceInCalendarDays(startDate: string, endDate: string): number {

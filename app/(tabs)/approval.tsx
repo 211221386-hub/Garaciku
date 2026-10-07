@@ -17,6 +17,7 @@ const statusConfig: Record<RentalStatus, { label: string; backgroundColor: strin
   pending: { label: 'Menunggu', backgroundColor: '#FEF3C7', color: '#92400E' },
   active: { label: 'Aktif', backgroundColor: Colors.primaryLight, color: Colors.primary },
   approved: { label: 'Disetujui', backgroundColor: '#DCFCE7', color: '#15803D' },
+  overdue: { label: 'Lewat waktu', backgroundColor: '#FEE2E2', color: Colors.error },
   rejected: { label: 'Ditolak', backgroundColor: '#FEE2E2', color: Colors.error },
   returned: { label: 'Dikembalikan', backgroundColor: Colors.surfaceAlt, color: Colors.textSecondary },
   cancelled: { label: 'Dibatalkan', backgroundColor: '#FEE2E2', color: Colors.error },

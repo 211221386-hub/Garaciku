@@ -8,10 +8,12 @@ import { formatDate, formatCurrency } from '@/lib/format';
 import { Sheet } from '@/components/Sheet';
 import { Field } from '@/components/Field';
 import { DateField } from '@/components/DateField';
+import { TimeField } from '@/components/TimeField';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import type { RentalStatus } from '@/lib/types';
 import { getSession } from '@/lib/auth';
+import { notifyOverdueRentals } from '@/lib/notifications';
 
 type RentalWithCar = {
   id: string;
@@ -19,7 +21,9 @@ type RentalWithCar = {
   renter_name: string;
   renter_email: string;
   start_date: string;
+  start_time: string;
   end_date: string | null;
+  end_time: string | null;
   total_cost: number | null;
   purpose: string;
   status: RentalStatus;
@@ -31,6 +35,7 @@ const statusConfig: Record<RentalStatus, { label: string; bg: string; text: stri
   pending: { label: 'Menunggu persetujuan', bg: '#FEF3C7', text: '#92400E' },
   active: { label: 'Aktif', bg: Colors.primaryLight, text: Colors.primary },
   approved: { label: 'Disetujui', bg: '#DCFCE7', text: '#15803D' },
+  overdue: { label: 'Lewat waktu', bg: '#FEE2E2', text: Colors.error },
   rejected: { label: 'Ditolak', bg: '#FEE2E2', text: Colors.error },
   returned: { label: 'Dikembalikan', bg: Colors.surfaceAlt, text: Colors.textSecondary },
   cancelled: { label: 'Dibatalkan', bg: '#FEE2E2', text: Colors.error },
@@ -43,7 +48,7 @@ export default function RentalScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [currentlyRentedCarIds, setCurrentlyRentedCarIds] = useState<string[]>([]);
   const [sheet, setSheet] = useState(false);
-  const [form, setForm] = useState({ car_id: '', renter_name: '', renter_email: '', start_date: '', end_date: '', purpose: '', notes: '' });
+  const [form, setForm] = useState({ car_id: '', renter_name: '', renter_email: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
 
   const fetchRentals = useCallback(async () => {
     try {
@@ -53,6 +58,7 @@ export default function RentalScreen() {
         apiClient.rentals.getCurrentlyRentedCarIds(),
       ]);
       setRentals(rentalData);
+      if ([1, 2].includes(getSession()?.user.role ?? 0)) void notifyOverdueRentals(rentalData);
       const isRestrictedRole = ![1, 2].includes(getSession()?.user.role ?? 4);
       setCars(isRestrictedRole ? carData.filter((car) => !rentedIds.includes(car.id)) : carData);
       setCurrentlyRentedCarIds(rentedIds);
@@ -61,6 +67,8 @@ export default function RentalScreen() {
   }, []);
 
   useFocusEffect(useCallback(() => { fetchRentals(); }, [fetchRentals]));
+
+  const overdueCount = rentals.filter((rental) => rental.status === 'overdue').length;
 
   const addRental = async () => {
     if (!form.car_id) {
@@ -75,22 +83,35 @@ export default function RentalScreen() {
       Alert.alert('Mobil sudah dibooking', 'Pilih mobil lain karena mobil ini sudah digunakan atau disetujui untuk rental lain.');
       return;
     }
+    if (!form.start_date || !form.start_time || !form.end_date || !form.end_time) {
+      Alert.alert('Jadwal belum lengkap', 'Tanggal dan jam mulai serta selesai wajib diisi. Waktu menggunakan WIB.');
+      return;
+    }
     if (!/^\S+@\S+\.\S+$/.test(form.renter_email.trim())) {
       Alert.alert('Email wajib diisi', 'Masukkan alamat email penyewa yang valid.');
       return;
     }
     const today = new Date().toISOString().split('T')[0];
     try {
-      await apiClient.rentals.create({ car_id: form.car_id, renter_name: form.renter_name.trim(), renter_email: form.renter_email.trim(), start_date: form.start_date || today, end_date: form.end_date || null, purpose: form.purpose.trim(), notes: form.notes.trim() });
-      setForm({ car_id: '', renter_name: '', renter_email: '', start_date: '', end_date: '', purpose: '', notes: '' });
+      await apiClient.rentals.create({ car_id: form.car_id, renter_name: form.renter_name.trim(), renter_email: form.renter_email.trim(), start_date: form.start_date || today, start_time: form.start_time, end_date: form.end_date, end_time: form.end_time, purpose: form.purpose.trim(), notes: form.notes.trim() });
+      setForm({ car_id: '', renter_name: '', renter_email: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
       setSheet(false);
       fetchRentals();
     } catch (error) { Alert.alert('Gagal menyimpan rental', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
   };
 
+  const confirmReturn = async (rental: RentalWithCar) => {
+    try {
+      await apiClient.rentals.confirmReturn(rental.id);
+      await fetchRentals();
+    } catch (error) {
+      Alert.alert('Gagal mengonfirmasi pengembalian', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+    }
+  };
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}><Text style={styles.greeting}>Rental Mobil</Text><Text style={styles.title}>Daftar Penyewaan</Text></View>
+      <View style={styles.header}><Text style={styles.greeting}>Rental Mobil</Text><Text style={styles.title}>Daftar Penyewaan</Text>{[1, 2].includes(getSession()?.user.role ?? 0) && overdueCount > 0 ? <Text style={styles.overdueNotice}>{overdueCount} rental perlu konfirmasi pengembalian</Text> : null}</View>
       <FlatList data={rentals} keyExtractor={(item) => item.id} contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchRentals(); }} colors={[Colors.primary]} />}
         renderItem={({ item }) => { const st = statusConfig[item.status] ?? statusConfig.active; return (
@@ -100,9 +121,10 @@ export default function RentalScreen() {
               <Text style={styles.renterName} numberOfLines={1}>{item.renter_name}</Text>
               <Text style={styles.carName} numberOfLines={1}>{item.car_name ?? 'Mobil tidak diketahui'}</Text>
               <Text style={styles.emailText} numberOfLines={1}>{item.renter_email}</Text>
-              <View style={styles.metaRow}><Text style={styles.metaText}>{formatDate(item.start_date)}</Text>{item.end_date ? <Text style={styles.metaText}> - {formatDate(item.end_date)}</Text> : null}</View>
+              <View style={styles.metaRow}><Text style={styles.metaText}>{formatDate(item.start_date)} {item.start_time || ''}</Text>{item.end_date ? <Text style={styles.metaText}> - {formatDate(item.end_date)} {item.end_time || ''}</Text> : null}</View>
               <View style={styles.metaRow}>{item.purpose ? <Text style={styles.metaText}>Tujuan: {item.purpose}</Text> : null}{item.total_cost ? <Text style={styles.costText}>{formatCurrency(item.total_cost)}</Text> : null}</View>
               <View style={[styles.statusPill, { backgroundColor: st.bg }]}><Text style={[styles.statusText, { color: st.text }]}>{st.label}</Text></View>
+              {[1, 2].includes(getSession()?.user.role ?? 0) && item.status === 'overdue' ? <TouchableOpacity style={styles.returnButton} onPress={() => confirmReturn(item)}><Text style={styles.returnButtonText}>Unit sudah diterima</Text></TouchableOpacity> : null}
             </View>
             <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2.2} />
           </TouchableOpacity>
@@ -116,10 +138,12 @@ export default function RentalScreen() {
         <Field label="Nama Penyewa*" value={form.renter_name} onChangeText={(t) => setForm({ ...form, renter_name: t })} placeholder="Contoh: Budi Santoso" />
         <Field label="Email Penyewa*" value={form.renter_email} onChangeText={(t) => setForm({ ...form, renter_email: t })} placeholder="contoh@email.com" keyboardType="default" />
         <DateField label="Tanggal Mulai" value={form.start_date} onChange={(value) => setForm({ ...form, start_date: value })} placeholder="Pilih tanggal (kosongkan = hari ini)" />
-        <DateField label="Tanggal Selesai" value={form.end_date} onChange={(value) => setForm({ ...form, end_date: value })} placeholder="Pilih tanggal (kosongkan = masih berjalan)" minimumDate={form.start_date ? new Date(`${form.start_date}T00:00:00`) : undefined} />
+        <TimeField label="Jam Mulai (WIB)" value={form.start_time} onChange={(value) => setForm({ ...form, start_time: value })} />
+        <DateField label="Tanggal Selesai" value={form.end_date} onChange={(value) => setForm({ ...form, end_date: value })} placeholder="Pilih tanggal" minimumDate={form.start_date ? new Date(`${form.start_date}T00:00:00`) : undefined} />
+        <TimeField label="Jam Selesai (WIB)" value={form.end_time} onChange={(value) => setForm({ ...form, end_time: value })} />
         <Field label="Tujuan Peminjaman" value={form.purpose} onChangeText={(t) => setForm({ ...form, purpose: t })} placeholder="Contoh: Perjalanan dinas, liburan keluarga" />
         <Field label="Catatan" value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} placeholder="Catatan tambahan..." multiline />
-        <View style={{ height: Spacing.sm }} /><Button label="Simpan Rental" onPress={addRental} disabled={!form.car_id || !form.renter_name.trim() || !form.renter_email.trim()} />
+        <View style={{ height: Spacing.sm }} /><Button label="Simpan Rental" onPress={addRental} disabled={!form.car_id || !form.renter_name.trim() || !form.renter_email.trim() || !form.start_date || !form.start_time || !form.end_date || !form.end_time} />
       </Sheet>
     </View>
   );
@@ -130,6 +154,7 @@ const styles = StyleSheet.create({
   header: { backgroundColor: Colors.primary, paddingTop: Spacing.xl + 18, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, borderBottomLeftRadius: Radius.xl, borderBottomRightRadius: Radius.xl },
   greeting: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.primarySoft, marginBottom: 2 },
   title: { fontSize: Typography.xxxl, fontFamily: Typography.fontBold, color: Colors.white },
+  overdueNotice: { marginTop: Spacing.xs, fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: '#FDE68A' },
   list: { padding: Spacing.lg, paddingBottom: 100 },
   card: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight },
   rentalIcon: { width: 36, height: 36, borderRadius: Radius.md, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: Spacing.md, marginTop: 2 },
@@ -142,6 +167,8 @@ const styles = StyleSheet.create({
   costText: { fontSize: Typography.sm, fontFamily: Typography.fontSemiBold, color: Colors.primary },
   statusPill: { alignSelf: 'flex-start', paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: Radius.pill, marginTop: Spacing.xs },
   statusText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
+  returnButton: { alignSelf: 'flex-start', marginTop: Spacing.sm, backgroundColor: Colors.primary, borderRadius: Radius.md, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs },
+  returnButtonText: { color: Colors.white, fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
   fab: { position: 'absolute', right: Spacing.lg, bottom: Spacing.lg, width: 58, height: 58, borderRadius: Radius.pill, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', elevation: 8 },
   label: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary, marginBottom: Spacing.xs },
   carPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginBottom: Spacing.sm },
