@@ -63,12 +63,11 @@ const styles = StyleSheet.create({
   placeholder: { flex: 1, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
   favorite: { position: 'absolute', right: 8, top: 8, width: 28, height: 28, borderRadius: Radius.pill, backgroundColor: 'rgba(255,255,255,0.9)', alignItems: 'center', justifyContent: 'center' },
   favoriteText: { fontSize: 20, color: Colors.textSecondary, lineHeight: 22 },
-  statusBadge: { position: 'absolute', left: 7, right: 7, bottom: 8, borderRadius: Radius.sm, paddingHorizontal: 7, paddingVertical: 5, alignItems: 'center' },
+  statusBadge: { borderRadius: Radius.sm, paddingHorizontal: 7, paddingVertical: 2, alignItems: 'center' },
   bookedBadge: { backgroundColor: 'rgba(45, 55, 60, 0.88)' },
   readyBadge: { backgroundColor: 'rgba(22, 163, 74, 0.9)' },
   statusText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.white, textAlign: 'center' },
   plateRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
-  statusBadge: { borderRadius: Radius.sm, paddingHorizontal: 7, paddingVertical: 2 },
   info: { padding: Spacing.sm },
   name: {
     fontSize: Typography.base,
