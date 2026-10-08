@@ -16,11 +16,6 @@ export function CarCard({ car, onPress, disabled = false, statusLabel }: Props) 
       <View style={styles.imageWrap}>
         {car.photo_url ? <Image source={{ uri: car.photo_url }} style={[styles.image, disabled ? styles.disabledImage : undefined]} resizeMode="cover" /> : null}
         {!car.photo_url ? <View style={[styles.placeholder, disabled ? styles.disabledPlaceholder : undefined]}><CarIcon size={34} color={Colors.primary} strokeWidth={2.1} /></View> : null}
-        {statusLabel ? (
-          <View style={[styles.statusBadge, statusLabel === 'Booked' ? styles.bookedBadge : styles.readyBadge]}>
-            <Text style={styles.statusText}>{statusLabel}</Text>
-          </View>
-        ) : null}
         <View style={styles.favorite}><Text style={styles.favoriteText}>♡</Text></View>
       </View>
       <View style={styles.info}>
@@ -31,8 +26,15 @@ export function CarCard({ car, onPress, disabled = false, statusLabel }: Props) 
           {[car.brand, car.model, car.year].filter(Boolean).join(' ') || 'Tidak ada detail'}
         </Text>
         {car.plate_number ? (
+          <View style={styles.plateRow}>
           <View style={[styles.plate, disabled && styles.disabledPlate]}>
             <Text style={[styles.plateText, disabled && styles.disabledText]}>{car.plate_number}</Text>
+          </View>
+          {statusLabel ? (
+            <View style={[styles.statusBadge, statusLabel === 'Booked' ? styles.bookedBadge : styles.readyBadge]}>
+              <Text style={styles.statusText}>{statusLabel}</Text>
+            </View>
+          ) : null}
           </View>
         ) : null}
       </View>
@@ -65,6 +67,8 @@ const styles = StyleSheet.create({
   bookedBadge: { backgroundColor: 'rgba(45, 55, 60, 0.88)' },
   readyBadge: { backgroundColor: 'rgba(22, 163, 74, 0.9)' },
   statusText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.white, textAlign: 'center' },
+  plateRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  statusBadge: { borderRadius: Radius.sm, paddingHorizontal: 7, paddingVertical: 2 },
   info: { padding: Spacing.sm },
   name: {
     fontSize: Typography.base,
