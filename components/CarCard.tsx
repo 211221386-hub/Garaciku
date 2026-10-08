@@ -17,8 +17,8 @@ export function CarCard({ car, onPress, disabled = false, statusLabel }: Props) 
         {car.photo_url ? <Image source={{ uri: car.photo_url }} style={[styles.image, disabled ? styles.disabledImage : undefined]} resizeMode="cover" /> : null}
         {!car.photo_url ? <View style={[styles.placeholder, disabled ? styles.disabledPlaceholder : undefined]}><CarIcon size={34} color={Colors.primary} strokeWidth={2.1} /></View> : null}
         {statusLabel ? (
-          <View style={styles.bookedBadge}>
-            <Text style={styles.bookedText}>{statusLabel}</Text>
+          <View style={[styles.statusBadge, statusLabel === 'Booked' ? styles.bookedBadge : styles.readyBadge]}>
+            <Text style={styles.statusText}>{statusLabel}</Text>
           </View>
         ) : null}
         <View style={styles.favorite}><Text style={styles.favoriteText}>♡</Text></View>
@@ -61,8 +61,10 @@ const styles = StyleSheet.create({
   placeholder: { flex: 1, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
   favorite: { position: 'absolute', right: 8, top: 8, width: 28, height: 28, borderRadius: Radius.pill, backgroundColor: 'rgba(255,255,255,0.9)', alignItems: 'center', justifyContent: 'center' },
   favoriteText: { fontSize: 20, color: Colors.textSecondary, lineHeight: 22 },
-  bookedBadge: { position: 'absolute', left: 7, right: 7, bottom: 8, backgroundColor: 'rgba(45, 55, 60, 0.88)', borderRadius: Radius.sm, paddingHorizontal: 7, paddingVertical: 5, alignItems: 'center' },
-  bookedText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.white, textAlign: 'center' },
+  statusBadge: { position: 'absolute', left: 7, right: 7, bottom: 8, borderRadius: Radius.sm, paddingHorizontal: 7, paddingVertical: 5, alignItems: 'center' },
+  bookedBadge: { backgroundColor: 'rgba(45, 55, 60, 0.88)' },
+  readyBadge: { backgroundColor: 'rgba(22, 163, 74, 0.9)' },
+  statusText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.white, textAlign: 'center' },
   info: { padding: Spacing.sm },
   name: {
     fontSize: Typography.base,

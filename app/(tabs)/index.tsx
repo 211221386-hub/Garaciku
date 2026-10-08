@@ -57,20 +57,20 @@ export default function CarsScreen() {
       </View>
 
       <FlatList
-        data={isRestrictedRole ? cars.filter((car) => !currentlyRentedCarIds.includes(car.id)) : cars}
+        data={cars}
         numColumns={2}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} />}
         renderItem={({ item }) => {
           const isCurrentlyRented = currentlyRentedCarIds.includes(item.id);
-          const unavailableToUser = isRestrictedRole && isCurrentlyRented;
+          const unavailableToUser = isCurrentlyRented;
           return (
             <CarCard
               car={item}
               onPress={() => router.push(`/car/${item.id}`)}
               disabled={unavailableToUser}
-              statusLabel={unavailableToUser ? 'Sedang digunakan' : undefined}
+              statusLabel={isCurrentlyRented ? 'Booked' : 'Ready'}
             />
           );
         }}
