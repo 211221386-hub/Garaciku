@@ -48,6 +48,7 @@ export default function ServiceScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [sheet, setSheet] = useState(false);
   const [serviceToDelete, setServiceToDelete] = useState<ServiceWithCar | null>(null);
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<ServiceForm>(emptyForm);
 
   const fetchServices = useCallback(async () => {
@@ -65,7 +66,9 @@ export default function ServiceScreen() {
   useFocusEffect(useCallback(() => { fetchServices(); }, [fetchServices]));
 
   const addService = async () => {
+    if (saving) return;
     if (!form.car_id || !form.service_type.trim()) return;
+    setSaving(true);
     try {
       await apiClient.services.create({
         car_id: form.car_id,
@@ -84,9 +87,11 @@ export default function ServiceScreen() {
       });
       setForm(emptyForm);
       setSheet(false);
-      fetchServices();
+      await fetchServices();
     } catch (error) {
       Alert.alert('Gagal menyimpan service', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -184,7 +189,7 @@ export default function ServiceScreen() {
           <Field label="Kilometer Berikutnya" value={form.next_service_mileage} onChangeText={(value) => setForm({ ...form, next_service_mileage: value })} placeholder="Contoh: 50000" keyboardType="numeric" />
           <Field label="Interval Kilometer" value={form.reminder_interval_mileage} onChangeText={(value) => setForm({ ...form, reminder_interval_mileage: value })} placeholder="Contoh: 10000" keyboardType="numeric" />
         </> : null}
-        <Button label="Simpan Service" onPress={addService} disabled={!form.car_id || !form.service_type.trim()} />
+        <Button label="Simpan Service" onPress={addService} loading={saving} disabled={!form.car_id || !form.service_type.trim()} />
       </Sheet>
     </View>
   );

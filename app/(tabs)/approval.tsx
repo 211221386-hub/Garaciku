@@ -126,7 +126,7 @@ export default function ApprovalScreen() {
             <Text style={styles.confirmMessage}>{decision.status === 'approved' ? 'Permintaan' : 'Permintaan'} {decision.rental.renter_name} akan {decision.status === 'approved' ? 'disetujui' : 'ditolak'}.</Text>
             <View style={styles.confirmActions}>
               <TouchableOpacity style={[styles.confirmButton, styles.cancelButton]} onPress={() => setDecision(null)}><Text style={styles.cancelButtonText}>Batal</Text></TouchableOpacity>
-              <TouchableOpacity style={[styles.confirmButton, decision.status === 'approved' ? styles.approve : styles.reject]} onPress={() => { void decide(decision.rental, decision.status); }}><Text style={[styles.actionText, { color: decision.status === 'approved' ? Colors.white : Colors.error }]}>{decision.status === 'approved' ? 'Approve' : 'Tolak'}</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.confirmButton, decision.status === 'approved' ? styles.approve : styles.reject, processingId === decision.rental.id && styles.actionDisabled]} disabled={processingId === decision.rental.id} onPress={() => { void decide(decision.rental, decision.status); }}><Text style={[styles.actionText, { color: decision.status === 'approved' ? Colors.white : Colors.error }]}>{processingId === decision.rental.id ? 'Memproses...' : decision.status === 'approved' ? 'Approve' : 'Tolak'}</Text></TouchableOpacity>
             </View>
           </View>
         </View>

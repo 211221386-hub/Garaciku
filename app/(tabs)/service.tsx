@@ -48,6 +48,8 @@ export default function RentalScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [currentlyRentedCarIds, setCurrentlyRentedCarIds] = useState<string[]>([]);
   const [sheet, setSheet] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [returningId, setReturningId] = useState<string | null>(null);
   const [form, setForm] = useState({ car_id: '', renter_name: '', renter_email: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
 
   const fetchRentals = useCallback(async () => {
@@ -71,6 +73,7 @@ export default function RentalScreen() {
   const overdueCount = rentals.filter((rental) => rental.status === 'overdue').length;
 
   const addRental = async () => {
+    if (saving) return;
     if (!form.car_id) {
       Alert.alert('Pilih mobil terlebih dahulu', 'Pilih salah satu mobil sebelum menyimpan rental.');
       return;
@@ -87,25 +90,38 @@ export default function RentalScreen() {
       Alert.alert('Jadwal belum lengkap', 'Tanggal dan jam mulai serta selesai wajib diisi. Waktu menggunakan WIB.');
       return;
     }
+    if (form.end_date === form.start_date && form.end_time <= form.start_time) {
+      Alert.alert('Jadwal tidak valid', 'Jam selesai harus lebih lambat dari jam mulai.');
+      return;
+    }
     if (!/^\S+@\S+\.\S+$/.test(form.renter_email.trim())) {
       Alert.alert('Email wajib diisi', 'Masukkan alamat email penyewa yang valid.');
       return;
     }
     const today = new Date().toISOString().split('T')[0];
+    setSaving(true);
     try {
       await apiClient.rentals.create({ car_id: form.car_id, renter_name: form.renter_name.trim(), renter_email: form.renter_email.trim(), start_date: form.start_date || today, start_time: form.start_time, end_date: form.end_date, end_time: form.end_time, purpose: form.purpose.trim(), notes: form.notes.trim() });
       setForm({ car_id: '', renter_name: '', renter_email: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
       setSheet(false);
-      fetchRentals();
-    } catch (error) { Alert.alert('Gagal menyimpan rental', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
+      await fetchRentals();
+    } catch (error) {
+      Alert.alert('Gagal menyimpan rental', error instanceof Error ? error.message : 'Terjadi kesalahan. Pastikan migration jadwal rental sudah dijalankan di Supabase.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const confirmReturn = async (rental: RentalWithCar) => {
+    if (returningId === rental.id) return;
+    setReturningId(rental.id);
     try {
       await apiClient.rentals.confirmReturn(rental.id);
       await fetchRentals();
     } catch (error) {
       Alert.alert('Gagal mengonfirmasi pengembalian', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+    } finally {
+      setReturningId(null);
     }
   };
 
@@ -124,7 +140,7 @@ export default function RentalScreen() {
               <View style={styles.metaRow}><Text style={styles.metaText}>{formatDate(item.start_date)} {item.start_time || ''}</Text>{item.end_date ? <Text style={styles.metaText}> - {formatDate(item.end_date)} {item.end_time || ''}</Text> : null}</View>
               <View style={styles.metaRow}>{item.purpose ? <Text style={styles.metaText}>Tujuan: {item.purpose}</Text> : null}{item.total_cost ? <Text style={styles.costText}>{formatCurrency(item.total_cost)}</Text> : null}</View>
               <View style={[styles.statusPill, { backgroundColor: st.bg }]}><Text style={[styles.statusText, { color: st.text }]}>{st.label}</Text></View>
-              {[1, 2].includes(getSession()?.user.role ?? 0) && item.status === 'overdue' ? <TouchableOpacity style={styles.returnButton} onPress={() => confirmReturn(item)}><Text style={styles.returnButtonText}>Unit sudah diterima</Text></TouchableOpacity> : null}
+              {[1, 2].includes(getSession()?.user.role ?? 0) && item.status === 'overdue' ? <TouchableOpacity style={[styles.returnButton, returningId === item.id && styles.actionDisabled]} onPress={() => confirmReturn(item)} disabled={returningId === item.id}><Text style={styles.returnButtonText}>{returningId === item.id ? 'Memproses...' : 'Unit sudah diterima'}</Text></TouchableOpacity> : null}
             </View>
             <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2.2} />
           </TouchableOpacity>
@@ -143,7 +159,7 @@ export default function RentalScreen() {
         <TimeField label="Jam Selesai (WIB)" value={form.end_time} onChange={(value) => setForm({ ...form, end_time: value })} />
         <Field label="Tujuan Peminjaman" value={form.purpose} onChangeText={(t) => setForm({ ...form, purpose: t })} placeholder="Contoh: Perjalanan dinas, liburan keluarga" />
         <Field label="Catatan" value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} placeholder="Catatan tambahan..." multiline />
-        <View style={{ height: Spacing.sm }} /><Button label="Simpan Rental" onPress={addRental} disabled={!form.car_id || !form.renter_name.trim() || !form.renter_email.trim() || !form.start_date || !form.start_time || !form.end_date || !form.end_time} />
+        <View style={{ height: Spacing.sm }} /><Button label="Simpan Rental" onPress={addRental} loading={saving} disabled={!form.car_id || !form.renter_name.trim() || !form.renter_email.trim() || !form.start_date || !form.start_time || !form.end_date || !form.end_time} />
       </Sheet>
     </View>
   );
@@ -168,6 +184,7 @@ const styles = StyleSheet.create({
   statusPill: { alignSelf: 'flex-start', paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: Radius.pill, marginTop: Spacing.xs },
   statusText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
   returnButton: { alignSelf: 'flex-start', marginTop: Spacing.sm, backgroundColor: Colors.primary, borderRadius: Radius.md, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs },
+  actionDisabled: { opacity: 0.6 },
   returnButtonText: { color: Colors.white, fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
   fab: { position: 'absolute', right: Spacing.lg, bottom: Spacing.lg, width: 58, height: 58, borderRadius: Radius.pill, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', elevation: 8 },
   label: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary, marginBottom: Spacing.xs },

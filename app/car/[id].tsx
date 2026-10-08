@@ -54,6 +54,7 @@ export default function CarDetailScreen() {
   const [damageSheet, setDamageSheet] = useState(false);
   const [newDamage, setNewDamage] = useState({ description: '', severity: 'low' as DamageSeverity });
   const [rentalSheet, setRentalSheet] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [newRental, setNewRental] = useState({
     renter_name: '',
     renter_email: '',
@@ -116,13 +117,16 @@ export default function CarDetailScreen() {
 
   // --- Notes CRUD ---
   const addNote = async () => {
+    if (submitting) return;
     if (!newNote.trim()) return;
+    setSubmitting(true);
     try {
       await apiClient.notes.create({ car_id: id, content: newNote.trim(), note_date: todayISO() });
       setNewNote('');
       setNoteSheet(false);
-      fetchAll();
+      await fetchAll();
     } catch (error) { Alert.alert('Gagal menyimpan catatan', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
+    finally { setSubmitting(false); }
   };
 
   const deleteNote = async (noteId: string) => {
@@ -132,6 +136,7 @@ export default function CarDetailScreen() {
 
   // --- Completeness CRUD ---
   const addItem = async () => {
+    if (submitting) return;
     const itemName = newItem.trim() || (newReminderType === 'general' ? '' : reminderTypeLabels[newReminderType]);
     if (!itemName) return;
 
@@ -140,6 +145,7 @@ export default function CarDetailScreen() {
       return;
     }
 
+    setSubmitting(true);
     try {
       await apiClient.completeness.create({
         car_id: id,
@@ -153,8 +159,9 @@ export default function CarDetailScreen() {
       setNewReminderDueDate('');
       setNewGeneralPresent(true);
       setCompletenessSheet(false);
-      fetchAll();
+      await fetchAll();
     } catch (error) { Alert.alert('Gagal menyimpan kelengkapan', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
+    finally { setSubmitting(false); }
   };
 
   const advanceReminderDate = (currentDate: string, reminderType: CompletenessReminderType) => {
@@ -195,13 +202,16 @@ export default function CarDetailScreen() {
 
   // --- Damages CRUD ---
   const addDamage = async () => {
+    if (submitting) return;
     if (!newDamage.description.trim()) return;
+    setSubmitting(true);
     try {
       await apiClient.damages.create({ car_id: id, description: newDamage.description.trim(), severity: newDamage.severity, status: 'open', reported_date: todayISO() });
       setNewDamage({ description: '', severity: 'low' });
       setDamageSheet(false);
-      fetchAll();
+      await fetchAll();
     } catch (error) { Alert.alert('Gagal menyimpan kerusakan', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
+    finally { setSubmitting(false); }
   };
 
   const cycleDamageStatus = async (dmg: Damage) => {
@@ -220,6 +230,7 @@ export default function CarDetailScreen() {
 
   // --- Rental CRUD ---
   const addRental = async () => {
+    if (submitting) return;
     if (!newRental.renter_name.trim()) return;
     if (!/^\S+@\S+\.\S+$/.test(newRental.renter_email.trim())) {
       Alert.alert('Email wajib diisi', 'Masukkan alamat email penyewa yang valid.');
@@ -229,6 +240,7 @@ export default function CarDetailScreen() {
       Alert.alert('Nomor telepon wajib diisi', 'Masukkan nomor telepon pemesan.');
       return;
     }
+    setSubmitting(true);
     try {
       const startDate = newRental.start_date || todayISO();
       const rental = await apiClient.rentals.create({ car_id: id, renter_name: newRental.renter_name.trim(), renter_email: newRental.renter_email.trim(), renter_phone: newRental.renter_phone.trim(), start_date: startDate, end_date: newRental.end_date || null, purpose: newRental.purpose.trim(), notes: newRental.notes.trim(), status: 'active' });
@@ -249,8 +261,9 @@ export default function CarDetailScreen() {
       }
       setNewRental({ renter_name: '', renter_email: '', renter_phone: '', start_date: '', end_date: '', purpose: '', notes: '' });
       setRentalSheet(false);
-      fetchAll();
+      await fetchAll();
     } catch (error) { Alert.alert('Gagal menyimpan rental', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
+    finally { setSubmitting(false); }
   };
 
   const cycleRentalStatus = async (rental: RentalRecord) => {
@@ -529,7 +542,7 @@ export default function CarDetailScreen() {
           placeholder="Contoh: Ganti oli mesin, cek rem depan..."
           multiline
         />
-        <Button label="Simpan Catatan" onPress={addNote} />
+        <Button label="Simpan Catatan" onPress={addNote} loading={submitting} />
       </Sheet>
 
       {/* Completeness Sheet */}
@@ -579,7 +592,7 @@ export default function CarDetailScreen() {
             placeholder="Pilih tanggal reminder"
           />
         ) : null}
-        <Button label="Tambah" onPress={addItem} />
+        <Button label="Tambah" onPress={addItem} loading={submitting} />
       </Sheet>
 
       {/* Damage Sheet */}
@@ -609,7 +622,7 @@ export default function CarDetailScreen() {
           })}
         </View>
         <View style={{ height: Spacing.md }} />
-        <Button label="Simpan Kerusakan" onPress={addDamage} />
+        <Button label="Simpan Kerusakan" onPress={addDamage} loading={submitting} />
       </Sheet>
 
       {/* Rental Sheet */}
@@ -649,7 +662,7 @@ export default function CarDetailScreen() {
           multiline
         />
         <View style={{ height: Spacing.sm }} />
-        <Button label="Simpan Rental" onPress={addRental} />
+        <Button label="Simpan Rental" onPress={addRental} loading={submitting} />
       </Sheet>
     </View>
   );
