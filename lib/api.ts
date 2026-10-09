@@ -20,11 +20,8 @@ function withCarName<T extends { cars?: { name: string } | null }>(row: T): Omit
   return { ...data, car_name: cars?.name ?? '' };
 }
 
-function isBlockingRental(rental: { status: RentalStatus; end_date: string | null; end_time: string | null }) {
-  if (rental.status !== 'active' && rental.status !== 'approved' && rental.status !== 'overdue') return false;
-  if (rental.status === 'overdue') return true;
-  if (!rental.end_date || !rental.end_time) return true;
-  return new Date(`${rental.end_date}T${rental.end_time}:00+07:00`).getTime() >= Date.now();
+function isBlockingRental(rental: { status: RentalStatus }) {
+  return rental.status === 'active' || rental.status === 'approved' || rental.status === 'overdue';
 }
 
 class ApiClient {
@@ -70,8 +67,8 @@ class ApiClient {
 
   rentals = {
     getCurrentlyRentedCarIds: async () => {
-      const rows = await unwrap<{ car_id: string; status: RentalStatus; end_date: string | null; end_time: string | null }[]>(
-        supabase.from('rental_records').select('car_id, status, end_date, end_time').in('status', ['active', 'approved', 'overdue'])
+      const rows = await unwrap<{ car_id: string; status: RentalStatus }[]>(
+        supabase.from('rental_records').select('car_id, status').in('status', ['active', 'approved', 'overdue'])
       );
       return [...new Set(rows.filter(isBlockingRental).map((rental) => rental.car_id))];
     },
