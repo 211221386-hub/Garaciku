@@ -70,7 +70,7 @@ export default function ApprovalScreen() {
           const endDate = rental.end_date ?? rental.start_date;
           await apiClient.rentals.notifyApproved({
             namaPemesan: rental.renter_name,
-            emailpemesan: rental.renter_email,
+            emailPemesan: rental.renter_email,
             nomorTelepon: rental.renter_phone ?? '',
             jenisKendaraan: approvedCar.name,
             platNomor: approvedCar.plate_number,

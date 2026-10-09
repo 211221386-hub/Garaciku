@@ -7,7 +7,7 @@ const jsonHeaders = {
 
 const stringFields = [
   'namaPemesan',
-  'emailpemesan',
+  'emailPemesan',
   'nomorTelepon',
   'jenisKendaraan',
   'platNomor',

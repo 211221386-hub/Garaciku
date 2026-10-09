@@ -132,7 +132,7 @@ class ApiClient {
     },
     notifyApproved: async (payload: {
       namaPemesan: string;
-      emailpemesan: string;
+      emailPemesan: string;
       nomorTelepon: string;
       jenisKendaraan: string;
       platNomor: string;
