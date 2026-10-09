@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Alert } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
-import { KeyRound, Plus, ChevronRight } from 'lucide-react-native';
+import { KeyRound, Plus, ChevronRight, RotateCcw } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
 import { formatDate, formatCurrency } from '@/lib/format';
@@ -44,6 +44,7 @@ const statusConfig: Record<RentalStatus, { label: string; bg: string; text: stri
 
 export default function RentalScreen() {
   const [rentals, setRentals] = useState<RentalWithCar[]>([]);
+  const [activeTab, setActiveTab] = useState<'borrowing' | 'return'>('borrowing');
   const [cars, setCars] = useState<{ id: string; name: string }[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [currentlyRentedCarIds, setCurrentlyRentedCarIds] = useState<string[]>([]);
@@ -71,6 +72,12 @@ export default function RentalScreen() {
   useFocusEffect(useCallback(() => { fetchRentals(); }, [fetchRentals]));
 
   const overdueCount = rentals.filter((rental) => rental.status === 'overdue').length;
+  const returnStatuses: RentalStatus[] = ['approved', 'active', 'overdue', 'returned', 'completed'];
+  const returnRentals = rentals.filter((rental) => returnStatuses.includes(rental.status));
+  const borrowingRentals = rentals.filter((rental) => !returnStatuses.includes(rental.status));
+  const displayedRentals = activeTab === 'borrowing' ? borrowingRentals : returnRentals;
+  const pendingReturnCount = returnRentals.filter((rental) => ['approved', 'active', 'overdue'].includes(rental.status)).length;
+  const isAdmin = [1, 2].includes(getSession()?.user.role ?? 0);
 
   const addRental = async () => {
     if (saving) return;
@@ -127,8 +134,19 @@ export default function RentalScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}><Text style={styles.greeting}>Rental Mobil</Text><Text style={styles.title}>Daftar Penyewaan</Text>{[1, 2].includes(getSession()?.user.role ?? 0) && overdueCount > 0 ? <Text style={styles.overdueNotice}>{overdueCount} rental perlu konfirmasi pengembalian</Text> : null}</View>
-      <FlatList data={rentals} keyExtractor={(item) => item.id} contentContainerStyle={styles.list}
+      <View style={styles.header}><Text style={styles.greeting}>Rental Mobil</Text><Text style={styles.title}>{activeTab === 'borrowing' ? 'Peminjaman' : 'Pengembalian'}</Text>{activeTab === 'return' && isAdmin && overdueCount > 0 ? <Text style={styles.overdueNotice}>{overdueCount} rental perlu konfirmasi pengembalian</Text> : null}</View>
+      <View style={styles.tabs}>
+        <TouchableOpacity style={[styles.tab, activeTab === 'borrowing' && styles.activeTab]} onPress={() => setActiveTab('borrowing')}>
+          <KeyRound size={17} color={activeTab === 'borrowing' ? Colors.primary : Colors.textSecondary} strokeWidth={2.2} />
+          <Text style={[styles.tabText, activeTab === 'borrowing' && styles.activeTabText]}>Peminjaman</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.tab, activeTab === 'return' && styles.activeTab]} onPress={() => setActiveTab('return')}>
+          <RotateCcw size={17} color={activeTab === 'return' ? Colors.primary : Colors.textSecondary} strokeWidth={2.2} />
+          <Text style={[styles.tabText, activeTab === 'return' && styles.activeTabText]}>Pengembalian</Text>
+          {pendingReturnCount > 0 ? <Text style={[styles.tabCount, activeTab === 'return' && styles.activeTabCount]}>{pendingReturnCount}</Text> : null}
+        </TouchableOpacity>
+      </View>
+      <FlatList data={displayedRentals} keyExtractor={(item) => item.id} contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchRentals(); }} colors={[Colors.primary]} />}
         renderItem={({ item }) => { const st = statusConfig[item.status] ?? statusConfig.active; return (
           <TouchableOpacity style={styles.card} onPress={() => router.push(`/car/rental/${item.id}` as never)} activeOpacity={0.85}>
@@ -140,14 +158,14 @@ export default function RentalScreen() {
               <View style={styles.metaRow}><Text style={styles.metaText}>{formatDate(item.start_date)} {item.start_time || ''}</Text>{item.end_date ? <Text style={styles.metaText}> - {formatDate(item.end_date)} {item.end_time || ''}</Text> : null}</View>
               <View style={styles.metaRow}>{item.purpose ? <Text style={styles.metaText}>Tujuan: {item.purpose}</Text> : null}{item.total_cost ? <Text style={styles.costText}>{formatCurrency(item.total_cost)}</Text> : null}</View>
               <View style={[styles.statusPill, { backgroundColor: st.bg }]}><Text style={[styles.statusText, { color: st.text }]}>{st.label}</Text></View>
-              {[1, 2].includes(getSession()?.user.role ?? 0) && item.status === 'overdue' ? <TouchableOpacity style={[styles.returnButton, returningId === item.id && styles.actionDisabled]} onPress={() => confirmReturn(item)} disabled={returningId === item.id}><Text style={styles.returnButtonText}>{returningId === item.id ? 'Memproses...' : 'Unit sudah diterima'}</Text></TouchableOpacity> : null}
+              {activeTab === 'return' && isAdmin && ['approved', 'active', 'overdue'].includes(item.status) ? <TouchableOpacity style={[styles.returnButton, returningId === item.id && styles.actionDisabled]} onPress={() => confirmReturn(item)} disabled={returningId === item.id}><Text style={styles.returnButtonText}>{returningId === item.id ? 'Memproses...' : 'Unit sudah diterima'}</Text></TouchableOpacity> : null}
             </View>
             <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2.2} />
           </TouchableOpacity>
         ); }}
-        ListEmptyComponent={<EmptyState icon={<KeyRound size={32} color={Colors.primary} strokeWidth={2} />} title="Belum ada rental" subtitle="Catat penyewaan mobil di sini." />}
+        ListEmptyComponent={<EmptyState icon={activeTab === 'borrowing' ? <KeyRound size={32} color={Colors.primary} strokeWidth={2} /> : <RotateCcw size={32} color={Colors.primary} strokeWidth={2} />} title={activeTab === 'borrowing' ? 'Belum ada peminjaman' : 'Belum ada pengembalian'} subtitle={activeTab === 'borrowing' ? 'Ajukan peminjaman mobil dengan tombol tambah.' : 'Peminjaman yang disetujui akan muncul di sini.'} />}
       />
-      <TouchableOpacity style={styles.fab} onPress={() => setSheet(true)} activeOpacity={0.85}><Plus size={26} color={Colors.white} strokeWidth={2.6} /></TouchableOpacity>
+      {activeTab === 'borrowing' ? <TouchableOpacity style={styles.fab} onPress={() => setSheet(true)} activeOpacity={0.85}><Plus size={26} color={Colors.white} strokeWidth={2.6} /></TouchableOpacity> : null}
       <Sheet visible={sheet} onClose={() => setSheet(false)} title="Tambah Rental Mobil">
         <Text style={styles.label}>Pilih Mobil</Text>
         <View style={styles.carPicker}>{cars.map((c) => { const active = form.car_id === c.id; return <TouchableOpacity key={c.id} onPress={() => setForm({ ...form, car_id: c.id })} style={[styles.carChip, active && styles.carChipActive]}><Text style={[styles.carChipText, active && styles.carChipTextActive]}>{c.name}</Text></TouchableOpacity>; })}</View>
@@ -171,6 +189,13 @@ const styles = StyleSheet.create({
   greeting: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.primarySoft, marginBottom: 2 },
   title: { fontSize: Typography.xxxl, fontFamily: Typography.fontBold, color: Colors.white },
   overdueNotice: { marginTop: Spacing.xs, fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: '#FDE68A' },
+  tabs: { flexDirection: 'row', marginHorizontal: Spacing.lg, marginTop: Spacing.md, padding: 4, borderRadius: Radius.lg, backgroundColor: Colors.surfaceAlt },
+  tab: { flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.xs, borderRadius: Radius.md },
+  activeTab: { backgroundColor: Colors.white },
+  tabText: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary },
+  activeTabText: { color: Colors.primary, fontFamily: Typography.fontSemiBold },
+  tabCount: { minWidth: 20, height: 20, paddingHorizontal: 5, textAlign: 'center', textAlignVertical: 'center', borderRadius: Radius.pill, overflow: 'hidden', backgroundColor: Colors.white, color: Colors.textSecondary, fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
+  activeTabCount: { backgroundColor: Colors.primaryLight, color: Colors.primary },
   list: { padding: Spacing.lg, paddingBottom: 100 },
   card: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight },
   rentalIcon: { width: 36, height: 36, borderRadius: Radius.md, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: Spacing.md, marginTop: 2 },
