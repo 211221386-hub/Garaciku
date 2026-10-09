@@ -33,10 +33,12 @@ export default {
       return Response.json({ error: 'Method not allowed.' }, { status: 405, headers: jsonHeaders });
     }
 
-    if (!env.RENTAL_APPROVAL_WEBHOOK_URL) {
+    const webhookUrl = env.RENTAL_APPROVAL_WEBHOOK_URL || env.EXPO_PUBLIC_RENTAL_AUTOMATION_URL;
+    if (!webhookUrl) {
       console.error('Rental approval webhook URL is not configured.');
-      return Response.json({ error: 'Webhook URL is not configured.' }, { status: 500, headers: jsonHeaders });
+      return Response.json({ error: 'Set RENTAL_APPROVAL_WEBHOOK_URL in the active production Worker.' }, { status: 500, headers: jsonHeaders });
     }
+    if (!env.RENTAL_APPROVAL_WEBHOOK_URL) console.warn('Using the existing rental automation URL fallback.');
 
     let payload;
     try {
@@ -55,7 +57,7 @@ export default {
     }
 
     try {
-      const webhookResponse = await fetch(env.RENTAL_APPROVAL_WEBHOOK_URL, {
+      const webhookResponse = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
