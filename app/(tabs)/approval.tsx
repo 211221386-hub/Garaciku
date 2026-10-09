@@ -4,7 +4,7 @@ import { Check, ClipboardCheck, X } from 'lucide-react-native';
 import { useFocusEffect } from 'expo-router';
 import { apiClient } from '@/lib/api';
 import { getSession } from '@/lib/auth';
-import { formatDate } from '@/lib/format';
+import { differenceInCalendarDays, formatDate } from '@/lib/format';
 import { Colors, Radius, Spacing, Typography } from '@/lib/theme';
 import type { RentalRecord, RentalStatus } from '@/lib/types';
 import { EmptyState } from '@/components/EmptyState';
@@ -26,7 +26,7 @@ const statusConfig: Record<RentalStatus, { label: string; backgroundColor: strin
 
 export default function ApprovalScreen() {
   const [rentals, setRentals] = useState<ApprovalRental[]>([]);
-  const [cars, setCars] = useState<{ id: string; name: string }[]>([]);
+  const [cars, setCars] = useState<{ id: string; name: string; plate_number: string }[]>([]);
   const [selectedCars, setSelectedCars] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [decision, setDecision] = useState<{ rental: ApprovalRental; status: 'approved' | 'rejected' } | null>(null);
@@ -54,12 +54,32 @@ export default function ApprovalScreen() {
     setProcessingId(rental.id);
     setErrorMessage(null);
     try {
+      const approvedCarId = selectedCars[rental.id] ?? rental.car_id;
       await apiClient.rentals.decideApproval(rental.id, {
         status,
-        car_id: status === 'approved' ? (selectedCars[rental.id] ?? rental.car_id) : rental.car_id,
+        car_id: status === 'approved' ? approvedCarId : rental.car_id,
         approved_by: session.user.id,
         approved_at: new Date().toISOString(),
       });
+      if (status === 'approved') {
+        try {
+          const approvedCar = cars.find((car) => car.id === approvedCarId);
+          if (!approvedCar) throw new Error('Data mobil yang disetujui tidak ditemukan.');
+          const endDate = rental.end_date ?? rental.start_date;
+          await apiClient.rentals.notifyApproved({
+            namaPemesan: rental.renter_name,
+            emailpemesan: rental.renter_email,
+            nomorTelepon: rental.renter_phone ?? '',
+            jenisKendaraan: approvedCar.name,
+            platNomor: approvedCar.plate_number,
+            tanggalMulaiSewa: rental.start_date,
+            tanggalSelesaiSewa: endDate,
+            jumlahHariSewa: Math.max(1, differenceInCalendarDays(rental.start_date, endDate)),
+          });
+        } catch (error) {
+          Alert.alert('Rental disetujui', `Notifikasi otomatis gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
+        }
+      }
       setDecision(null);
       await fetchApprovals();
     } catch (error) {

@@ -130,6 +130,27 @@ class ApiClient {
         throw new Error(`API automation mengembalikan status ${response.status}.`);
       }
     },
+    notifyApproved: async (payload: {
+      namaPemesan: string;
+      emailpemesan: string;
+      nomorTelepon: string;
+      jenisKendaraan: string;
+      platNomor: string;
+      tanggalMulaiSewa: string;
+      tanggalSelesaiSewa: string;
+      jumlahHariSewa: number;
+    }) => {
+      const url = process.env.EXPO_PUBLIC_RENTAL_APPROVAL_PROXY_URL || '/api/rental-approved';
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API notifikasi approval mengembalikan status ${response.status}.`);
+      }
+    },
     update: (id: string, data: Record<string, unknown>) => {
       const session = getSession();
       const isAdmin = session?.user.role === 1 || session?.user.role === 2;
