@@ -148,8 +148,11 @@ class ApiClient {
       });
 
       if (!response.ok) {
-        const errorBody = await response.json().catch(() => null) as { error?: string } | null;
-        throw new Error(errorBody?.error ?? `API notifikasi approval mengembalikan status ${response.status}.`);
+        const errorBody = await response.json().catch(() => null) as { error?: string; availableBindings?: string[] } | null;
+        const availableBindings = errorBody?.availableBindings?.length
+          ? ` Binding yang ditemukan: ${errorBody.availableBindings.join(', ')}.`
+          : '';
+        throw new Error(`${errorBody?.error ?? `API notifikasi approval mengembalikan status ${response.status}.`}${availableBindings}`);
       }
     },
     update: (id: string, data: Record<string, unknown>) => {

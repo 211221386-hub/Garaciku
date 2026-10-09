@@ -36,7 +36,12 @@ export default {
     const webhookUrl = env.RENTAL_APPROVAL_WEBHOOK_URL || env.EXPO_PUBLIC_RENTAL_AUTOMATION_URL;
     if (!webhookUrl) {
       console.error('Rental approval webhook URL is not configured.');
-      return Response.json({ error: 'Set RENTAL_APPROVAL_WEBHOOK_URL in the active production Worker.' }, { status: 500, headers: jsonHeaders });
+      const availableBindings = Object.keys(env).filter((name) => /RENTAL|WEBHOOK|AUTOMATION/i.test(name)).sort();
+      console.error('Available rental webhook binding names:', availableBindings);
+      return Response.json({
+        error: 'Webhook URL is not available in the active production Worker.',
+        availableBindings,
+      }, { status: 500, headers: jsonHeaders });
     }
     if (!env.RENTAL_APPROVAL_WEBHOOK_URL) console.warn('Using the existing rental automation URL fallback.');
 
