@@ -148,7 +148,8 @@ class ApiClient {
       });
 
       if (!response.ok) {
-        throw new Error(`API notifikasi approval mengembalikan status ${response.status}.`);
+        const errorBody = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(errorBody?.error ?? `API notifikasi approval mengembalikan status ${response.status}.`);
       }
     },
     update: (id: string, data: Record<string, unknown>) => {

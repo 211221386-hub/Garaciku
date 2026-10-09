@@ -23,6 +23,8 @@ export default {
       return env.ASSETS.fetch(request);
     }
 
+    console.info('Received rental approval notification request.');
+
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: jsonHeaders });
     }
@@ -32,6 +34,7 @@ export default {
     }
 
     if (!env.RENTAL_APPROVAL_WEBHOOK_URL) {
+      console.error('Rental approval webhook URL is not configured.');
       return Response.json({ error: 'Webhook URL is not configured.' }, { status: 500, headers: jsonHeaders });
     }
 
@@ -59,11 +62,13 @@ export default {
       });
 
       if (!webhookResponse.ok) {
+        console.error(`Rental approval webhook returned HTTP ${webhookResponse.status}.`);
         return Response.json({ error: `Webhook returned ${webhookResponse.status}.` }, { status: 502, headers: jsonHeaders });
       }
 
       return Response.json({ ok: true }, { headers: jsonHeaders });
-    } catch {
+    } catch (error) {
+      console.error('Rental approval webhook request failed.', error);
       return Response.json({ error: 'Webhook request failed.' }, { status: 502, headers: jsonHeaders });
     }
   },

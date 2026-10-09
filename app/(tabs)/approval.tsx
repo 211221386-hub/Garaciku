@@ -32,6 +32,7 @@ export default function ApprovalScreen() {
   const [decision, setDecision] = useState<{ rental: ApprovalRental; status: 'approved' | 'rejected' } | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
 
   const fetchApprovals = useCallback(async () => {
     try {
@@ -53,6 +54,7 @@ export default function ApprovalScreen() {
     if (!session || ![1, 2].includes(session.user.role)) return;
     setProcessingId(rental.id);
     setErrorMessage(null);
+    setNotificationError(null);
     try {
       const approvedCarId = selectedCars[rental.id] ?? rental.car_id;
       await apiClient.rentals.decideApproval(rental.id, {
@@ -77,7 +79,7 @@ export default function ApprovalScreen() {
             jumlahHariSewa: Math.max(1, differenceInCalendarDays(rental.start_date, endDate)),
           });
         } catch (error) {
-          Alert.alert('Rental disetujui', `Notifikasi otomatis gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
+          setNotificationError(`Rental berhasil disetujui, tetapi notifikasi gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
         }
       }
       setDecision(null);
@@ -100,6 +102,14 @@ export default function ApprovalScreen() {
         <Text style={styles.greeting}>Persetujuan Rental</Text>
         <Text style={styles.title}>{isAdmin() ? 'Review Permintaan' : 'Approval Saya'}</Text>
       </View>
+      {notificationError ? (
+        <View style={styles.notificationError}>
+          <Text style={styles.notificationErrorText}>{notificationError}</Text>
+          <TouchableOpacity onPress={() => setNotificationError(null)} accessibilityLabel="Tutup pesan">
+            <X size={18} color={Colors.error} />
+          </TouchableOpacity>
+        </View>
+      ) : null}
       <FlatList
         data={rentals}
         keyExtractor={(item) => item.id}
@@ -169,6 +179,8 @@ const styles = StyleSheet.create({
   header: { backgroundColor: Colors.primary, paddingTop: Spacing.xl + 18, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, borderBottomLeftRadius: Radius.xl, borderBottomRightRadius: Radius.xl },
   greeting: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.primarySoft, marginBottom: 2 },
   title: { fontSize: Typography.xxxl, fontFamily: Typography.fontBold, color: Colors.white },
+  notificationError: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginHorizontal: Spacing.lg, marginTop: Spacing.md, padding: Spacing.md, borderRadius: Radius.md, backgroundColor: '#FEE2E2' },
+  notificationErrorText: { flex: 1, fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.error, lineHeight: 20 },
   list: { padding: Spacing.lg, paddingBottom: 100 },
   card: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
