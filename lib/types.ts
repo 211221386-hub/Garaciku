@@ -25,7 +25,15 @@ export type Car = {
 export type DailyNote = {
   id: string;
   car_id: string;
+  name: string;
+  section: string;
   note_date: string;
+  start_date: string;
+  end_date: string;
+  start_km: number | null;
+  end_km: number | null;
+  start_fuel: number | null;
+  end_fuel: number | null;
   content: string;
   created_at: string;
 };

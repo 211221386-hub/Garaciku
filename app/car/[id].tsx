@@ -45,7 +45,7 @@ export default function CarDetailScreen() {
 
   // Sheet state
   const [noteSheet, setNoteSheet] = useState(false);
-  const [newNote, setNewNote] = useState('');
+  const [newNote, setNewNote] = useState({ name: '', section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '' });
   const [completenessSheet, setCompletenessSheet] = useState(false);
   const [newItem, setNewItem] = useState('');
   const [newReminderType, setNewReminderType] = useState<CompletenessReminderType>('general');
@@ -118,11 +118,44 @@ export default function CarDetailScreen() {
   // --- Notes CRUD ---
   const addNote = async () => {
     if (submitting) return;
-    if (!newNote.trim()) return;
+    if (!newNote.name.trim() || !newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.start_km || !newNote.end_km || !newNote.start_fuel || !newNote.end_fuel || !newNote.content.trim()) {
+      Alert.alert('Data belum lengkap', 'Isi semua field catatan sebelum menyimpan.');
+      return;
+    }
+    if (newNote.end_date < newNote.start_date) {
+      Alert.alert('Rentang tanggal tidak valid', 'Tanggal selesai harus sama atau setelah tanggal mulai.');
+      return;
+    }
+
+    const startKm = Number(newNote.start_km);
+    const endKm = Number(newNote.end_km);
+    const startFuel = Number(newNote.start_fuel);
+    const endFuel = Number(newNote.end_fuel);
+    if ([startKm, endKm, startFuel, endFuel].some((value) => !Number.isFinite(value) || value < 0)) {
+      Alert.alert('Angka tidak valid', 'KM dan Fuel harus berupa angka nol atau lebih.');
+      return;
+    }
+    if (endKm < startKm) {
+      Alert.alert('KM tidak valid', 'KM Akhir harus sama atau lebih besar dari KM Awal.');
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await apiClient.notes.create({ car_id: id, content: newNote.trim(), note_date: todayISO() });
-      setNewNote('');
+      await apiClient.notes.create({
+        car_id: id,
+        name: newNote.name.trim(),
+        section: newNote.section.trim(),
+        note_date: newNote.start_date,
+        start_date: newNote.start_date,
+        end_date: newNote.end_date,
+        start_km: startKm,
+        end_km: endKm,
+        start_fuel: startFuel,
+        end_fuel: endFuel,
+        content: newNote.content.trim(),
+      });
+      setNewNote({ name: '', section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '' });
       setNoteSheet(false);
       await fetchAll();
     } catch (error) { Alert.alert('Gagal menyimpan catatan', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
@@ -289,7 +322,7 @@ export default function CarDetailScreen() {
   }
 
   const tabs: { key: Tab; label: string; icon: typeof NotebookPen }[] = [
-    { key: 'notes', label: 'Catatan', icon: NotebookPen },
+    { key: 'notes', label: 'Catatan Duplikasi', icon: NotebookPen },
     { key: 'completeness', label: 'Kelengkapan', icon: ClipboardCheck },
     { key: 'damages', label: 'Kerusakan', icon: AlertTriangle },
     { key: 'rental', label: 'Rental', icon: KeyRound },
@@ -351,7 +384,7 @@ export default function CarDetailScreen() {
               style={[styles.tab, active && styles.tabActive]}
             >
               <Icon size={16} color={active ? Colors.primary : Colors.textTertiary} strokeWidth={2.2} />
-              <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>
+              <Text numberOfLines={2} style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>
             </TouchableOpacity>
           );
         })}
@@ -362,18 +395,25 @@ export default function CarDetailScreen() {
         {activeTab === 'notes' && (
           <View style={styles.section}>
             {notes.length === 0 ? (
-              <Text style={styles.emptyText}>Belum ada catatan. Tambahkan catatan untuk hari ini.</Text>
+              <Text style={styles.emptyText}>Belum ada catatan duplikasi untuk mobil ini.</Text>
             ) : (
               notes.map((note) => (
                 <View key={note.id} style={styles.card}>
                   <View style={styles.cardHeader}>
                     <View style={styles.dateBadge}>
-                      <Text style={styles.dateBadgeText}>{formatShortDate(note.note_date)}</Text>
+                      <Text style={styles.dateBadgeText}>{formatShortDate(note.start_date || note.note_date)}</Text>
                     </View>
                     <TouchableOpacity onPress={() => deleteNote(note.id)} hitSlop={12}>
                       <Trash2 size={16} color={Colors.error} strokeWidth={2} />
                     </TouchableOpacity>
                   </View>
+                  <Text style={styles.cardTitle}>{note.name || 'Catatan lama'}</Text>
+                  {note.section ? <Text style={styles.metaText}>Section: {note.section}</Text> : null}
+                  <View style={styles.serviceMeta}>
+                    <Text style={styles.metaText}>Tanggal: {formatDate(note.start_date || note.note_date)} - {formatDate(note.end_date || note.note_date)}</Text>
+                  </View>
+                  {note.start_km !== null && note.end_km !== null ? <Text style={styles.metaText}>KM: {note.start_km.toLocaleString('id-ID')} - {note.end_km.toLocaleString('id-ID')}</Text> : null}
+                  {note.start_fuel !== null && note.end_fuel !== null ? <Text style={styles.metaText}>Fuel: {note.start_fuel} - {note.end_fuel}</Text> : null}
                   <Text style={styles.cardBody}>{note.content}</Text>
                 </View>
               ))
@@ -534,15 +574,23 @@ export default function CarDetailScreen() {
       </TouchableOpacity>
 
       {/* Note Sheet */}
-      <Sheet visible={noteSheet} onClose={() => setNoteSheet(false)} title="Catatan Hari Ini">
+      <Sheet visible={noteSheet} onClose={() => setNoteSheet(false)} title="Catatan Duplikasi Baru">
+        <Field label="Nama*" value={newNote.name} onChangeText={(value) => setNewNote({ ...newNote, name: value })} placeholder="Nama petugas atau pencatat" />
+        <Field label="Section*" value={newNote.section} onChangeText={(value) => setNewNote({ ...newNote, section: value })} placeholder="Section" />
+        <DateField label="Tanggal Mulai*" value={newNote.start_date} onChange={(value) => setNewNote({ ...newNote, start_date: value })} />
+        <DateField label="Tanggal Selesai*" value={newNote.end_date} onChange={(value) => setNewNote({ ...newNote, end_date: value })} minimumDate={newNote.start_date ? new Date(`${newNote.start_date}T00:00:00`) : undefined} />
+        <Field label="KM Awal*" value={newNote.start_km} onChangeText={(value) => setNewNote({ ...newNote, start_km: value })} placeholder="Contoh: 12000" keyboardType="numeric" />
+        <Field label="KM Akhir*" value={newNote.end_km} onChangeText={(value) => setNewNote({ ...newNote, end_km: value })} placeholder="Contoh: 12150" keyboardType="numeric" />
+        <Field label="Fuel Awal*" value={newNote.start_fuel} onChangeText={(value) => setNewNote({ ...newNote, start_fuel: value })} placeholder="Masukkan angka fuel" keyboardType="numeric" />
+        <Field label="Fuel Akhir*" value={newNote.end_fuel} onChangeText={(value) => setNewNote({ ...newNote, end_fuel: value })} placeholder="Masukkan angka fuel" keyboardType="numeric" />
         <Field
-          label="Apa yang dilakukan hari ini?"
-          value={newNote}
-          onChangeText={setNewNote}
-          placeholder="Contoh: Ganti oli mesin, cek rem depan..."
+          label="Note / Rincian Aktivitas*"
+          value={newNote.content}
+          onChangeText={(value) => setNewNote({ ...newNote, content: value })}
+          placeholder="Rincian aktivitas yang dilakukan..."
           multiline
         />
-        <Button label="Simpan Catatan" onPress={addNote} loading={submitting} />
+        <Button label="Simpan Catatan" onPress={addNote} loading={submitting} disabled={!newNote.name.trim() || !newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.start_km || !newNote.end_km || !newNote.start_fuel || !newNote.end_fuel || !newNote.content.trim()} />
       </Sheet>
 
       {/* Completeness Sheet */}
@@ -753,9 +801,11 @@ const styles = StyleSheet.create({
     borderColor: Colors.primarySoft,
   },
   tabLabel: {
+    flexShrink: 1,
     fontSize: Typography.xs,
     fontFamily: Typography.fontMedium,
     color: Colors.textTertiary,
+    textAlign: 'center',
   },
   tabLabelActive: {
     color: Colors.primary,
