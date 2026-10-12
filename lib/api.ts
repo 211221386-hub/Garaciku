@@ -140,7 +140,9 @@ class ApiClient {
       tanggalSelesaiSewa: string;
       jumlahHariSewa: number;
     }) => {
-      const url = process.env.EXPO_PUBLIC_RENTAL_APPROVAL_PROXY_URL || '/api/rental-approved';
+      const url = process.env.EXPO_PUBLIC_RENTAL_AUTOMATION_URL;
+      if (!url) throw new Error('EXPO_PUBLIC_RENTAL_AUTOMATION_URL belum dikonfigurasi.');
+
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -148,11 +150,7 @@ class ApiClient {
       });
 
       if (!response.ok) {
-        const errorBody = await response.json().catch(() => null) as { error?: string; availableBindings?: string[] } | null;
-        const availableBindings = errorBody?.availableBindings?.length
-          ? ` Binding yang ditemukan: ${errorBody.availableBindings.join(', ')}.`
-          : '';
-        throw new Error(`${errorBody?.error ?? `API notifikasi approval mengembalikan status ${response.status}.`}${availableBindings}`);
+        throw new Error(`Power Automate mengembalikan status ${response.status}.`);
       }
     },
     update: (id: string, data: Record<string, unknown>) => {
