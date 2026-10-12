@@ -51,7 +51,7 @@ export default function RentalScreen() {
   const [sheet, setSheet] = useState(false);
   const [saving, setSaving] = useState(false);
   const [returningId, setReturningId] = useState<string | null>(null);
-  const [form, setForm] = useState({ car_id: '', renter_name: '', renter_email: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
+  const [form, setForm] = useState({ car_id: '', renter_name: '', renter_email: '', renter_phone: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
 
   const fetchRentals = useCallback(async () => {
     try {
@@ -89,6 +89,10 @@ export default function RentalScreen() {
       Alert.alert('Nama penyewa wajib diisi', 'Masukkan nama penyewa sebelum menyimpan rental.');
       return;
     }
+    if (!form.renter_phone.trim()) {
+      Alert.alert('Nomor telepon wajib diisi', 'Masukkan nomor telepon penyewa sebelum menyimpan rental.');
+      return;
+    }
     if (currentlyRentedCarIds.includes(form.car_id)) {
       Alert.alert('Mobil sudah dibooking', 'Pilih mobil lain karena mobil ini sudah digunakan atau disetujui untuk rental lain.');
       return;
@@ -108,8 +112,8 @@ export default function RentalScreen() {
     const today = new Date().toISOString().split('T')[0];
     setSaving(true);
     try {
-      await apiClient.rentals.create({ car_id: form.car_id, renter_name: form.renter_name.trim(), renter_email: form.renter_email.trim(), start_date: form.start_date || today, start_time: form.start_time, end_date: form.end_date, end_time: form.end_time, purpose: form.purpose.trim(), notes: form.notes.trim() });
-      setForm({ car_id: '', renter_name: '', renter_email: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
+      await apiClient.rentals.create({ car_id: form.car_id, renter_name: form.renter_name.trim(), renter_email: form.renter_email.trim(), renter_phone: form.renter_phone.trim(), start_date: form.start_date || today, start_time: form.start_time, end_date: form.end_date, end_time: form.end_time, purpose: form.purpose.trim(), notes: form.notes.trim() });
+      setForm({ car_id: '', renter_name: '', renter_email: '', renter_phone: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
       setSheet(false);
       await fetchRentals();
     } catch (error) {
@@ -171,13 +175,14 @@ export default function RentalScreen() {
         <View style={styles.carPicker}>{cars.map((c) => { const active = form.car_id === c.id; return <TouchableOpacity key={c.id} onPress={() => setForm({ ...form, car_id: c.id })} style={[styles.carChip, active && styles.carChipActive]}><Text style={[styles.carChipText, active && styles.carChipTextActive]}>{c.name}</Text></TouchableOpacity>; })}</View>
         <Field label="Nama Penyewa*" value={form.renter_name} onChangeText={(t) => setForm({ ...form, renter_name: t })} placeholder="Contoh: Budi Santoso" />
         <Field label="Email Penyewa*" value={form.renter_email} onChangeText={(t) => setForm({ ...form, renter_email: t })} placeholder="contoh@email.com" keyboardType="default" />
+        <Field label="Nomor Telepon*" value={form.renter_phone} onChangeText={(t) => setForm({ ...form, renter_phone: t })} placeholder="Contoh: 08123456789" keyboardType="phone-pad" />
         <DateField label="Tanggal Mulai" value={form.start_date} onChange={(value) => setForm({ ...form, start_date: value })} placeholder="Pilih tanggal (kosongkan = hari ini)" />
         <TimeField label="Jam Mulai (WIB)" value={form.start_time} onChange={(value) => setForm({ ...form, start_time: value })} />
         <DateField label="Tanggal Selesai" value={form.end_date} onChange={(value) => setForm({ ...form, end_date: value })} placeholder="Pilih tanggal" minimumDate={form.start_date ? new Date(`${form.start_date}T00:00:00`) : undefined} />
         <TimeField label="Jam Selesai (WIB)" value={form.end_time} onChange={(value) => setForm({ ...form, end_time: value })} />
         <Field label="Tujuan Peminjaman" value={form.purpose} onChangeText={(t) => setForm({ ...form, purpose: t })} placeholder="Contoh: Perjalanan dinas, liburan keluarga" />
         <Field label="Catatan" value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} placeholder="Catatan tambahan..." multiline />
-        <View style={{ height: Spacing.sm }} /><Button label="Simpan Rental" onPress={addRental} loading={saving} disabled={!form.car_id || !form.renter_name.trim() || !form.renter_email.trim() || !form.start_date || !form.start_time || !form.end_date || !form.end_time} />
+        <View style={{ height: Spacing.sm }} /><Button label="Simpan Rental" onPress={addRental} loading={saving} disabled={!form.car_id || !form.renter_name.trim() || !form.renter_email.trim() || !form.renter_phone.trim() || !form.start_date || !form.start_time || !form.end_date || !form.end_time} />
       </Sheet>
     </View>
   );
