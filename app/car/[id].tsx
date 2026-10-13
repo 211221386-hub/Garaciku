@@ -135,6 +135,10 @@ export default function CarDetailScreen() {
       Alert.alert('Angka tidak valid', 'KM dan Fuel harus berupa angka nol atau lebih.');
       return;
     }
+    if (startFuel > 100 || endFuel > 100) {
+      Alert.alert('Persentase Fuel tidak valid', 'Fuel Awal dan Fuel Akhir harus berada di antara 0% dan 100%.');
+      return;
+    }
     if (endKm < startKm) {
       Alert.alert('KM tidak valid', 'KM Akhir harus sama atau lebih besar dari KM Awal.');
       return;
@@ -165,6 +169,15 @@ export default function CarDetailScreen() {
   const deleteNote = async (noteId: string) => {
     try { await apiClient.notes.delete(noteId); fetchAll(); }
     catch (error) { Alert.alert('Gagal menghapus catatan', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
+  };
+
+  const updateFuelPercentage = (field: 'start_fuel' | 'end_fuel', value: string) => {
+    const sanitized = value.replace(',', '.').replace(/[^\d.]/g, '');
+    const decimalIndex = sanitized.indexOf('.');
+    const normalized = decimalIndex < 0
+      ? sanitized
+      : `${sanitized.slice(0, decimalIndex)}.${sanitized.slice(decimalIndex + 1).replace(/\./g, '')}`;
+    setNewNote({ ...newNote, [field]: normalized && Number(normalized) > 100 ? '100' : normalized });
   };
 
   // --- Completeness CRUD ---
@@ -413,7 +426,7 @@ export default function CarDetailScreen() {
                     <Text style={styles.metaText}>Tanggal: {formatDate(note.start_date || note.note_date)} - {formatDate(note.end_date || note.note_date)}</Text>
                   </View>
                   {note.start_km !== null && note.end_km !== null ? <Text style={styles.metaText}>KM: {note.start_km.toLocaleString('id-ID')} - {note.end_km.toLocaleString('id-ID')}</Text> : null}
-                  {note.start_fuel !== null && note.end_fuel !== null ? <Text style={styles.metaText}>Fuel: {note.start_fuel} - {note.end_fuel}</Text> : null}
+                  {note.start_fuel !== null && note.end_fuel !== null ? <Text style={styles.metaText}>Fuel: {note.start_fuel}% - {note.end_fuel}%</Text> : null}
                   <Text style={styles.cardBody}>{note.content}</Text>
                 </View>
               ))
@@ -581,8 +594,8 @@ export default function CarDetailScreen() {
         <DateField label="Tanggal Selesai*" value={newNote.end_date} onChange={(value) => setNewNote({ ...newNote, end_date: value })} minimumDate={newNote.start_date ? new Date(`${newNote.start_date}T00:00:00`) : undefined} />
         <Field label="KM Awal*" value={newNote.start_km} onChangeText={(value) => setNewNote({ ...newNote, start_km: value })} placeholder="Contoh: 12000" keyboardType="numeric" />
         <Field label="KM Akhir*" value={newNote.end_km} onChangeText={(value) => setNewNote({ ...newNote, end_km: value })} placeholder="Contoh: 12150" keyboardType="numeric" />
-        <Field label="Fuel Awal*" value={newNote.start_fuel} onChangeText={(value) => setNewNote({ ...newNote, start_fuel: value })} placeholder="Masukkan angka fuel" keyboardType="numeric" />
-        <Field label="Fuel Akhir*" value={newNote.end_fuel} onChangeText={(value) => setNewNote({ ...newNote, end_fuel: value })} placeholder="Masukkan angka fuel" keyboardType="numeric" />
+        <Field label="Fuel Awal (%)*" value={newNote.start_fuel} onChangeText={(value) => updateFuelPercentage('start_fuel', value)} placeholder="0-100" keyboardType="numeric" />
+        <Field label="Fuel Akhir (%)*" value={newNote.end_fuel} onChangeText={(value) => updateFuelPercentage('end_fuel', value)} placeholder="0-100" keyboardType="numeric" />
         <Field
           label="Note / Rincian Aktivitas*"
           value={newNote.content}
