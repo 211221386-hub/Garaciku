@@ -206,9 +206,56 @@ class ApiClient {
   notes = {
     getAll: async () => (await unwrap<(DailyNote & { cars: { name: string } | null })[]>(supabase.from('daily_notes').select('*, cars(name)').order('note_date', { ascending: false }))).map(withCarName) as (DailyNote & { car_name: string })[],
     getByCar: (carId: string) => unwrap<DailyNote[]>(supabase.from('daily_notes').select('*').eq('car_id', carId).order('note_date', { ascending: false })),
-    create: (data: Record<string, unknown>) => unwrap<DailyNote>(supabase.from('daily_notes').insert(data).select().single()),
-    update: (id: string, data: Record<string, unknown>) => unwrap<DailyNote>(supabase.from('daily_notes').update(data).eq('id', id).select().single()),
-    delete: async (id: string) => { await unwrap(supabase.from('daily_notes').delete().eq('id', id)); return { success: true }; },
+    create: async (data: Record<string, unknown>) => {
+      const session = getSession();
+      const role = session?.user.role ?? 0;
+      if (!([1, 2, 3, 4].includes(role))) {
+        throw new Error('Role ini tidak memiliki izin membuat catatan duplikasi.');
+      }
+
+      const payload = {
+        ...data,
+        name: typeof data.name === 'string' ? data.name.trim() : '',
+        section: typeof data.section === 'string' ? data.section.trim() : '',
+        content: typeof data.content === 'string' ? data.content.trim() : '',
+        note_date: data.note_date ?? data.start_date ?? todayISO(),
+        start_date: data.start_date ?? data.note_date ?? todayISO(),
+        end_date: data.end_date ?? data.start_date ?? data.note_date ?? todayISO(),
+      };
+
+      try {
+        return await unwrap<DailyNote>(supabase.from('daily_notes').insert(payload).select().single());
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        if (message.includes('column') && message.includes('does not exist')) {
+          throw new Error('Skema tabel daily_notes belum diperbarui. Jalankan migration daily_notes supaya kolom name, section, start_date, end_date, start_km, end_km, start_fuel, dan end_fuel tersedia.');
+        }
+        throw error;
+      }
+    },
+    update: async (id: string, data: Record<string, unknown>) => {
+      const session = getSession();
+      if (!(session && [1, 2].includes(session.user.role))) {
+        throw new Error('Role ini tidak memiliki izin mengubah catatan duplikasi.');
+      }
+      try {
+        return await unwrap<DailyNote>(supabase.from('daily_notes').update(data).eq('id', id).select().single());
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        if (message.includes('column') && message.includes('does not exist')) {
+          throw new Error('Skema tabel daily_notes belum diperbarui. Jalankan migration daily_notes supaya kolom name, section, start_date, end_date, start_km, end_km, start_fuel, dan end_fuel tersedia.');
+        }
+        throw error;
+      }
+    },
+    delete: async (id: string) => {
+      const session = getSession();
+      if (!(session && [1, 2].includes(session.user.role))) {
+        throw new Error('Role ini tidak memiliki izin menghapus catatan duplikasi.');
+      }
+      await unwrap(supabase.from('daily_notes').delete().eq('id', id));
+      return { success: true };
+    },
   };
 
   services = {
@@ -225,17 +272,24 @@ class ApiClient {
   completeness = {
     getAll: async () => (await unwrap<(CompletenessItem & { cars: { name: string } | null })[]>(supabase.from('completeness_items').select('*, cars(name)').order('created_at', { ascending: false }))).map(withCarName),
     getByCar: (carId: string) => unwrap<CompletenessItem[]>(supabase.from('completeness_items').select('*').eq('car_id', carId).order('created_at', { ascending: false })),
-    create: (data: Record<string, unknown>) => unwrap<CompletenessItem>(supabase.from('completeness_items').insert(data).select().single()),
-    update: (id: string, data: Record<string, unknown>) => unwrap<CompletenessItem>(supabase.from('completeness_items').update(data).eq('id', id).select().single()),
-    delete: async (id: string) => { await unwrap(supabase.from('completeness_items').delete().eq('id', id)); return { success: true }; },
+    create: (..._args: unknown[]) => { throw new Error('Kelengkapan hanya dapat dibaca, tidak dapat dibuat.'); },
+    update: (..._args: unknown[]) => { throw new Error('Kelengkapan hanya dapat dibaca, tidak dapat diubah.'); },
+    delete: async (..._args: unknown[]) => { throw new Error('Kelengkapan hanya dapat dibaca, tidak dapat dihapus.'); },
   };
 
   damages = {
     getAll: async () => (await unwrap<(Damage & { cars: { name: string } | null })[]>(supabase.from('damages').select('*, cars(name)').order('reported_date', { ascending: false }))).map(withCarName),
     getByCar: (carId: string) => unwrap<Damage[]>(supabase.from('damages').select('*').eq('car_id', carId).order('reported_date', { ascending: false })),
-    create: (data: Record<string, unknown>) => unwrap<Damage>(supabase.from('damages').insert(data).select().single()),
-    update: (id: string, data: Record<string, unknown>) => unwrap<Damage>(supabase.from('damages').update(data).eq('id', id).select().single()),
-    delete: async (id: string) => { await unwrap(supabase.from('damages').delete().eq('id', id)); return { success: true }; },
+    create: (data: Record<string, unknown>) => {
+      const session = getSession();
+      const role = session?.user.role ?? 0;
+      if (!([1, 2, 3, 4].includes(role))) {
+        throw new Error('Role ini tidak memiliki izin menambah kerusakan.');
+      }
+      return unwrap<Damage>(supabase.from('damages').insert(data).select().single());
+    },
+    update: (..._args: unknown[]) => { throw new Error('Kerusakan hanya dapat dibuat dan dibaca, tidak dapat diubah.'); },
+    delete: async (..._args: unknown[]) => { throw new Error('Kerusakan hanya dapat dibuat dan dibaca, tidak dapat dihapus.'); },
   };
 }
 

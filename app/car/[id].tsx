@@ -34,7 +34,16 @@ type Tab = 'notes' | 'completeness' | 'damages' | 'rental';
 
 export default function CarDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const canManageRental = [1, 2].includes(getSession()?.user.role ?? 0);
+  const sessionRole = getSession()?.user.role ?? 0;
+  const isAdmin = [1, 2].includes(sessionRole);
+  const canManageRental = isAdmin;
+  const canCreateNotes = [1, 2, 3, 4].includes(sessionRole);
+  const canDeleteNotes = isAdmin;
+  const canCreateDamages = [1, 2, 3, 4].includes(sessionRole);
+  const canDeleteDamages = false;
+  const canUpdateDamages = false;
+  const canCreateCompleteness = false;
+  const canToggleCompleteness = false;
   const [car, setCar] = useState<Car | null>(null);
   const [notes, setNotes] = useState<DailyNote[]>([]);
   const [completeness, setCompleteness] = useState<CompletenessItem[]>([]);
@@ -192,6 +201,12 @@ export default function CarDetailScreen() {
     }
 
     setSubmitting(true);
+    if (!canCreateCompleteness) {
+      Alert.alert('Akses ditolak', 'Role ini hanya dapat melihat kelengkapan, tidak dapat menambah item.');
+      setSubmitting(false);
+      return;
+    }
+
     try {
       await apiClient.completeness.create({
         car_id: id,
@@ -242,6 +257,10 @@ export default function CarDetailScreen() {
   };
 
   const deleteItem = async (itemId: string) => {
+    if (!canToggleCompleteness) {
+      Alert.alert('Akses ditolak', 'Role ini hanya dapat melihat kelengkapan, tidak dapat menghapus item.');
+      return;
+    }
     try { await apiClient.completeness.delete(itemId); fetchAll(); }
     catch (error) { Alert.alert('Gagal menghapus kelengkapan', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
   };
@@ -261,6 +280,10 @@ export default function CarDetailScreen() {
   };
 
   const cycleDamageStatus = async (dmg: Damage) => {
+    if (!canUpdateDamages) {
+      Alert.alert('Akses ditolak', 'Role ini hanya dapat melihat dan membuat kerusakan, tidak dapat mengubah status.');
+      return;
+    }
     const next: DamageStatus = dmg.status === 'open' ? 'repairing' : dmg.status === 'repairing' ? 'fixed' : 'open';
     const update: Partial<Damage> = { status: next };
     if (next === 'fixed') update.resolved_date = todayISO();
@@ -270,6 +293,10 @@ export default function CarDetailScreen() {
   };
 
   const deleteDamage = async (dmgId: string) => {
+    if (!canDeleteDamages) {
+      Alert.alert('Akses ditolak', 'Role ini tidak memiliki izin menghapus kerusakan.');
+      return;
+    }
     try { await apiClient.damages.delete(dmgId); fetchAll(); }
     catch (error) { Alert.alert('Gagal menghapus kerusakan', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
   };
@@ -416,9 +443,11 @@ export default function CarDetailScreen() {
                     <View style={styles.dateBadge}>
                       <Text style={styles.dateBadgeText}>{formatShortDate(note.start_date || note.note_date)}</Text>
                     </View>
-                    <TouchableOpacity onPress={() => deleteNote(note.id)} hitSlop={12}>
-                      <Trash2 size={16} color={Colors.error} strokeWidth={2} />
-                    </TouchableOpacity>
+                    {canDeleteNotes ? (
+                      <TouchableOpacity onPress={() => deleteNote(note.id)} hitSlop={12}>
+                        <Trash2 size={16} color={Colors.error} strokeWidth={2} />
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
                   <Text style={styles.cardTitle}>{note.name || 'Catatan lama'}</Text>
                   {note.section ? <Text style={styles.metaText}>Section: {note.section}</Text> : null}
@@ -449,7 +478,11 @@ export default function CarDetailScreen() {
 
                 return (
                   <View key={item.id} style={styles.checkRow}>
-                    <TouchableOpacity style={styles.checkLeft} onPress={() => toggleItem(item)}>
+                    <TouchableOpacity
+                      style={styles.checkLeft}
+                      onPress={() => canToggleCompleteness && toggleItem(item)}
+                      disabled={!canToggleCompleteness}
+                    >
                       <View style={[styles.checkbox, item.is_present && styles.checkboxChecked]}>
                         {item.is_present ? <Check size={14} color={Colors.white} strokeWidth={3} /> : null}
                       </View>
@@ -471,9 +504,11 @@ export default function CarDetailScreen() {
                         ) : null}
                       </View>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => deleteItem(item.id)} hitSlop={12}>
-                      <Trash2 size={16} color={Colors.textTertiary} strokeWidth={2} />
-                    </TouchableOpacity>
+                    {canToggleCompleteness ? (
+                      <TouchableOpacity onPress={() => deleteItem(item.id)} hitSlop={12}>
+                        <Trash2 size={16} color={Colors.textTertiary} strokeWidth={2} />
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
                 );
               })
@@ -498,20 +533,19 @@ export default function CarDetailScreen() {
                         <View style={[styles.sevDot, { backgroundColor: sevColor }]} />
                         <Text style={styles.cardTitle}>{dmg.description}</Text>
                       </View>
-                      <TouchableOpacity onPress={() => deleteDamage(dmg.id)} hitSlop={12}>
-                        <Trash2 size={16} color={Colors.textTertiary} strokeWidth={2} />
-                      </TouchableOpacity>
+                      {canDeleteDamages ? (
+                        <TouchableOpacity onPress={() => deleteDamage(dmg.id)} hitSlop={12}>
+                          <Trash2 size={16} color={Colors.textTertiary} strokeWidth={2} />
+                        </TouchableOpacity>
+                      ) : null}
                     </View>
                     <View style={styles.damageMeta}>
                       <Text style={styles.metaText}>Dilaporkan: {formatDate(dmg.reported_date)}</Text>
-                      <TouchableOpacity
-                        style={[styles.statusPill, { backgroundColor: dmg.status === 'fixed' ? Colors.primaryLight : Colors.surfaceAlt }]}
-                        onPress={() => cycleDamageStatus(dmg)}
-                      >
+                      <View style={[styles.statusPill, { backgroundColor: dmg.status === 'fixed' ? Colors.primaryLight : Colors.surfaceAlt }]}>
                         <Text style={[styles.statusText, { color: dmg.status === 'fixed' ? Colors.primary : Colors.textSecondary }]}>
                           {statusLabel}
                         </Text>
-                      </TouchableOpacity>
+                      </View>
                     </View>
                   </View>
                 );
@@ -574,17 +608,18 @@ export default function CarDetailScreen() {
       </ScrollView>
 
       {/* FAB */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => {
-          if (activeTab === 'notes') setNoteSheet(true);
-          else if (activeTab === 'completeness') setCompletenessSheet(true);
-          else if (activeTab === 'damages') setDamageSheet(true);
-          else setRentalSheet(true);
-        }}
-      >
-        <Plus size={26} color={Colors.white} strokeWidth={2.6} />
-      </TouchableOpacity>
+      {(activeTab === 'notes' && canCreateNotes) || (activeTab === 'damages' && canCreateDamages) || (activeTab === 'rental' && isAdmin) ? (
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => {
+            if (activeTab === 'notes') setNoteSheet(true);
+            else if (activeTab === 'damages') setDamageSheet(true);
+            else if (activeTab === 'rental') setRentalSheet(true);
+          }}
+        >
+          <Plus size={26} color={Colors.white} strokeWidth={2.6} />
+        </TouchableOpacity>
+      ) : null}
 
       {/* Note Sheet */}
       <Sheet visible={noteSheet} onClose={() => setNoteSheet(false)} title="Catatan Duplikasi Baru">

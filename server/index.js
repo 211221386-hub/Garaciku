@@ -253,10 +253,30 @@ app.get('/api/cars/:car_id/notes', async (req, res) => {
 // POST new daily note
 app.post('/api/notes', async (req, res) => {
   try {
-    const { car_id, note_date, content } = req.body;
+    const {
+      car_id,
+      name = '',
+      section = '',
+      note_date,
+      start_date,
+      end_date,
+      start_km,
+      end_km,
+      start_fuel,
+      end_fuel,
+      content = '',
+    } = req.body;
+
+    const insertDate = note_date || start_date || new Date().toISOString().slice(0, 10);
+    const startDate = start_date || insertDate;
+    const endDate = end_date || startDate;
+
     const result = await pool.query(
-      'INSERT INTO daily_notes (car_id, note_date, content) VALUES ($1, $2, $3) RETURNING *',
-      [car_id, note_date, content]
+      `INSERT INTO daily_notes (
+        car_id, name, section, note_date, start_date, end_date,
+        start_km, end_km, start_fuel, end_fuel, content
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      [car_id, name, section, insertDate, startDate, endDate, start_km ?? null, end_km ?? null, start_fuel ?? null, end_fuel ?? null, content]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -275,9 +295,46 @@ app.get('/api/notes', async (req, res) => {
 
 app.put('/api/notes/:id', async (req, res) => {
   try {
+    const {
+      name,
+      section,
+      note_date,
+      start_date,
+      end_date,
+      start_km,
+      end_km,
+      start_fuel,
+      end_fuel,
+      content,
+    } = req.body;
+
+    const updates = [];
+    const values = [];
+
+    const pushValue = (column, value) => {
+      values.push(value);
+      updates.push(`${column} = $${values.length}`);
+    };
+
+    if (name !== undefined) pushValue('name', name);
+    if (section !== undefined) pushValue('section', section);
+    if (note_date !== undefined) pushValue('note_date', note_date);
+    if (start_date !== undefined) pushValue('start_date', start_date);
+    if (end_date !== undefined) pushValue('end_date', end_date);
+    if (start_km !== undefined) pushValue('start_km', start_km ?? null);
+    if (end_km !== undefined) pushValue('end_km', end_km ?? null);
+    if (start_fuel !== undefined) pushValue('start_fuel', start_fuel ?? null);
+    if (end_fuel !== undefined) pushValue('end_fuel', end_fuel ?? null);
+    if (content !== undefined) pushValue('content', content);
+
+    if (!updates.length) {
+      return res.status(400).json({ error: 'Tidak ada data yang diupdate.' });
+    }
+
+    values.push(req.params.id);
     const result = await pool.query(
-      'UPDATE daily_notes SET content = $1, note_date = $2 WHERE id = $3 RETURNING *',
-      [req.body.content, req.body.note_date, req.params.id]
+      `UPDATE daily_notes SET ${updates.join(', ')} WHERE id = $${values.length} RETURNING *`,
+      values
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Note not found' });
     res.json(result.rows[0]);
