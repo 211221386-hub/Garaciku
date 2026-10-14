@@ -75,24 +75,23 @@ class ApiClient {
     getAll: async () => {
       const session = getSession();
       let query = supabase.from('rental_records').select('*, cars(name)').order('created_at', { ascending: false });
-      if (session && session.user.role !== 1 && session.user.role !== 2) query = query.eq('user_id', session.user.id);
+      if (session && [3, 4].includes(session.user.role)) query = query.eq('user_id', session.user.id);
       return (await unwrap<(RentalRecord & { cars: { name: string } | null })[]>(query)).map((rental) => withCarName({ ...rental, status: getRentalStatus(rental.status, rental.end_date, rental.end_time) })) as (RentalRecord & { car_name: string })[];
     },
     getByCar: async (carId: string) => {
-      const session = getSession();
-      let query = supabase.from('rental_records').select('*').eq('car_id', carId).order('start_date', { ascending: false });
-      if (session && session.user.role !== 1 && session.user.role !== 2) query = query.eq('user_id', session.user.id);
+      const query = supabase.from('rental_records').select('*').eq('car_id', carId).order('start_date', { ascending: false });
       return (await unwrap<RentalRecord[]>(query)).map((rental) => ({ ...rental, status: getRentalStatus(rental.status, rental.end_date, rental.end_time) }));
     },
     getById: async (id: string) => {
-      const session = getSession();
-      let query = supabase.from('rental_records').select('*').eq('id', id);
-      if (session && session.user.role !== 1 && session.user.role !== 2) query = query.eq('user_id', session.user.id);
+      const query = supabase.from('rental_records').select('*').eq('id', id);
       const rental = await unwrap<RentalRecord>(query.single());
       return { ...rental, status: getRentalStatus(rental.status, rental.end_date, rental.end_time) };
     },
     create: (data: Record<string, unknown>) => {
       const session = getSession();
+      if (!session || ![1, 3, 4].includes(session.user.role)) {
+        throw new Error('Role ini tidak memiliki izin membuat rental.');
+      }
       const isRequester = session?.user.role === 3 || session?.user.role === 4;
       return (async () => {
         const activeCarIds = await apiClient.rentals.getCurrentlyRentedCarIds();
@@ -155,18 +154,16 @@ class ApiClient {
     },
     update: (id: string, data: Record<string, unknown>) => {
       const session = getSession();
-      const isAdmin = session?.user.role === 1 || session?.user.role === 2;
-      if (session && !isAdmin) {
-        throw new Error('Role ini hanya dapat membuat dan melihat rental milik sendiri.');
+      if (!session || session.user.role !== 1) {
+        throw new Error('Hanya Super Admin (Role 1) yang dapat mengubah rental.');
       }
-      let query = supabase.from('rental_records').update(data).eq('id', id);
-      if (session && !isAdmin) query = query.eq('user_id', session.user.id);
+      const query = supabase.from('rental_records').update(data).eq('id', id);
       return unwrap<RentalRecord>(query.select().single());
     },
     decideApproval: async (id: string, data: { status: 'approved' | 'rejected'; car_id: string; approved_by: string; approved_at: string }) => {
       const session = getSession();
-      if (!session || ![1, 2].includes(session.user.role)) {
-        throw new Error('Hanya role 1 atau 2 yang dapat memproses approval.');
+      if (!session || session.user.role !== 1) {
+        throw new Error('Hanya Super Admin (Role 1) yang dapat memproses approval.');
       }
 
       const rental = await unwrap<RentalRecord>(
@@ -181,7 +178,7 @@ class ApiClient {
     },
     confirmReturn: async (id: string) => {
       const session = getSession();
-      if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya role 1 atau 2 yang dapat mengonfirmasi pengembalian.');
+      if (!session || session.user.role !== 1) throw new Error('Hanya Super Admin (Role 1) yang dapat mengonfirmasi pengembalian.');
       const rental = await unwrap<RentalRecord>(supabase.from('rental_records').select('*').eq('id', id).in('status', ['approved', 'active', 'overdue']).single());
       await unwrap(supabase.from('rental_records').update({
         status: 'completed',
@@ -192,12 +189,10 @@ class ApiClient {
     },
     delete: async (id: string) => {
       const session = getSession();
-      const isAdmin = session?.user.role === 1 || session?.user.role === 2;
-      if (session && !isAdmin) {
-        throw new Error('Role ini hanya dapat membuat dan melihat rental milik sendiri.');
+      if (!session || ![1, 2].includes(session.user.role)) {
+        throw new Error('Hanya Role 1 dan 2 yang dapat menghapus rental.');
       }
-      let query = supabase.from('rental_records').delete().eq('id', id);
-      if (session && !isAdmin) query = query.eq('user_id', session.user.id);
+      const query = supabase.from('rental_records').delete().eq('id', id);
       await unwrap(query);
       return { success: true };
     },
@@ -235,7 +230,7 @@ class ApiClient {
     },
     update: async (id: string, data: Record<string, unknown>) => {
       const session = getSession();
-      if (!(session && [1, 2].includes(session.user.role))) {
+      if (!(session && session.user.role === 1)) {
         throw new Error('Role ini tidak memiliki izin mengubah catatan duplikasi.');
       }
       try {
@@ -272,9 +267,22 @@ class ApiClient {
   completeness = {
     getAll: async () => (await unwrap<(CompletenessItem & { cars: { name: string } | null })[]>(supabase.from('completeness_items').select('*, cars(name)').order('created_at', { ascending: false }))).map(withCarName),
     getByCar: (carId: string) => unwrap<CompletenessItem[]>(supabase.from('completeness_items').select('*').eq('car_id', carId).order('created_at', { ascending: false })),
-    create: (..._args: unknown[]) => { throw new Error('Kelengkapan hanya dapat dibaca, tidak dapat dibuat.'); },
-    update: (..._args: unknown[]) => { throw new Error('Kelengkapan hanya dapat dibaca, tidak dapat diubah.'); },
-    delete: async (..._args: unknown[]) => { throw new Error('Kelengkapan hanya dapat dibaca, tidak dapat dihapus.'); },
+    create: (data: Record<string, unknown>) => {
+      const session = getSession();
+      if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya Role 1 dan 2 yang dapat membuat kelengkapan.');
+      return unwrap<CompletenessItem>(supabase.from('completeness_items').insert(data).select().single());
+    },
+    update: (id: string, data: Record<string, unknown>) => {
+      const session = getSession();
+      if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya Role 1 dan 2 yang dapat mengubah kelengkapan.');
+      return unwrap<CompletenessItem>(supabase.from('completeness_items').update(data).eq('id', id).select().single());
+    },
+    delete: async (id: string) => {
+      const session = getSession();
+      if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya Role 1 dan 2 yang dapat menghapus kelengkapan.');
+      await unwrap(supabase.from('completeness_items').delete().eq('id', id));
+      return { success: true };
+    },
   };
 
   damages = {
@@ -288,8 +296,17 @@ class ApiClient {
       }
       return unwrap<Damage>(supabase.from('damages').insert(data).select().single());
     },
-    update: (..._args: unknown[]) => { throw new Error('Kerusakan hanya dapat dibuat dan dibaca, tidak dapat diubah.'); },
-    delete: async (..._args: unknown[]) => { throw new Error('Kerusakan hanya dapat dibuat dan dibaca, tidak dapat dihapus.'); },
+    update: (id: string, data: Record<string, unknown>) => {
+      const session = getSession();
+      if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya Role 1 dan 2 yang dapat mengubah kerusakan.');
+      return unwrap<Damage>(supabase.from('damages').update(data).eq('id', id).select().single());
+    },
+    delete: async (id: string) => {
+      const session = getSession();
+      if (!session || session.user.role !== 1) throw new Error('Hanya Super Admin (Role 1) yang dapat menghapus kerusakan.');
+      await unwrap(supabase.from('damages').delete().eq('id', id));
+      return { success: true };
+    },
   };
 }
 

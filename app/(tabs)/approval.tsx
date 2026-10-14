@@ -11,7 +11,7 @@ import { EmptyState } from '@/components/EmptyState';
 
 type ApprovalRental = RentalRecord & { car_name: string };
 
-const isAdmin = () => [1, 2].includes(getSession()?.user.role ?? 0);
+const isSuperAdmin = () => getSession()?.user.role === 1;
 
 const statusConfig: Record<RentalStatus, { label: string; backgroundColor: string; color: string }> = {
   pending: { label: 'Menunggu', backgroundColor: '#FEF3C7', color: '#92400E' },
@@ -37,7 +37,7 @@ export default function ApprovalScreen() {
   const fetchApprovals = useCallback(async () => {
     try {
       const [rentalData, carData] = await Promise.all([apiClient.rentals.getAll(), apiClient.cars.getAll()]);
-      setRentals(isAdmin() ? rentalData.filter((rental) => rental.status === 'pending') : rentalData);
+      setRentals(isSuperAdmin() ? rentalData.filter((rental) => rental.status === 'pending') : rentalData);
       setCars(carData);
       setSelectedCars((current) => Object.fromEntries(rentalData.map((rental) => [rental.id, current[rental.id] ?? rental.car_id])));
     } catch (error) {
@@ -51,7 +51,7 @@ export default function ApprovalScreen() {
 
   const decide = async (rental: ApprovalRental, status: 'approved' | 'rejected') => {
     const session = getSession();
-    if (!session || ![1, 2].includes(session.user.role)) return;
+    if (!session || session.user.role !== 1) return;
     setProcessingId(rental.id);
     setErrorMessage(null);
     setNotificationError(null);
@@ -100,7 +100,7 @@ export default function ApprovalScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.greeting}>Persetujuan Rental</Text>
-        <Text style={styles.title}>{isAdmin() ? 'Review Permintaan' : 'Approval Saya'}</Text>
+        <Text style={styles.title}>{isSuperAdmin() ? 'Review Permintaan' : 'Riwayat Rental'}</Text>
       </View>
       {notificationError ? (
         <View style={styles.notificationError}>
@@ -127,7 +127,7 @@ export default function ApprovalScreen() {
             </View>
             <Text style={styles.meta}>{formatDate(item.start_date)}{item.end_date ? ` - ${formatDate(item.end_date)}` : ''}</Text>
             <Text style={styles.purpose}>{item.purpose || 'Tanpa tujuan peminjaman'}</Text>
-            {isAdmin() ? (
+            {isSuperAdmin() ? (
               <>
                 <Text style={styles.label}>Mobil yang disetujui</Text>
                 <View style={styles.carPicker}>
@@ -141,10 +141,10 @@ export default function ApprovalScreen() {
                   <TouchableOpacity style={[styles.action, styles.approve, processingId === item.id && styles.actionDisabled]} onPress={() => confirmDecision(item, 'approved')} disabled={processingId === item.id}><Check size={17} color={Colors.white} /><Text style={[styles.actionText, { color: Colors.white }]}>{processingId === item.id ? 'Memproses...' : 'Approve'}</Text></TouchableOpacity>
                 </View>
               </>
-            ) : <Text style={styles.waiting}>{item.status === 'pending' ? 'Menunggu admin role 1 atau 2 memilih dan menyetujui mobil.' : item.status === 'approved' || item.status === 'completed' ? 'Permintaan Anda sudah disetujui.' : 'Permintaan Anda ditolak.'}</Text>}
+            ) : <Text style={styles.waiting}>{item.status === 'pending' ? 'Menunggu Super Admin memilih dan menyetujui mobil.' : item.status === 'approved' || item.status === 'completed' ? 'Permintaan Anda sudah disetujui.' : 'Permintaan Anda ditolak.'}</Text>}
           </View>
         )}
-        ListEmptyComponent={<EmptyState icon={<ClipboardCheck size={32} color={Colors.primary} strokeWidth={2} />} title={isAdmin() ? 'Tidak ada approval pending' : 'Belum ada riwayat approval'} subtitle={isAdmin() ? 'Permintaan baru dari role 3 dan 4 akan muncul di sini.' : 'Permintaan rental Anda akan muncul di sini.'} />}
+        ListEmptyComponent={<EmptyState icon={<ClipboardCheck size={32} color={Colors.primary} strokeWidth={2} />} title={isSuperAdmin() ? 'Tidak ada approval pending' : 'Belum ada riwayat approval'} subtitle={isSuperAdmin() ? 'Permintaan baru dari role 3 dan 4 akan muncul di sini.' : 'Permintaan rental Anda akan muncul di sini.'} />}
       />
       {decision ? (
         <View style={styles.modalOverlay}>
