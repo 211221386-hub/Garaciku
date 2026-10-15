@@ -4,6 +4,10 @@
   "main": "./worker.js",
   "keep_vars": true,
   "compatibility_date": "2026-10-01",
+  "vars": {
+    "APP_ORIGIN": "https://garaciku.211221386.workers.dev",
+    "SUPABASE_URL": "https://ncbsukeneywkkscnkcrv.supabase.co"
+  },
   "observability": {
     "enabled": true
   },
