@@ -153,7 +153,7 @@ export default function ServiceScreen() {
           <View style={styles.confirmModal}>
             <View style={styles.confirmIcon}><Trash2 size={24} color={Colors.error} strokeWidth={2.2} /></View>
             <Text style={styles.confirmTitle}>Hapus Service?</Text>
-            <Text style={styles.confirmMessage}>Catatan service "{serviceToDelete.service_type}" akan dihapus permanen.</Text>
+            <Text style={styles.confirmMessage}>Catatan service &quot;{serviceToDelete.service_type}&quot; akan dihapus permanen.</Text>
             <View style={styles.confirmActions}>
               <TouchableOpacity style={[styles.confirmButton, styles.cancelButton]} onPress={() => setServiceToDelete(null)}>
                 <Text style={styles.cancelButtonText}>Batal</Text>

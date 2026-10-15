@@ -38,7 +38,7 @@ export default function RentalDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [canManageRental, id]);
+  }, [id]);
 
   useFocusEffect(useCallback(() => { fetchRental(); }, [fetchRental]));
 

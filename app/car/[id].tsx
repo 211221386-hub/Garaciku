@@ -35,6 +35,7 @@ type Tab = 'notes' | 'completeness' | 'damages' | 'rental';
 export default function CarDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const sessionRole = getSession()?.user.role ?? 0;
+  const canManageCar = [1, 2].includes(sessionRole);
   const isSuperAdmin = sessionRole === 1;
   const canManageRental = isSuperAdmin;
   const canDeleteRental = [1, 2].includes(sessionRole);
@@ -406,7 +407,7 @@ export default function CarDetailScreen() {
           <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
             <ChevronLeft size={24} color={Colors.white} strokeWidth={2.4} />
           </TouchableOpacity>
-          <View style={styles.headerActions}>
+          {canManageCar ? <View style={styles.headerActions}>
             <TouchableOpacity
               onPress={() => router.push(`/car/edit/${id}`)}
               style={styles.iconBtn}
@@ -416,7 +417,7 @@ export default function CarDetailScreen() {
             <TouchableOpacity onPress={deleteCar} style={styles.iconBtn}>
               <Trash2 size={20} color={Colors.white} strokeWidth={2.2} />
             </TouchableOpacity>
-          </View>
+          </View> : null}
         </View>
         <Text style={styles.carName} numberOfLines={1}>{car?.name ?? 'Mobil'}</Text>
         <Text style={styles.carSubtitle} numberOfLines={1}>

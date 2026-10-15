@@ -5,7 +5,12 @@ const pool = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'garasiku-dev-secret';
+const JWT_SECRET = process.env.APP_JWT_SECRET;
+const APP_ORIGIN = process.env.APP_ORIGIN;
+
+if (!JWT_SECRET || Buffer.byteLength(JWT_SECRET) < 32) {
+  throw new Error('APP_JWT_SECRET must be configured with at least 32 bytes.');
+}
 
 function base64UrlEncode(value) {
   return Buffer.from(value)
@@ -31,11 +36,32 @@ function createJwt(payload) {
   return `${signingInput}.${signature}`;
 }
 
+function verifyJwt(token) {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [encodedHeader, encodedPayload, signature] = parts;
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+  const expected = crypto.createHmac('sha256', JWT_SECRET).update(signingInput).digest();
+  const actual = Buffer.from(signature.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+  if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return null;
+
+  try {
+    const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
+    return Number.isInteger(payload.exp) && payload.exp > Math.floor(Date.now() / 1000) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
 // Middleware
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  if (req.headers.origin && (!APP_ORIGIN || req.headers.origin !== APP_ORIGIN)) {
+    return res.status(403).json({ error: 'Origin not allowed.' });
+  }
+  if (APP_ORIGIN) res.header('Access-Control-Allow-Origin', APP_ORIGIN);
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.header('Vary', 'Origin');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(204);
   }
@@ -52,7 +78,12 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT * FROM users WHERE username = $1 AND password = $2 AND is_active = true LIMIT 1',
+      `SELECT id, username, full_name, role, is_active, created_at
+       FROM users
+       WHERE username = $1
+         AND is_active = true
+         AND password_hash = extensions.crypt($2, password_hash)
+       LIMIT 1`,
       [username, password]
     );
 
@@ -60,28 +91,70 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Username atau password tidak valid.' });
     }
 
-    const user = result.rows[0];
-    const { password: _password, ...safeUser } = user;
-    const issuedAt = Date.now();
-    const expiresAt = issuedAt + (8 * 60 * 60 * 1000);
+    const safeUser = result.rows[0];
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const expiresAt = issuedAt + (8 * 60 * 60);
 
     const token = createJwt({
       sub: safeUser.id,
       username: safeUser.username,
-      role: safeUser.role,
       exp: expiresAt,
       iat: issuedAt,
     });
 
     return res.json({
       token,
-      expiresAt,
+      expiresAt: expiresAt * 1000,
       user: safeUser,
     });
   } catch (error) {
     console.error('Login error:', error);
     return res.status(500).json({ error: error.message });
   }
+});
+
+app.use('/api', async (req, res, next) => {
+  if (req.path === '/auth/login') return next();
+
+  const authorization = req.headers.authorization;
+  if (!authorization?.startsWith('Bearer ')) return res.status(401).json({ error: 'Authentication is required.' });
+  const claims = verifyJwt(authorization.slice('Bearer '.length));
+  if (!claims?.sub) return res.status(401).json({ error: 'Session is invalid or expired.' });
+
+  try {
+    const result = await pool.query('SELECT id, role, is_active FROM users WHERE id = $1 LIMIT 1', [claims.sub]);
+    const user = result.rows[0];
+    if (!user?.is_active || ![1, 2, 3, 4].includes(user.role)) return res.status(401).json({ error: 'User is inactive or not authorized.' });
+    req.authUser = user;
+  } catch (error) {
+    console.error('Authentication lookup failed:', error);
+    return res.status(503).json({ error: 'Authentication service is unavailable.' });
+  }
+
+  const role = req.authUser.role;
+  const path = req.path;
+  const method = req.method;
+  const admins = [1, 2];
+  let allowed = true;
+
+  if (/^\/cars(?:\/[^/]+)?$/.test(path) && method !== 'GET') allowed = admins.includes(role);
+  else if (path === '/notes' && method === 'POST') allowed = [1, 2, 3, 4].includes(role);
+  else if (/^\/notes\/[^/]+$/.test(path) && method === 'PUT') allowed = role === 1;
+  else if (/^\/notes\/[^/]+$/.test(path) && method === 'DELETE') allowed = admins.includes(role);
+  else if (/^\/completeness(?:\/[^/]+)?$/.test(path) && method !== 'GET') allowed = admins.includes(role);
+  else if (path === '/damages' && method === 'POST') allowed = [1, 2, 3, 4].includes(role);
+  else if (/^\/damages\/[^/]+$/.test(path) && method === 'PUT') allowed = admins.includes(role);
+  else if (/^\/damages\/[^/]+$/.test(path) && method === 'DELETE') allowed = role === 1;
+  else if (path === '/rentals' && method === 'POST') allowed = [1, 3, 4].includes(role);
+  else if (/^\/rentals\/[^/]+$/.test(path) && method === 'PUT') allowed = role === 1;
+  else if (/^\/rentals\/[^/]+$/.test(path) && method === 'DELETE') allowed = admins.includes(role);
+
+  if (!allowed) return res.status(403).json({ error: 'Role is not allowed to perform this action.' });
+  if (path === '/rentals' && method === 'POST' && [3, 4].includes(role)) {
+    req.body.user_id = req.authUser.id;
+    req.body.status = 'pending';
+  }
+  next();
 });
 
 // ============ CARS ENDPOINTS ============

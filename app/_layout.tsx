@@ -1,8 +1,7 @@
 import { useEffect } from 'react';
-import { router, Stack, usePathname } from 'expo-router';
+import { router, Stack, usePathname, SplashScreen } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
-import { SplashScreen } from 'expo-router';
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,

@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { supabase, workerApiUrl } from '@/lib/supabase';
 import type { AppUser, Car, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStatus, ServiceRecord } from '@/lib/types';
 import { getRentalStatus, todayISO } from '@/lib/format';
 import { getSession } from '@/lib/auth';
@@ -24,30 +24,32 @@ function isBlockingRental(rental: { status: RentalStatus }) {
   return rental.status === 'active' || rental.status === 'approved' || rental.status === 'overdue';
 }
 
+async function callWorker(path: string, payload: Record<string, unknown>) {
+  const session = getSession();
+  if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+  const response = await fetch(workerApiUrl(path), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => null) as { error?: string } | null;
+  if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
+}
+
 class ApiClient {
   users = {
     getAll: () => unwrap<AppUser[]>(supabase.from('users').select('id, username, full_name, role, is_active, created_at').order('created_at', { ascending: false })),
     login: async (username: string, password: string): Promise<LoginResult | null> => {
-      const { data, error } = await supabase.rpc('auth_login', {
-        _username: username,
-        _password: password,
+      const response = await fetch(workerApiUrl('/api/auth/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
       });
-
-      if (error) {
-        return null;
-      }
-
-      const user = (data as AppUser[] | null)?.[0] ?? null;
-
-      if (!user) {
-        return null;
-      }
-
-      return {
-        user,
-        token: `supabase-token-${Date.now()}`,
-        expiresAt: Date.now() + (8 * 60 * 60 * 1000),
-      };
+      if (response.status === 401) return null;
+      const result = await response.json().catch(() => null) as { user?: AppUser; token?: string; expiresAt?: number; error?: string } | null;
+      if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
+      if (!result?.user || !result.token || !result.expiresAt) return null;
+      return { user: result.user, token: result.token, expiresAt: result.expiresAt };
     },
   };
 
@@ -61,8 +63,17 @@ class ApiClient {
       }
       return unwrap<Car>(supabase.from('cars').insert(data).select().single());
     },
-    update: (id: string, data: Record<string, unknown>) => unwrap<Car>(supabase.from('cars').update(data).eq('id', id).select().single()),
-    delete: async (id: string) => { await unwrap(supabase.from('cars').delete().eq('id', id)); return { success: true }; },
+    update: (id: string, data: Record<string, unknown>) => {
+      const session = getSession();
+      if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya role 1 atau 2 yang dapat mengubah data mobil.');
+      return unwrap<Car>(supabase.from('cars').update(data).eq('id', id).select().single());
+    },
+    delete: async (id: string) => {
+      const session = getSession();
+      if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya role 1 atau 2 yang dapat menghapus mobil.');
+      await unwrap(supabase.from('cars').delete().eq('id', id));
+      return { success: true };
+    },
   };
 
   rentals = {
@@ -116,18 +127,7 @@ class ApiClient {
       tanggalSelesaiSewa: string;
       jumlahHariSewa: number | '';
     }) => {
-      const url = process.env.EXPO_PUBLIC_RENTAL_AUTOMATION_URL;
-      if (!url) throw new Error('EXPO_PUBLIC_RENTAL_AUTOMATION_URL belum dikonfigurasi.');
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API automation mengembalikan status ${response.status}.`);
-      }
+      await callWorker('/api/rental-created', payload);
     },
     notifyApproved: async (payload: {
       namaPemesan: string;
@@ -139,18 +139,7 @@ class ApiClient {
       tanggalSelesaiSewa: string;
       jumlahHariSewa: number;
     }) => {
-      const url = process.env.EXPO_PUBLIC_RENTAL_AUTOMATION_URL;
-      if (!url) throw new Error('EXPO_PUBLIC_RENTAL_AUTOMATION_URL belum dikonfigurasi.');
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Power Automate mengembalikan status ${response.status}.`);
-      }
+      await callWorker('/api/rental-approved', payload);
     },
     update: (id: string, data: Record<string, unknown>) => {
       const session = getSession();

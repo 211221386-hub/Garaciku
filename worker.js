@@ -1,81 +1,359 @@
-const jsonHeaders = {
-  'Content-Type': 'application/json',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+const TABLES = new Set([
+  'users',
+  'cars',
+  'daily_notes',
+  'completeness_items',
+  'damages',
+  'service_records',
+  'rental_records',
+]);
+
+const COLUMNS = {
+  users: new Set(['id', 'username', 'full_name', 'role', 'is_active', 'created_at']),
+  cars: new Set(['id', 'name', 'brand', 'model', 'year', 'plate_number', 'color', 'photo_url', 'created_at']),
+  daily_notes: new Set(['id', 'car_id', 'name', 'section', 'note_date', 'start_date', 'end_date', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'created_at']),
+  completeness_items: new Set(['id', 'car_id', 'name', 'is_present', 'reminder_type', 'next_due_date', 'created_at']),
+  damages: new Set(['id', 'car_id', 'description', 'severity', 'status', 'reported_date', 'resolved_date', 'created_at']),
+  service_records: new Set(['id', 'car_id', 'service_date', 'service_type', 'description', 'cost', 'mileage', 'workshop', 'status', 'next_service_date', 'next_service_mileage', 'reminder_enabled', 'reminder_interval_months', 'reminder_interval_mileage', 'created_at']),
+  rental_records: new Set(['id', 'car_id', 'user_id', 'renter_name', 'renter_email', 'renter_phone', 'start_date', 'start_time', 'end_date', 'end_time', 'total_cost', 'purpose', 'status', 'approved_by', 'approved_at', 'return_confirmed_by', 'return_confirmed_at', 'notes', 'created_at']),
 };
 
-const stringFields = [
-  'namaPemesan',
-  'emailPemesan',
-  'nomorTelepon',
-  'jenisKendaraan',
-  'platNomor',
-  'tanggalMulaiSewa',
-  'tanggalSelesaiSewa',
-];
+const CORS_METHODS = 'POST, OPTIONS';
+const CORS_HEADERS = 'Authorization, Content-Type';
+
+function base64UrlEncode(input) {
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input;
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlDecode(input) {
+  const normalized = input.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = atob(normalized + '='.repeat((4 - (normalized.length % 4)) % 4));
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function serviceHeaders(env, extra = {}) {
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured.');
+  return {
+    apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+    ...extra,
+  };
+}
+
+async function signingKey(secret, usages) {
+  if (!secret || new TextEncoder().encode(secret).length < 32) {
+    throw new Error('APP_JWT_SECRET must be configured with at least 32 bytes.');
+  }
+  return crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, usages);
+}
+
+async function signToken(payload, secret) {
+  const header = base64UrlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const body = base64UrlEncode(JSON.stringify(payload));
+  const content = `${header}.${body}`;
+  const key = await signingKey(secret, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(content));
+  return `${content}.${base64UrlEncode(new Uint8Array(signature))}`;
+}
+
+async function verifyToken(token, secret) {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [headerPart, payloadPart, signaturePart] = parts;
+  try {
+    const header = JSON.parse(new TextDecoder().decode(base64UrlDecode(headerPart)));
+    if (header.alg !== 'HS256' || header.typ !== 'JWT') return null;
+    const key = await signingKey(secret, ['verify']);
+    const valid = await crypto.subtle.verify(
+      'HMAC',
+      key,
+      base64UrlDecode(signaturePart),
+      new TextEncoder().encode(`${headerPart}.${payloadPart}`),
+    );
+    if (!valid) return null;
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(payloadPart)));
+    if (typeof payload.sub !== 'string' || !Number.isInteger(payload.exp) || payload.exp <= Math.floor(Date.now() / 1000)) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+async function getUserById(env, userId) {
+  const url = new URL(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/users`);
+  url.searchParams.set('id', `eq.${userId}`);
+  url.searchParams.set('select', 'id,username,full_name,role,is_active,created_at');
+  url.searchParams.set('limit', '1');
+  const response = await fetch(url, { headers: serviceHeaders(env) });
+  if (!response.ok) throw new Error('User profile lookup failed.');
+  const [user] = await response.json();
+  return user ?? null;
+}
+
+async function authenticate(request, env) {
+  const authorization = request.headers.get('Authorization');
+  if (!authorization?.startsWith('Bearer ')) return null;
+  const claims = await verifyToken(authorization.slice('Bearer '.length), env.APP_JWT_SECRET);
+  if (!claims) return null;
+  const user = await getUserById(env, claims.sub);
+  if (!user?.is_active || ![1, 2, 3, 4].includes(user.role)) return null;
+  return user;
+}
+
+function userCanRead(table, role) {
+  if (table === 'users' || table === 'service_records') return [1, 2].includes(role);
+  return [1, 2, 3, 4].includes(role);
+}
+
+function userCanWrite(table, operation, role) {
+  if (table === 'cars') return [1, 2].includes(role);
+  if (table === 'users') return false;
+  if (table === 'daily_notes') {
+    if (operation === 'insert') return [1, 2, 3, 4].includes(role);
+    if (operation === 'update') return role === 1;
+    if (operation === 'delete') return [1, 2].includes(role);
+  }
+  if (table === 'completeness_items') return [1, 2].includes(role);
+  if (table === 'damages') {
+    if (operation === 'insert') return [1, 2, 3, 4].includes(role);
+    if (operation === 'update') return [1, 2].includes(role);
+    if (operation === 'delete') return role === 1;
+  }
+  if (table === 'service_records') return [1, 2].includes(role);
+  if (table === 'rental_records') {
+    if (operation === 'insert') return [1, 3, 4].includes(role);
+    if (operation === 'update') return role === 1;
+    if (operation === 'delete') return [1, 2].includes(role);
+  }
+  return false;
+}
+
+function validateFilters(table, filters, required = false) {
+  if (!Array.isArray(filters)) return null;
+  if (required && filters.length === 0) return null;
+  const columns = COLUMNS[table];
+  for (const filter of filters) {
+    if (!filter || !columns.has(filter.column) || !['eq', 'in'].includes(filter.operator)) return null;
+    if (filter.operator === 'in' && (!Array.isArray(filter.value) || filter.value.length > 100)) return null;
+    if (filter.operator === 'eq' && (filter.value === null || ['object', 'function'].includes(typeof filter.value))) return null;
+  }
+  return filters;
+}
+
+function encodeFilter(filter) {
+  if (filter.operator === 'eq') return `eq.${String(filter.value)}`;
+  const values = filter.value.map((value) => {
+    const stringValue = String(value);
+    if (/[(),"\\]/.test(stringValue)) throw new Error('Invalid filter value.');
+    return typeof value === 'string' ? `"${stringValue}"` : stringValue;
+  });
+  return `in.(${values.join(',')})`;
+}
+
+function safeSelection(table, requested) {
+  if (table === 'users') return 'id,username,full_name,role,is_active,created_at';
+  if (typeof requested !== 'string') return '*';
+  if (requested.replace(/\s/g, '') === '*,cars(name)') {
+    return ['rental_records', 'daily_notes', 'service_records', 'completeness_items', 'damages'].includes(table)
+      ? '*,cars(name)'
+      : '*';
+  }
+  const columns = requested.split(',').map((column) => column.trim());
+  if (columns.length > 0 && columns.every((column) => COLUMNS[table].has(column))) return columns.join(',');
+  return '*';
+}
+
+function buildPostgrestUrl(env, table, body) {
+  if (!TABLES.has(table)) throw new Error('Table is not available through the application API.');
+  const url = new URL(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/${table}`);
+  url.searchParams.set('select', safeSelection(table, body.select));
+  const filters = validateFilters(table, body.filters ?? []);
+  if (!filters) throw new Error('Invalid query filters.');
+  for (const filter of filters) url.searchParams.set(filter.column, encodeFilter(filter));
+
+  if (body.order) {
+    if (!COLUMNS[table].has(body.order.column) || typeof body.order.ascending !== 'boolean') throw new Error('Invalid order parameter.');
+    url.searchParams.set('order', `${body.order.column}.${body.order.ascending ? 'asc' : 'desc'}`);
+  }
+  return url;
+}
+
+async function proxyQuery(env, user, body) {
+  const { table } = body;
+  if (!TABLES.has(table) || !userCanRead(table, user.role)) return { status: 403, error: 'Role is not allowed to read this table.' };
+  const url = buildPostgrestUrl(env, table, body);
+  const response = await fetch(url, { headers: serviceHeaders(env) });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) return { status: response.status, error: result?.message ?? 'Database query failed.' };
+  if (body.single) {
+    if (!Array.isArray(result) || result.length === 0) return { status: 404, error: 'Record not found.' };
+    return { status: 200, data: result[0] };
+  }
+  return { status: 200, data: result };
+}
+
+async function proxyMutation(env, user, body) {
+  const { table, operation } = body;
+  if (!TABLES.has(table) || !['insert', 'update', 'delete'].includes(operation) || !userCanWrite(table, operation, user.role)) {
+    return { status: 403, error: 'Role is not allowed to perform this operation.' };
+  }
+
+  const requiredFilters = operation !== 'insert';
+  const filters = validateFilters(table, body.filters ?? [], requiredFilters);
+  if (!filters) return { status: 400, error: 'Invalid mutation filters.' };
+  if (operation !== 'delete' && (!body.values || typeof body.values !== 'object' || Array.isArray(body.values))) {
+    return { status: 400, error: 'Mutation data is invalid.' };
+  }
+
+  const values = operation === 'insert' ? { ...body.values } : body.values;
+  if (table === 'rental_records' && operation === 'insert') {
+    values.start_time ??= '00:00';
+    if (user.role === 3 || user.role === 4) {
+      values.user_id = user.id;
+      values.status = 'pending';
+    }
+  }
+
+  const url = buildPostgrestUrl(env, table, { select: body.select, filters: filters.map((filter) => ({ ...filter, value: filter.value })) });
+  const method = operation === 'insert' ? 'POST' : operation === 'update' ? 'PATCH' : 'DELETE';
+  const headers = serviceHeaders(env, { Prefer: 'return=representation' });
+  if (operation !== 'delete') headers['Content-Type'] = 'application/json';
+  const response = await fetch(url, {
+    method,
+    headers,
+    ...(operation === 'delete' ? {} : { body: JSON.stringify(values) }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) return { status: response.status, error: result?.message ?? 'Database mutation failed.' };
+  if (body.single) {
+    if (!Array.isArray(result) || result.length === 0) return { status: 404, error: 'Record not found.' };
+    return { status: 200, data: result[0] };
+  }
+  return { status: 200, data: result };
+}
+
+async function login(request, env) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !env.APP_JWT_SECRET) {
+    return { status: 503, error: 'Authentication service is not configured.' };
+  }
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return { status: 400, error: 'Invalid JSON body.' };
+  }
+  const username = typeof body?.username === 'string' ? body.username.trim() : '';
+  const password = typeof body?.password === 'string' ? body.password : '';
+  if (!username || !password) return { status: 400, error: 'Username and password are required.' };
+
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/auth_login`, {
+    method: 'POST',
+    headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ _username: username, _password: password }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(result) || !result[0]) return { status: 401, error: 'Username or password is invalid.' };
+  const user = result[0];
+  const expiresAt = Math.floor(Date.now() / 1000) + 8 * 60 * 60;
+  const token = await signToken({ sub: user.id, exp: expiresAt }, env.APP_JWT_SECRET);
+  return { status: 200, data: { user, token, expiresAt: expiresAt * 1000 } };
+}
+
+async function proxyNotification(request, env, user, path, headers) {
+  const allowed = path === '/api/rental-created'
+    ? [1, 3, 4].includes(user.role)
+    : path === '/api/rental-approved' && user.role === 1;
+  if (!allowed) return Response.json({ error: 'Role is not allowed to send this notification.' }, { status: 403, headers });
+  if (!env.RENTAL_AUTOMATION_URL) return Response.json({ error: 'Rental automation is not configured.' }, { status: 503, headers });
+
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return Response.json({ error: 'Invalid JSON body.' }, { status: 400, headers });
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return Response.json({ error: 'Invalid notification payload.' }, { status: 400, headers });
+
+  try {
+    const response = await fetch(env.RENTAL_AUTOMATION_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) return Response.json({ error: `Webhook returned ${response.status}.` }, { status: 502, headers });
+    return Response.json({ ok: true }, { headers });
+  } catch {
+    return Response.json({ error: 'Webhook request failed.' }, { status: 502, headers });
+  }
+}
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const routes = new Set([
+      '/api/auth/login',
+      '/api/data/query',
+      '/api/data/insert',
+      '/api/data/update',
+      '/api/data/delete',
+      '/api/rental-created',
+      '/api/rental-approved',
+    ]);
+    if (!routes.has(url.pathname)) return env.ASSETS.fetch(request);
 
-    if (url.pathname !== '/api/rental-approved') {
-      return env.ASSETS.fetch(request);
-    }
+    const origin = request.headers.get('Origin');
+    const headers = {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Methods': CORS_METHODS,
+      'Access-Control-Allow-Headers': CORS_HEADERS,
+      'Vary': 'Origin',
+      ...(env.APP_ORIGIN ? { 'Access-Control-Allow-Origin': env.APP_ORIGIN } : {}),
+    };
+    if (origin && (!env.APP_ORIGIN || origin !== env.APP_ORIGIN)) return Response.json({ error: 'Origin not allowed.' }, { status: 403, headers });
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
+    if (request.method !== 'POST') return Response.json({ error: 'Method not allowed.' }, { status: 405, headers });
 
-    console.info('Received rental approval notification request.');
-
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: jsonHeaders });
-    }
-
-    if (request.method !== 'POST') {
-      return Response.json({ error: 'Method not allowed.' }, { status: 405, headers: jsonHeaders });
-    }
-
-    const webhookUrl = env.EXPO_PUBLIC_RENTAL_AUTOMATION_URL;
-    if (!webhookUrl) {
-      console.error('Rental approval webhook URL is not configured.');
-      const availableBindings = Object.keys(env).filter((name) => /RENTAL|WEBHOOK|AUTOMATION/i.test(name)).sort();
-      console.error('Available rental webhook binding names:', availableBindings);
-      return Response.json({
-        error: 'Set EXPO_PUBLIC_RENTAL_AUTOMATION_URL in the active production Worker.',
-        availableBindings,
-      }, { status: 500, headers: jsonHeaders });
-    }
-
-    let payload;
-    try {
-      payload = await request.json();
-    } catch {
-      return Response.json({ error: 'Invalid JSON body.' }, { status: 400, headers: jsonHeaders });
-    }
-
-    if (
-      !payload ||
-      typeof payload !== 'object' ||
-      stringFields.some((field) => typeof payload[field] !== 'string') ||
-      !Number.isInteger(payload.jumlahHariSewa)
-    ) {
-      return Response.json({ error: 'Invalid rental approval payload.' }, { status: 400, headers: jsonHeaders });
-    }
-
-    try {
-      const webhookResponse = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!webhookResponse.ok) {
-        console.error(`Rental approval webhook returned HTTP ${webhookResponse.status}.`);
-        return Response.json({ error: `Webhook returned ${webhookResponse.status}.` }, { status: 502, headers: jsonHeaders });
+    if (url.pathname === '/api/auth/login') {
+      try {
+        const result = await login(request, env);
+        return Response.json(result.data ?? { error: result.error }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Login failed:', error);
+        return Response.json({ error: 'Login service failed.' }, { status: 503, headers });
       }
-
-      return Response.json({ ok: true }, { headers: jsonHeaders });
-    } catch (error) {
-      console.error('Rental approval webhook request failed.', error);
-      return Response.json({ error: 'Webhook request failed.' }, { status: 502, headers: jsonHeaders });
     }
+
+    let user;
+    try {
+      user = await authenticate(request, env);
+    } catch (error) {
+      console.error('Authentication failed:', error);
+      return Response.json({ error: 'Authentication service failed.' }, { status: 503, headers });
+    }
+    if (!user) return Response.json({ error: 'Session is invalid or expired.' }, { status: 401, headers });
+
+    if (url.pathname === '/api/data/query' || url.pathname === '/api/data/insert' || url.pathname === '/api/data/update' || url.pathname === '/api/data/delete') {
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: 'Invalid JSON body.' }, { status: 400, headers });
+      }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return Response.json({ error: 'Invalid request.' }, { status: 400, headers });
+      try {
+        const result = url.pathname.endsWith('/query')
+          ? await proxyQuery(env, user, body)
+          : await proxyMutation(env, user, { ...body, operation: url.pathname.split('/').at(-1) });
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Data proxy failed:', error);
+        return Response.json({ error: error instanceof Error ? error.message : 'Data request failed.' }, { status: 400, headers });
+      }
+    }
+
+    return proxyNotification(request, env, user, url.pathname, headers);
   },
 };

@@ -1,5 +1,5 @@
 import { createElement, useState, type ChangeEvent } from 'react';
-import { Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Calendar } from 'lucide-react-native';
 import { Colors, Radius, Spacing, Typography } from '@/lib/theme';

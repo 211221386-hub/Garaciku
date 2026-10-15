@@ -1,5 +1,5 @@
 import { ActivityIndicator, Text, TouchableOpacity, StyleSheet, ViewStyle } from 'react-native';
-import { Colors, Radius, Spacing, Typography } from '@/lib/theme';
+import { Colors, Radius, Typography } from '@/lib/theme';
 
 type Props = {
   label: string;
