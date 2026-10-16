@@ -236,8 +236,10 @@ async function proxyMutation(env, user, body) {
 }
 
 async function login(request, env) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !env.APP_JWT_SECRET) {
-    return { status: 503, error: 'Authentication service is not configured.' };
+  const missingBindings = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'APP_JWT_SECRET']
+    .filter((name) => !env[name]);
+  if (missingBindings.length > 0) {
+    return { status: 503, error: `Authentication service is not configured. Missing: ${missingBindings.join(', ')}.` };
   }
   let body;
   try {

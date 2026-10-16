@@ -84,6 +84,24 @@ test('table-user login verifies through the private RPC and returns a signed ses
   }
 });
 
+test('login identifies missing runtime binding names without exposing values', async () => {
+  const mock = mockFetch(1);
+  try {
+    const env = envFor(1);
+    delete env.SUPABASE_SERVICE_ROLE_KEY;
+    const response = await worker.fetch(makeRequest('/api/auth/login', {
+      username: 'EMP001',
+      password: 'valid-password',
+    }), env);
+    const result = await response.json();
+    assert.equal(response.status, 503);
+    assert.equal(result.error, 'Authentication service is not configured. Missing: SUPABASE_SERVICE_ROLE_KEY.');
+    assert.equal(mock.calls.length, 0);
+  } finally {
+    mock.restore();
+  }
+});
+
 test('authenticated data query is proxied and returned in the expected envelope', async () => {
   const mock = mockFetch(1, [{ id: 'car-1', name: 'Zenix' }]);
   try {
