@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Modal, KeyboardAvoidingView, Platform } from 'react-native';
 import { router } from 'expo-router';
+import { CircleAlert } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
 import { createSession, hasValidSession } from '@/lib/auth';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
@@ -16,10 +17,11 @@ export default function LoginScreen() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
 
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) {
-      Alert.alert('Login gagal', 'Username dan password wajib diisi.');
+      setLoginError('Username dan password wajib diisi.');
       return;
     }
 
@@ -32,8 +34,7 @@ export default function LoginScreen() {
     try {
       const loginResult = await apiClient.users.login(username.trim(), password.trim());
       if (!loginResult) {
-        Alert.alert('Login gagal', 'Username atau password tidak valid.');
-        setLoading(false);
+        setLoginError('Username atau password tidak valid.');
         return;
       }
 
@@ -41,7 +42,8 @@ export default function LoginScreen() {
       createSession(sessionUser, loginResult.token, loginResult.expiresAt);
       router.replace('/(tabs)');
     } catch (error) {
-      Alert.alert('Login gagal', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+      const message = error instanceof Error ? error.message : '';
+      setLoginError(message || 'Terjadi kesalahan saat login. Silakan coba lagi.');
     } finally {
       setLoading(false);
     }
@@ -89,6 +91,30 @@ export default function LoginScreen() {
           <Text style={styles.buttonText}>{loading ? 'Memproses...' : 'Masuk'}</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={!!loginError}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLoginError('')}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIcon}>
+              <CircleAlert size={24} color={Colors.error} strokeWidth={2.2} />
+            </View>
+            <Text style={styles.modalTitle}>Login gagal</Text>
+            <Text style={styles.modalMessage}>{loginError}</Text>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => setLoginError('')}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.modalButtonText}>Mengerti</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -170,6 +196,58 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   buttonText: {
+    fontSize: Typography.base,
+    fontFamily: Typography.fontSemiBold,
+    color: Colors.white,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.lg,
+    backgroundColor: Colors.overlay,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    padding: Spacing.lg,
+  },
+  modalIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
+    marginBottom: Spacing.md,
+  },
+  modalTitle: {
+    fontSize: Typography.lg,
+    fontFamily: Typography.fontBold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  modalMessage: {
+    fontSize: Typography.base,
+    fontFamily: Typography.fontRegular,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: Typography.lineHeightBody,
+    marginBottom: Spacing.lg,
+  },
+  modalButton: {
+    minWidth: 120,
+    height: 44,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.lg,
+  },
+  modalButtonText: {
     fontSize: Typography.base,
     fontFamily: Typography.fontSemiBold,
     color: Colors.white,
