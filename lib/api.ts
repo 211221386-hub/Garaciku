@@ -51,6 +51,17 @@ class ApiClient {
       if (!result?.user || !result.token || !result.expiresAt) return null;
       return { user: result.user, token: result.token, expiresAt: result.expiresAt };
     },
+    register: async (username: string, fullName: string, password: string): Promise<LoginResult> => {
+      const response = await fetch(workerApiUrl('/api/auth/register'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, fullName, password }),
+      });
+      const result = await response.json().catch(() => null) as { user?: AppUser; token?: string; expiresAt?: number; error?: string } | null;
+      if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
+      if (!result?.user || !result.token || !result.expiresAt) throw new Error('Respons pendaftaran tidak valid.');
+      return { user: result.user, token: result.token, expiresAt: result.expiresAt };
+    },
   };
 
   cars = {

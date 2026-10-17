@@ -1,0 +1,6 @@
+APP_ORIGIN=http://localhost:8787
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=replace-with-your-local-service-role-key
+APP_JWT_SECRET=replace-with-at-least-32-random-bytes
+# Optional: set this only when testing rental notifications.
+# RENTAL_AUTOMATION_URL=

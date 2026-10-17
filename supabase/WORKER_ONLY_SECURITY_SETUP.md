@@ -24,9 +24,27 @@ Remove `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, and `EXPO_PU
 2. Deploy the current app and Worker; set `EXPO_PUBLIC_API_BASE_URL` for native apps. Web apps use their current origin.
 3. Verify login for all roles and test every allowed/denied operation in staging.
 4. Run `20261015100000_lock_app_tables_to_worker.sql` in Supabase SQL Editor. It removes old table policies, revokes direct grants from `PUBLIC`, `anon`, and `authenticated`, grants table access to `service_role`, restricts the login RPC to `service_role`, and adds data constraints.
-5. Re-test the app and confirm direct REST requests using the anon key fail.
+5. Check for legacy rows that violate the new checks, then run `20261016090000_validate_app_data_constraints.sql`. This migration validates all rows and will fail if any invalid row remains.
+6. Re-test the app and confirm direct REST requests using the anon key fail.
 
 Do not run the migration before the Worker is configured and deployed: once direct grants are revoked, only requests through the Worker can access app tables.
+
+Run these read-only checks before step 5. Correct any returned rows in staging according to the source records, then rerun the checks before validating constraints:
+
+```sql
+SELECT id, start_km, end_km, start_fuel, end_fuel, start_date, end_date
+FROM public.daily_notes
+WHERE (start_km IS NOT NULL AND start_km < 0)
+   OR (end_km IS NOT NULL AND end_km < 0)
+   OR (start_km IS NOT NULL AND end_km IS NOT NULL AND end_km < start_km)
+   OR (start_fuel IS NOT NULL AND start_fuel NOT BETWEEN 0 AND 100)
+   OR (end_fuel IS NOT NULL AND end_fuel NOT BETWEEN 0 AND 100)
+   OR end_date < start_date;
+
+SELECT id, start_date, end_date
+FROM public.rental_records
+WHERE end_date IS NOT NULL AND end_date < start_date;
+```
 
 ## Operational hardening
 

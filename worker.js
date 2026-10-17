@@ -184,7 +184,23 @@ function buildPostgrestUrl(env, table, body) {
 async function proxyQuery(env, user, body) {
   const { table } = body;
   if (!TABLES.has(table) || !userCanRead(table, user.role)) return { status: 403, error: 'Role is not allowed to read this table.' };
-  const url = buildPostgrestUrl(env, table, body);
+  let query = body;
+  if (table === 'rental_records' && [3, 4].includes(user.role)) {
+    const filters = validateFilters(table, body.filters ?? []);
+    if (!filters) throw new Error('Invalid query filters.');
+    const isAvailabilityQuery = body.select?.replace(/\s/g, '') === 'car_id,status';
+    query = {
+      ...body,
+      filters: [
+        ...filters.filter((filter) => filter.column !== 'user_id' && (!isAvailabilityQuery || filter.column !== 'status')),
+        ...(isAvailabilityQuery
+          ? [{ column: 'status', operator: 'in', value: ['active', 'approved', 'overdue'] }]
+          : [{ column: 'user_id', operator: 'eq', value: user.id }]),
+      ],
+      ...(isAvailabilityQuery ? { select: 'car_id,status' } : {}),
+    };
+  }
+  const url = buildPostgrestUrl(env, table, query);
   const response = await fetch(url, { headers: serviceHeaders(env) });
   const result = await response.json().catch(() => null);
   if (!response.ok) return { status: response.status, error: result?.message ?? 'Database query failed.' };
@@ -210,6 +226,10 @@ async function proxyMutation(env, user, body) {
 
   const values = operation === 'insert' ? { ...body.values } : body.values;
   if (table === 'rental_records' && operation === 'insert') {
+    delete values.approved_by;
+    delete values.approved_at;
+    delete values.return_confirmed_by;
+    delete values.return_confirmed_at;
     values.start_time ??= '00:00';
     if (user.role === 3 || user.role === 4) {
       values.user_id = user.id;
@@ -236,11 +256,14 @@ async function proxyMutation(env, user, body) {
 }
 
 async function login(request, env) {
-  const missingBindings = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'APP_JWT_SECRET']
+  const missingBindings = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'APP_JWT_SECRET', 'AUTH_IP_LIMITER', 'AUTH_USERNAME_LIMITER']
     .filter((name) => !env[name]);
   if (missingBindings.length > 0) {
     return { status: 503, error: `Authentication service is not configured. Missing: ${missingBindings.join(', ')}.` };
   }
+  const ipLimit = await env.AUTH_IP_LIMITER.limit({ key: request.headers.get('CF-Connecting-IP') || 'unknown' });
+  if (!ipLimit.success) return { status: 429, error: 'Too many login attempts. Try again shortly.' };
+
   let body;
   try {
     body = await request.json();
@@ -250,6 +273,8 @@ async function login(request, env) {
   const username = typeof body?.username === 'string' ? body.username.trim() : '';
   const password = typeof body?.password === 'string' ? body.password : '';
   if (!username || !password) return { status: 400, error: 'Username and password are required.' };
+  const usernameLimit = await env.AUTH_USERNAME_LIMITER.limit({ key: username.toLowerCase() });
+  if (!usernameLimit.success) return { status: 429, error: 'Too many login attempts. Try again shortly.' };
 
   const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/auth_login`, {
     method: 'POST',
@@ -262,6 +287,45 @@ async function login(request, env) {
   const expiresAt = Math.floor(Date.now() / 1000) + 8 * 60 * 60;
   const token = await signToken({ sub: user.id, exp: expiresAt }, env.APP_JWT_SECRET);
   return { status: 200, data: { user, token, expiresAt: expiresAt * 1000 } };
+}
+
+async function register(request, env) {
+  const missingBindings = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'APP_JWT_SECRET', 'AUTH_IP_LIMITER', 'AUTH_USERNAME_LIMITER']
+    .filter((name) => !env[name]);
+  if (missingBindings.length > 0) {
+    return { status: 503, error: `Authentication service is not configured. Missing: ${missingBindings.join(', ')}.` };
+  }
+  const ipLimit = await env.AUTH_IP_LIMITER.limit({ key: request.headers.get('CF-Connecting-IP') || 'unknown' });
+  if (!ipLimit.success) return { status: 429, error: 'Too many registration attempts. Try again shortly.' };
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return { status: 400, error: 'Invalid JSON body.' };
+  }
+  const username = typeof body?.username === 'string' ? body.username.trim() : '';
+  const fullName = typeof body?.fullName === 'string' ? body.fullName.trim() : '';
+  const password = typeof body?.password === 'string' ? body.password : '';
+  if (!/^[a-zA-Z0-9._-]{3,30}$/.test(username)) return { status: 400, error: 'Username must be 3-30 characters and use only letters, numbers, dots, underscores, or hyphens.' };
+  if (!fullName || fullName.length > 100) return { status: 400, error: 'Full name is required and must be at most 100 characters.' };
+  if (password.length < 8 || password.length > 128) return { status: 400, error: 'Password must be between 8 and 128 characters.' };
+
+  const usernameLimit = await env.AUTH_USERNAME_LIMITER.limit({ key: `register:${username.toLowerCase()}` });
+  if (!usernameLimit.success) return { status: 429, error: 'Too many registration attempts. Try again shortly.' };
+
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/auth_register`, {
+    method: 'POST',
+    headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ _username: username, _full_name: fullName, _password: password }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) throw new Error('Account registration failed.');
+  if (!Array.isArray(result) || !result[0]) return { status: 409, error: 'Username is already taken.' };
+  const user = result[0];
+  const expiresAt = Math.floor(Date.now() / 1000) + 8 * 60 * 60;
+  const token = await signToken({ sub: user.id, exp: expiresAt }, env.APP_JWT_SECRET);
+  return { status: 201, data: { user, token, expiresAt: expiresAt * 1000 } };
 }
 
 async function proxyNotification(request, env, user, path, headers) {
@@ -297,6 +361,7 @@ export default {
     const url = new URL(request.url);
     const routes = new Set([
       '/api/auth/login',
+      '/api/auth/register',
       '/api/data/query',
       '/api/data/insert',
       '/api/data/update',
@@ -318,13 +383,15 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     if (request.method !== 'POST') return Response.json({ error: 'Method not allowed.' }, { status: 405, headers });
 
-    if (url.pathname === '/api/auth/login') {
+    if (url.pathname === '/api/auth/login' || url.pathname === '/api/auth/register') {
       try {
-        const result = await login(request, env);
+        const result = url.pathname === '/api/auth/login'
+          ? await login(request, env)
+          : await register(request, env);
         return Response.json(result.data ?? { error: result.error }, { status: result.status, headers });
       } catch (error) {
-        console.error('Login failed:', error);
-        return Response.json({ error: 'Login service failed.' }, { status: 503, headers });
+        console.error('Authentication failed:', error);
+        return Response.json({ error: 'Authentication service failed.' }, { status: 503, headers });
       }
     }
 

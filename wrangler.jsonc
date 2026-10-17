@@ -8,6 +8,24 @@
     "APP_ORIGIN": "https://garaciku.211221386.workers.dev",
     "SUPABASE_URL": "https://ncbsukeneywkkscnkcrv.supabase.co"
   },
+  "ratelimits": [
+    {
+      "name": "AUTH_IP_LIMITER",
+      "namespace_id": "99106101",
+      "simple": {
+        "limit": 20,
+        "period": 60
+      }
+    },
+    {
+      "name": "AUTH_USERNAME_LIMITER",
+      "namespace_id": "99106102",
+      "simple": {
+        "limit": 5,
+        "period": 60
+      }
+    }
+  ],
   "observability": {
     "enabled": true
   },

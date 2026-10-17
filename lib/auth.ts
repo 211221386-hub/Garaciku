@@ -12,14 +12,25 @@ export type AuthSession = {
 let currentSession: AuthSession | null = null;
 const SESSION_STORAGE_KEY = 'garaciku.auth.session';
 
+function getBrowserStorage(): Storage | null {
+  try {
+    return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
+      ? window.localStorage
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function loadStoredSession(): AuthSession | null {
-  if (typeof window === 'undefined') return null;
+  const storage = getBrowserStorage();
+  if (!storage) return null;
 
   try {
-    const stored = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    const stored = storage.getItem(SESSION_STORAGE_KEY);
     return stored ? JSON.parse(stored) as AuthSession : null;
   } catch {
-    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    try { storage.removeItem(SESSION_STORAGE_KEY); } catch {}
     return null;
   }
 }
@@ -35,9 +46,7 @@ export function createSession(user: AppUser, token?: string, expiresAt?: number)
     issuedAt,
   };
 
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(currentSession));
-  }
+  try { getBrowserStorage()?.setItem(SESSION_STORAGE_KEY, JSON.stringify(currentSession)); } catch {}
 
   return currentSession;
 }
@@ -61,9 +70,7 @@ export function getSession(): AuthSession | null {
 
 export function clearSession() {
   currentSession = null;
-  if (typeof window !== 'undefined') {
-    window.localStorage.removeItem(SESSION_STORAGE_KEY);
-  }
+  try { getBrowserStorage()?.removeItem(SESSION_STORAGE_KEY); } catch {}
 }
 
 export function hasValidSession() {

@@ -15,11 +15,16 @@ const roleLabels: Record<number, string> = {
 
 export default function LoginScreen() {
   const [username, setUsername] = useState('');
+  const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [feedbackTitle, setFeedbackTitle] = useState('Login gagal');
 
   const handleLogin = async () => {
+    setFeedbackTitle('Login gagal');
     if (!username.trim() || !password.trim()) {
       setLoginError('Username dan password wajib diisi.');
       return;
@@ -49,6 +54,37 @@ export default function LoginScreen() {
     }
   };
 
+  const handleRegister = async () => {
+    setFeedbackTitle('Pendaftaran gagal');
+    if (!fullName.trim() || !username.trim() || !password) {
+      setFeedbackTitle('Pendaftaran gagal');
+      setLoginError('Nama lengkap, username, dan password wajib diisi.');
+      return;
+    }
+    if (password.length < 8) {
+      setFeedbackTitle('Pendaftaran gagal');
+      setLoginError('Password harus terdiri dari minimal 8 karakter.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setFeedbackTitle('Pendaftaran gagal');
+      setLoginError('Konfirmasi password tidak cocok.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await apiClient.users.register(username.trim(), fullName.trim(), password);
+      createSession(result.user, result.token, result.expiresAt);
+      router.replace('/(tabs)');
+    } catch (error) {
+      setFeedbackTitle('Pendaftaran gagal');
+      setLoginError(error instanceof Error ? error.message : 'Terjadi kesalahan saat membuat akun.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -56,7 +92,20 @@ export default function LoginScreen() {
     >
       <View style={styles.card}>
         <Text style={styles.title}>GARACI</Text>
-        <Text style={styles.subtitle}>Masuk untuk melanjutkan</Text>
+        <Text style={styles.subtitle}>{isRegistering ? 'Buat akun GARACI' : 'Masuk untuk melanjutkan'}</Text>
+
+        {isRegistering && (
+          <View style={styles.inputWrap}>
+            <Text style={styles.label}>Nama lengkap</Text>
+            <TextInput
+              value={fullName}
+              onChangeText={setFullName}
+              placeholder="Masukkan nama lengkap"
+              autoCapitalize="words"
+              style={styles.input}
+            />
+          </View>
+        )}
 
         <View style={styles.inputWrap}>
           <Text style={styles.label}>Username</Text>
@@ -80,15 +129,44 @@ export default function LoginScreen() {
           />
         </View>
 
-        <View style={styles.roleBox}>
-          <Text style={styles.roleTitle}>Daftar Role</Text>
-          {Object.entries(roleLabels).map(([role, label]) => (
-            <Text key={role} style={styles.roleItem}>{label}</Text>
-          ))}
-        </View>
+        {isRegistering && (
+          <View style={styles.inputWrap}>
+            <Text style={styles.label}>Konfirmasi password</Text>
+            <TextInput
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder="Ulangi password"
+              secureTextEntry
+              style={styles.input}
+            />
+          </View>
+        )}
 
-        <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
-          <Text style={styles.buttonText}>{loading ? 'Memproses...' : 'Masuk'}</Text>
+        {isRegistering ? (
+          <Text style={styles.roleHint}>Akun baru akan menggunakan role Viewer.</Text>
+        ) : (
+          <View style={styles.roleBox}>
+            <Text style={styles.roleTitle}>Daftar Role</Text>
+            {Object.entries(roleLabels).map(([role, label]) => (
+              <Text key={role} style={styles.roleItem}>{label}</Text>
+            ))}
+          </View>
+        )}
+
+        <TouchableOpacity style={styles.button} onPress={isRegistering ? handleRegister : handleLogin} disabled={loading}>
+          <Text style={styles.buttonText}>{loading ? 'Memproses...' : isRegistering ? 'Buat akun' : 'Masuk'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.switchModeButton}
+          onPress={() => {
+            setIsRegistering(!isRegistering);
+            setLoginError('');
+          }}
+          disabled={loading}
+        >
+          <Text style={styles.switchModeText}>
+            {isRegistering ? 'Sudah punya akun? Masuk' : 'Belum punya akun? Buat akun baru'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -103,7 +181,7 @@ export default function LoginScreen() {
             <View style={styles.modalIcon}>
               <CircleAlert size={24} color={Colors.error} strokeWidth={2.2} />
             </View>
-            <Text style={styles.modalTitle}>Login gagal</Text>
+            <Text style={styles.modalTitle}>{feedbackTitle}</Text>
             <Text style={styles.modalMessage}>{loginError}</Text>
             <TouchableOpacity
               style={styles.modalButton}
@@ -188,6 +266,12 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginBottom: 2,
   },
+  roleHint: {
+    fontSize: Typography.sm,
+    fontFamily: Typography.fontRegular,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.lg,
+  },
   button: {
     backgroundColor: Colors.primary,
     borderRadius: Radius.md,
@@ -199,6 +283,15 @@ const styles = StyleSheet.create({
     fontSize: Typography.base,
     fontFamily: Typography.fontSemiBold,
     color: Colors.white,
+  },
+  switchModeButton: {
+    alignItems: 'center',
+    paddingTop: Spacing.md,
+  },
+  switchModeText: {
+    fontSize: Typography.sm,
+    fontFamily: Typography.fontMedium,
+    color: Colors.primary,
   },
   modalOverlay: {
     flex: 1,
