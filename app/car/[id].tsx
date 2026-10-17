@@ -39,7 +39,6 @@ export default function CarDetailScreen() {
   const isSuperAdmin = sessionRole === 1;
   const canManageRental = isSuperAdmin;
   const canDeleteRental = [1, 2].includes(sessionRole);
-  const canCreateNotes = [1, 2, 3, 4].includes(sessionRole);
   const canUpdateNotes = isSuperAdmin;
   const canDeleteNotes = [1, 2].includes(sessionRole);
   const canCreateDamages = [1, 2, 3, 4].includes(sessionRole);
@@ -639,12 +638,11 @@ export default function CarDetailScreen() {
       </ScrollView>
 
       {/* FAB */}
-      {(activeTab === 'notes' && canCreateNotes) || (activeTab === 'completeness' && canCreateCompleteness) || (activeTab === 'damages' && canCreateDamages) || (activeTab === 'rental' && isSuperAdmin) ? (
+      {(activeTab === 'completeness' && canCreateCompleteness) || (activeTab === 'damages' && canCreateDamages) || (activeTab === 'rental' && isSuperAdmin) ? (
         <TouchableOpacity
           style={styles.fab}
           onPress={() => {
-            if (activeTab === 'notes') setNoteSheet(true);
-            else if (activeTab === 'damages') setDamageSheet(true);
+            if (activeTab === 'damages') setDamageSheet(true);
             else if (activeTab === 'completeness') setCompletenessSheet(true);
             else if (activeTab === 'rental' && isSuperAdmin) setRentalSheet(true);
           }}

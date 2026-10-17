@@ -15,6 +15,8 @@ import type { RentalStatus } from '@/lib/types';
 import { getSession } from '@/lib/auth';
 import { notifyOverdueRentals } from '@/lib/notifications';
 
+type RecordKind = 'rental' | 'duplicate';
+
 type RentalWithCar = {
   id: string;
   car_id: string;
@@ -49,9 +51,21 @@ export default function RentalScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [currentlyRentedCarIds, setCurrentlyRentedCarIds] = useState<string[]>([]);
   const [sheet, setSheet] = useState(false);
+  const [recordKind, setRecordKind] = useState<RecordKind>('rental');
   const [saving, setSaving] = useState(false);
   const [returningId, setReturningId] = useState<string | null>(null);
   const [form, setForm] = useState({ car_id: '', renter_name: '', renter_email: '', renter_phone: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
+  const [duplicateForm, setDuplicateForm] = useState({
+    name: '',
+    section: '',
+    start_date: '',
+    end_date: '',
+    start_km: '',
+    end_km: '',
+    start_fuel: '',
+    end_fuel: '',
+    content: '',
+  });
 
   const fetchRentals = useCallback(async () => {
     try {
@@ -79,12 +93,71 @@ export default function RentalScreen() {
   const pendingReturnCount = returnRentals.filter((rental) => ['approved', 'active', 'overdue'].includes(rental.status)).length;
   const isAdmin = [1, 2].includes(getSession()?.user.role ?? 0);
 
-  const addRental = async () => {
+  const resetFormState = () => {
+    setForm({ car_id: '', renter_name: '', renter_email: '', renter_phone: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
+    setDuplicateForm({ name: '', section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '' });
+    setRecordKind('rental');
+  };
+
+  const addRecord = async () => {
     if (saving) return;
     if (!form.car_id) {
-      Alert.alert('Pilih mobil terlebih dahulu', 'Pilih salah satu mobil sebelum menyimpan rental.');
+      Alert.alert('Pilih mobil terlebih dahulu', 'Pilih salah satu mobil sebelum menyimpan data.');
       return;
     }
+
+    if (recordKind === 'duplicate') {
+      if (!duplicateForm.name.trim() || !duplicateForm.section.trim() || !duplicateForm.start_date || !duplicateForm.end_date || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim()) {
+        Alert.alert('Data belum lengkap', 'Isi semua field duplikasi sebelum menyimpan catatan mobil.');
+        return;
+      }
+
+      const startKm = Number(duplicateForm.start_km);
+      const endKm = Number(duplicateForm.end_km);
+      const startFuel = Number(duplicateForm.start_fuel);
+      const endFuel = Number(duplicateForm.end_fuel);
+      if ([startKm, endKm, startFuel, endFuel].some((value) => !Number.isFinite(value) || value < 0)) {
+        Alert.alert('Angka tidak valid', 'KM dan fuel harus berupa angka nol atau lebih.');
+        return;
+      }
+      if (startFuel > 100 || endFuel > 100) {
+        Alert.alert('Persentase fuel tidak valid', 'Fuel awal dan akhir harus berada di antara 0% dan 100%.');
+        return;
+      }
+      if (endKm < startKm) {
+        Alert.alert('KM tidak valid', 'KM akhir harus sama atau lebih besar dari KM awal.');
+        return;
+      }
+      if (duplicateForm.end_date < duplicateForm.start_date) {
+        Alert.alert('Rentang tanggal tidak valid', 'Tanggal selesai harus sama atau setelah tanggal mulai.');
+        return;
+      }
+
+      setSaving(true);
+      try {
+        await apiClient.notes.create({
+          car_id: form.car_id,
+          name: duplicateForm.name.trim(),
+          section: duplicateForm.section.trim(),
+          note_date: duplicateForm.start_date,
+          start_date: duplicateForm.start_date,
+          end_date: duplicateForm.end_date,
+          start_km: startKm,
+          end_km: endKm,
+          start_fuel: startFuel,
+          end_fuel: endFuel,
+          content: duplicateForm.content.trim(),
+        });
+        resetFormState();
+        setSheet(false);
+      } catch (error) {
+        Alert.alert('Gagal menyimpan duplikasi', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     if (!form.renter_name.trim()) {
       Alert.alert('Nama penyewa wajib diisi', 'Masukkan nama penyewa sebelum menyimpan rental.');
       return;
@@ -113,7 +186,7 @@ export default function RentalScreen() {
     setSaving(true);
     try {
       await apiClient.rentals.create({ car_id: form.car_id, renter_name: form.renter_name.trim(), renter_email: form.renter_email.trim(), renter_phone: form.renter_phone.trim(), start_date: form.start_date || today, start_time: form.start_time, end_date: form.end_date, end_time: form.end_time, purpose: form.purpose.trim(), notes: form.notes.trim() });
-      setForm({ car_id: '', renter_name: '', renter_email: '', renter_phone: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
+      resetFormState();
       setSheet(false);
       await fetchRentals();
     } catch (error) {
@@ -169,20 +242,49 @@ export default function RentalScreen() {
         ); }}
         ListEmptyComponent={<EmptyState icon={activeTab === 'borrowing' ? <KeyRound size={32} color={Colors.primary} strokeWidth={2} /> : <RotateCcw size={32} color={Colors.primary} strokeWidth={2} />} title={activeTab === 'borrowing' ? 'Belum ada peminjaman' : 'Belum ada pengembalian'} subtitle={activeTab === 'borrowing' ? 'Ajukan peminjaman mobil dengan tombol tambah.' : 'Peminjaman yang disetujui akan muncul di sini.'} />}
       />
-      {activeTab === 'borrowing' ? <TouchableOpacity style={styles.fab} onPress={() => setSheet(true)} activeOpacity={0.85}><Plus size={26} color={Colors.white} strokeWidth={2.6} /></TouchableOpacity> : null}
-      <Sheet visible={sheet} onClose={() => setSheet(false)} title="Tambah Rental Mobil">
+      {activeTab === 'borrowing' ? <TouchableOpacity style={styles.fab} onPress={() => setSheet(true)} activeOpacity={0.85}><View style={styles.fabContent}><Plus size={26} color={Colors.white} strokeWidth={2.6} /><Text style={styles.fabLabel}>Tambah rental/duplikasi</Text></View></TouchableOpacity> : null}
+      <Sheet visible={sheet} onClose={() => { setSheet(false); resetFormState(); }} title="Tambah Transaksi Mobil">
         <Text style={styles.label}>Pilih Mobil</Text>
         <View style={styles.carPicker}>{cars.map((c) => { const active = form.car_id === c.id; return <TouchableOpacity key={c.id} onPress={() => setForm({ ...form, car_id: c.id })} style={[styles.carChip, active && styles.carChipActive]}><Text style={[styles.carChipText, active && styles.carChipTextActive]}>{c.name}</Text></TouchableOpacity>; })}</View>
-        <Field label="Nama Penyewa*" value={form.renter_name} onChangeText={(t) => setForm({ ...form, renter_name: t })} placeholder="Contoh: Budi Santoso" />
-        <Field label="Email Penyewa*" value={form.renter_email} onChangeText={(t) => setForm({ ...form, renter_email: t })} placeholder="contoh@email.com" keyboardType="default" />
-        <Field label="Nomor Telepon*" value={form.renter_phone} onChangeText={(t) => setForm({ ...form, renter_phone: t })} placeholder="Contoh: 08123456789" keyboardType="phone-pad" />
-        <DateField label="Tanggal Mulai" value={form.start_date} onChange={(value) => setForm({ ...form, start_date: value })} placeholder="Pilih tanggal (kosongkan = hari ini)" />
-        <TimeField label="Jam Mulai (WIB)" value={form.start_time} onChange={(value) => setForm({ ...form, start_time: value })} />
-        <DateField label="Tanggal Selesai" value={form.end_date} onChange={(value) => setForm({ ...form, end_date: value })} placeholder="Pilih tanggal" minimumDate={form.start_date ? new Date(`${form.start_date}T00:00:00`) : undefined} />
-        <TimeField label="Jam Selesai (WIB)" value={form.end_time} onChange={(value) => setForm({ ...form, end_time: value })} />
-        <Field label="Tujuan Peminjaman" value={form.purpose} onChangeText={(t) => setForm({ ...form, purpose: t })} placeholder="Contoh: Perjalanan dinas, liburan keluarga" />
-        <Field label="Catatan" value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} placeholder="Catatan tambahan..." multiline />
-        <View style={{ height: Spacing.sm }} /><Button label="Simpan Rental" onPress={addRental} loading={saving} disabled={!form.car_id || !form.renter_name.trim() || !form.renter_email.trim() || !form.renter_phone.trim() || !form.start_date || !form.start_time || !form.end_date || !form.end_time} />
+
+        <Text style={styles.label}>Jenis transaksi</Text>
+        <View style={styles.recordTypeRow}>
+          <TouchableOpacity style={[styles.recordType, recordKind === 'rental' && styles.recordTypeActive]} onPress={() => setRecordKind('rental')}>
+            <Text style={[styles.recordTypeText, recordKind === 'rental' && styles.recordTypeTextActive]}>Peminjaman</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.recordType, recordKind === 'duplicate' && styles.recordTypeActive]} onPress={() => setRecordKind('duplicate')}>
+            <Text style={[styles.recordTypeText, recordKind === 'duplicate' && styles.recordTypeTextActive]}>Duplikat</Text>
+          </TouchableOpacity>
+        </View>
+
+        {recordKind === 'rental' ? (
+          <>
+            <Field label="Nama Penyewa*" value={form.renter_name} onChangeText={(t) => setForm({ ...form, renter_name: t })} placeholder="Contoh: Budi Santoso" />
+            <Field label="Email Penyewa*" value={form.renter_email} onChangeText={(t) => setForm({ ...form, renter_email: t })} placeholder="contoh@email.com" keyboardType="default" />
+            <Field label="Nomor Telepon*" value={form.renter_phone} onChangeText={(t) => setForm({ ...form, renter_phone: t })} placeholder="Contoh: 08123456789" keyboardType="phone-pad" />
+            <DateField label="Tanggal Mulai" value={form.start_date} onChange={(value) => setForm({ ...form, start_date: value })} placeholder="Pilih tanggal (kosongkan = hari ini)" />
+            <TimeField label="Jam Mulai (WIB)" value={form.start_time} onChange={(value) => setForm({ ...form, start_time: value })} />
+            <DateField label="Tanggal Selesai" value={form.end_date} onChange={(value) => setForm({ ...form, end_date: value })} placeholder="Pilih tanggal" minimumDate={form.start_date ? new Date(`${form.start_date}T00:00:00`) : undefined} />
+            <TimeField label="Jam Selesai (WIB)" value={form.end_time} onChange={(value) => setForm({ ...form, end_time: value })} />
+            <Field label="Tujuan Peminjaman" value={form.purpose} onChangeText={(t) => setForm({ ...form, purpose: t })} placeholder="Contoh: Perjalanan dinas, liburan keluarga" />
+            <Field label="Catatan" value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} placeholder="Catatan tambahan..." multiline />
+          </>
+        ) : (
+          <>
+            <Field label="Pencatat*" value={duplicateForm.name} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, name: t })} placeholder="Contoh: Rizky / Tim Operasional" />
+            <Field label="Bagian*" value={duplicateForm.section} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, section: t })} placeholder="Contoh: Maintenance / Ops" />
+            <DateField label="Mulai*" value={duplicateForm.start_date} onChange={(value) => setDuplicateForm({ ...duplicateForm, start_date: value })} placeholder="Pilih tanggal" />
+            <DateField label="Selesai*" value={duplicateForm.end_date} onChange={(value) => setDuplicateForm({ ...duplicateForm, end_date: value })} placeholder="Pilih tanggal" minimumDate={duplicateForm.start_date ? new Date(`${duplicateForm.start_date}T00:00:00`) : undefined} />
+            <Field label="KM Awal*" value={duplicateForm.start_km} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, start_km: t })} placeholder="Contoh: 12000" keyboardType="numeric" />
+            <Field label="KM Akhir*" value={duplicateForm.end_km} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, end_km: t })} placeholder="Contoh: 12150" keyboardType="numeric" />
+            <Field label="Fuel Awal*" value={duplicateForm.start_fuel} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, start_fuel: t })} placeholder="0-100" keyboardType="numeric" />
+            <Field label="Fuel Akhir*" value={duplicateForm.end_fuel} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, end_fuel: t })} placeholder="0-100" keyboardType="numeric" />
+            <Field label="Detail*" value={duplicateForm.content} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, content: t })} placeholder="Rincian aktivitas yang dilakukan..." multiline />
+          </>
+        )}
+
+        <View style={{ height: Spacing.sm }} />
+        <Button label={recordKind === 'rental' ? 'Simpan Rental' : 'Simpan Duplikasi'} onPress={addRecord} loading={saving} disabled={recordKind === 'rental' ? !form.car_id || !form.renter_name.trim() || !form.renter_email.trim() || !form.renter_phone.trim() || !form.start_date || !form.start_time || !form.end_date || !form.end_time : !form.car_id || !duplicateForm.name.trim() || !duplicateForm.section.trim() || !duplicateForm.start_date || !duplicateForm.end_date || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim()} />
       </Sheet>
     </View>
   );
@@ -216,11 +318,18 @@ const styles = StyleSheet.create({
   returnButton: { alignSelf: 'flex-start', marginTop: Spacing.sm, backgroundColor: Colors.primary, borderRadius: Radius.md, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs },
   actionDisabled: { opacity: 0.6 },
   returnButtonText: { color: Colors.white, fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
-  fab: { position: 'absolute', right: Spacing.lg, bottom: Spacing.lg, width: 58, height: 58, borderRadius: Radius.pill, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', elevation: 8 },
+  fab: { position: 'absolute', right: Spacing.lg, bottom: Spacing.lg, borderRadius: Radius.pill, backgroundColor: Colors.primary, elevation: 8 },
+  fabContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 18, paddingVertical: 16 },
+  fabLabel: { color: Colors.white, fontSize: Typography.sm, fontFamily: Typography.fontSemiBold },
   label: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary, marginBottom: Spacing.xs },
   carPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginBottom: Spacing.sm },
   carChip: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.pill, backgroundColor: Colors.surfaceAlt },
   carChipActive: { backgroundColor: Colors.primary },
   carChipText: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary },
   carChipTextActive: { color: Colors.white },
+  recordTypeRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.sm },
+  recordType: { flex: 1, paddingVertical: Spacing.sm, borderRadius: Radius.md, backgroundColor: Colors.surfaceAlt, borderWidth: 1, borderColor: Colors.borderLight, alignItems: 'center' },
+  recordTypeActive: { backgroundColor: Colors.primaryLight, borderColor: Colors.primarySoft },
+  recordTypeText: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary },
+  recordTypeTextActive: { color: Colors.primary, fontFamily: Typography.fontSemiBold },
 });
