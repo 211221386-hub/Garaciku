@@ -23,6 +23,14 @@ export function todayISO(): string {
   return new Date().toISOString().split('T')[0];
 }
 
+export function addMonthsToISO(dateStr: string, months: number): string {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const targetMonth = new Date(Date.UTC(year, month - 1 + months, 1));
+  const lastDay = new Date(Date.UTC(targetMonth.getUTCFullYear(), targetMonth.getUTCMonth() + 1, 0)).getUTCDate();
+  targetMonth.setUTCDate(Math.min(day, lastDay));
+  return targetMonth.toISOString().slice(0, 10);
+}
+
 export function getRentalStatus(status: RentalStatus, endDate: string | null, endTime: string | null = null): RentalStatus {
   if ((status !== 'active' && status !== 'approved') || !endDate || !endTime) return status;
   const now = new Date();

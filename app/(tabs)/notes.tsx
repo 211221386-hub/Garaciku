@@ -4,7 +4,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { Wrench, Plus, ChevronRight, Trash2 } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
-import { formatDate, formatCurrency, todayISO } from '@/lib/format';
+import { addMonthsToISO, formatDate, formatCurrency, todayISO } from '@/lib/format';
 import { Sheet } from '@/components/Sheet';
 import { Field } from '@/components/Field';
 import { DateField } from '@/components/DateField';
@@ -12,6 +12,7 @@ import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import type { ServiceRecord } from '@/lib/types';
 import { getSession } from '@/lib/auth';
+import { syncServiceReminders } from '@/lib/notifications';
 
 type ServiceWithCar = ServiceRecord & { car_name: string };
 
@@ -37,6 +38,17 @@ const emptyForm: ServiceForm = {
   reminder_interval_months: '', reminder_interval_mileage: '',
 };
 
+function getReminderStatus(nextServiceDate: string): 'Jatuh tempo' | 'Segera' | null {
+  const nextDate = new Date(`${nextServiceDate}T00:00:00Z`);
+  const today = new Date(`${todayISO()}T00:00:00Z`);
+  if (Number.isNaN(nextDate.getTime())) return null;
+
+  const daysUntilService = Math.ceil((nextDate.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  if (daysUntilService <= 0) return 'Jatuh tempo';
+  if (daysUntilService <= 30) return 'Segera';
+  return null;
+}
+
 export default function ServiceScreen() {
   useEffect(() => {
     const role = getSession()?.user.role;
@@ -49,6 +61,7 @@ export default function ServiceScreen() {
   const [sheet, setSheet] = useState(false);
   const [serviceToDelete, setServiceToDelete] = useState<ServiceWithCar | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmingServiceId, setConfirmingServiceId] = useState<string | null>(null);
   const [form, setForm] = useState<ServiceForm>(emptyForm);
 
   const fetchServices = useCallback(async () => {
@@ -56,6 +69,7 @@ export default function ServiceScreen() {
       const [serviceData, carData] = await Promise.all([apiClient.services.getAll(), apiClient.cars.getAll()]);
       setServices(serviceData);
       setCars(carData);
+      void syncServiceReminders(serviceData).catch((error) => console.warn('Gagal menyinkronkan reminder service:', error));
     } catch (error) {
       console.error('Error fetching services:', error);
     } finally {
@@ -68,22 +82,46 @@ export default function ServiceScreen() {
   const addService = async () => {
     if (saving) return;
     if (!form.car_id || !form.service_type.trim()) return;
+
+    const numericFields = [
+      { label: 'Biaya', value: form.cost, integer: false },
+      { label: 'Kilometer', value: form.mileage, integer: true },
+      { label: 'Kilometer berikutnya', value: form.next_service_mileage, integer: true },
+      { label: 'Interval bulan', value: form.reminder_interval_months, integer: true, positive: true },
+      { label: 'Interval kilometer', value: form.reminder_interval_mileage, integer: true, positive: true },
+    ];
+    for (const field of numericFields) {
+      if (!field.value) continue;
+      const value = Number(field.value);
+      if (!Number.isFinite(value) || value < 0 || (field.integer && !Number.isInteger(value)) || (field.positive && value === 0)) {
+        Alert.alert('Angka tidak valid', `${field.label} harus berupa angka${field.positive ? ' lebih dari 0' : ' nol atau lebih'}${field.integer ? ' tanpa desimal' : ''}.`);
+        return;
+      }
+    }
+    const serviceDate = form.service_date || todayISO();
+    const intervalMonths = form.reminder_interval_months ? Number(form.reminder_interval_months) : null;
+    const nextServiceDate = form.next_service_date || (form.reminder_enabled && intervalMonths ? addMonthsToISO(serviceDate, intervalMonths) : '');
+    if (form.reminder_enabled && !nextServiceDate && !form.next_service_mileage) {
+      Alert.alert('Jadwal reminder belum lengkap', 'Isi tanggal service berikutnya atau kilometer berikutnya.');
+      return;
+    }
+
     setSaving(true);
     try {
       await apiClient.services.create({
         car_id: form.car_id,
-        service_date: form.service_date || todayISO(),
+        service_date: serviceDate,
         service_type: form.service_type.trim(),
         status: form.status,
         description: form.description.trim(),
-        cost: form.cost ? parseFloat(form.cost) : null,
-        mileage: form.mileage ? parseInt(form.mileage, 10) : null,
+        cost: form.cost ? Number(form.cost) : null,
+        mileage: form.mileage ? Number(form.mileage) : null,
         workshop: form.workshop.trim(),
-        next_service_date: form.next_service_date || null,
-        next_service_mileage: form.next_service_mileage ? parseInt(form.next_service_mileage, 10) : null,
+        next_service_date: nextServiceDate || null,
+        next_service_mileage: form.next_service_mileage ? Number(form.next_service_mileage) : null,
         reminder_enabled: form.reminder_enabled,
-        reminder_interval_months: form.reminder_interval_months ? parseInt(form.reminder_interval_months, 10) : null,
-        reminder_interval_mileage: form.reminder_interval_mileage ? parseInt(form.reminder_interval_mileage, 10) : null,
+        reminder_interval_months: form.reminder_interval_months ? Number(form.reminder_interval_months) : null,
+        reminder_interval_mileage: form.reminder_interval_mileage ? Number(form.reminder_interval_mileage) : null,
       });
       setForm(emptyForm);
       setSheet(false);
@@ -109,6 +147,48 @@ export default function ServiceScreen() {
     }
   };
 
+  const confirmServiceDone = async (service: ServiceWithCar) => {
+    if (confirmingServiceId) return;
+    setConfirmingServiceId(service.id);
+    const completedDate = todayISO();
+    const intervalMonths = service.reminder_interval_months;
+    const nextServiceDate = service.reminder_enabled && intervalMonths ? addMonthsToISO(completedDate, intervalMonths) : null;
+    let nextRecord: ServiceRecord | null = null;
+
+    try {
+      nextRecord = await apiClient.services.create({
+        car_id: service.car_id,
+        service_date: completedDate,
+        service_type: service.service_type,
+        description: '',
+        cost: null,
+        mileage: null,
+        workshop: '',
+        status: 'completed',
+        next_service_date: nextServiceDate,
+        next_service_mileage: null,
+        reminder_enabled: Boolean(nextServiceDate),
+        reminder_interval_months: nextServiceDate ? intervalMonths : null,
+        reminder_interval_mileage: null,
+      });
+      try {
+        await apiClient.services.update(service.id, {
+          reminder_enabled: false,
+          next_service_date: null,
+          next_service_mileage: null,
+        });
+      } catch (error) {
+        await apiClient.services.delete(nextRecord.id).catch(() => undefined);
+        throw error;
+      }
+      await fetchServices();
+    } catch (error) {
+      Alert.alert('Gagal mengonfirmasi service', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+    } finally {
+      setConfirmingServiceId(null);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -120,7 +200,9 @@ export default function ServiceScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchServices(); }} colors={[Colors.primary]} />}
-        renderItem={({ item }) => (
+        renderItem={({ item }) => {
+          const reminderStatus = item.reminder_enabled && item.next_service_date ? getReminderStatus(item.next_service_date) : null;
+          return (
           <View style={styles.card}>
             <TouchableOpacity style={styles.cardMain} onPress={() => router.push(`/car/${item.car_id}`)} activeOpacity={0.85}>
             <View style={styles.serviceIcon}><Wrench size={18} color={Colors.primary} strokeWidth={2.2} /></View>
@@ -134,7 +216,8 @@ export default function ServiceScreen() {
               <Text style={[styles.statusText, item.status === 'scheduled' && styles.scheduledText]}>
                 {item.status === 'scheduled' ? 'Terjadwal' : 'Sudah dilakukan'}
               </Text>
-              {item.reminder_enabled && item.next_service_date ? <Text style={styles.reminderText}>Reminder: {formatDate(item.next_service_date)}</Text> : null}
+              {item.reminder_enabled && (item.next_service_date || item.next_service_mileage !== null) ? <Text style={styles.reminderText}>Reminder: {[item.next_service_date ? formatDate(item.next_service_date) : null, item.next_service_mileage !== null ? `${item.next_service_mileage.toLocaleString('id-ID')} km` : null].filter(Boolean).join(' · ')}</Text> : null}
+              {reminderStatus ? <Text style={[styles.reminderStatus, reminderStatus === 'Jatuh tempo' ? styles.overdueReminder : styles.soonReminder]}>{reminderStatus}</Text> : null}
               {item.cost !== null ? <Text style={styles.costText}>{formatCurrency(item.cost)}</Text> : null}
               {item.description ? <Text style={styles.description} numberOfLines={2}>{item.description}</Text> : null}
             </View>
@@ -143,8 +226,14 @@ export default function ServiceScreen() {
             <TouchableOpacity style={styles.deleteButton} onPress={() => deleteService(item)} hitSlop={10} accessibilityLabel={`Hapus service ${item.service_type}`}>
               <Trash2 size={18} color={Colors.error} strokeWidth={2.2} />
             </TouchableOpacity>
+            {item.reminder_enabled && item.next_service_date && item.next_service_date <= todayISO() ? (
+              <TouchableOpacity style={[styles.confirmServiceButton, confirmingServiceId === item.id && styles.actionDisabled]} onPress={() => { void confirmServiceDone(item); }} disabled={confirmingServiceId === item.id}>
+                <Text style={styles.confirmServiceButtonText}>{confirmingServiceId === item.id ? 'Memproses...' : 'Konfirmasi sudah melakukan'}</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
-        )}
+          );
+        }}
         ListEmptyComponent={<EmptyState icon={<Wrench size={32} color={Colors.primary} strokeWidth={2} />} title="Belum ada service" subtitle="Tambahkan riwayat service berkala setiap mobil." />}
       />
       <TouchableOpacity style={styles.fab} onPress={() => setSheet(true)} activeOpacity={0.85}><Plus size={26} color={Colors.white} strokeWidth={2.6} /></TouchableOpacity>
@@ -226,6 +315,12 @@ const styles = StyleSheet.create({
   statusText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.success, marginTop: 5 },
   scheduledText: { color: Colors.warning },
   reminderText: { fontSize: Typography.xs, fontFamily: Typography.fontMedium, color: Colors.primary, marginTop: 3 },
+  reminderStatus: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, marginTop: 3 },
+  overdueReminder: { color: Colors.error },
+  soonReminder: { color: Colors.warning },
+  confirmServiceButton: { alignSelf: 'flex-start', marginTop: Spacing.sm, backgroundColor: Colors.primary, borderRadius: Radius.md, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.sm },
+  confirmServiceButtonText: { color: Colors.white, fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
+  actionDisabled: { opacity: 0.6 },
   fab: { position: 'absolute', right: Spacing.lg, bottom: Spacing.lg, width: 58, height: 58, borderRadius: Radius.pill, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', elevation: 8 },
   label: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary, marginBottom: Spacing.xs },
   carPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginBottom: Spacing.sm },

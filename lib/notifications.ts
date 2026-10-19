@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { AndroidImportance } from 'expo-notifications';
-import type { RentalRecord } from '@/lib/types';
+import type { RentalRecord, ServiceRecord } from '@/lib/types';
 
 const notifiedKey = 'garaciku.overdue.notifications';
 
@@ -86,4 +86,52 @@ export async function notifyOverdueRentals(rentals: RentalRecord[]) {
 
   pending.forEach((rental) => notified.add(rental.id));
   window.localStorage.setItem(notifiedKey, JSON.stringify([...notified]));
+}
+
+export async function syncServiceReminders(services: (ServiceRecord & { car_name?: string })[]) {
+  if (Platform.OS === 'web') return;
+
+  const reminders = services.filter((service) => service.reminder_enabled && service.next_service_date);
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  const existing = scheduled.filter((notification) => notification.content.data?.kind === 'service-reminder');
+  const pending = new Map(reminders.map((service) => [service.id, service]));
+
+  for (const notification of existing) {
+    const serviceId = notification.content.data?.serviceId;
+    const service = typeof serviceId === 'string' ? pending.get(serviceId) : undefined;
+    if (!service || notification.content.data?.dueDate !== service.next_service_date) {
+      await Notifications.cancelScheduledNotificationAsync(notification.identifier);
+    } else {
+      pending.delete(service.id);
+    }
+  }
+
+  if (reminders.length === 0) return;
+
+  let permission = await Notifications.getPermissionsAsync();
+  if (permission.status !== 'granted') permission = await Notifications.requestPermissionsAsync();
+  if (permission.status !== 'granted') return;
+
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('service-reminders', {
+      name: 'Service reminders',
+      importance: AndroidImportance.HIGH,
+      sound: 'default',
+    });
+  }
+
+  for (const service of pending.values()) {
+    const dueDate = new Date(`${service.next_service_date}T09:00:00`);
+    if (Number.isNaN(dueDate.getTime()) || dueDate.getTime() <= Date.now()) continue;
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Jadwal service mobil',
+        body: `${service.service_type} untuk ${service.car_name || 'mobil'} dijadwalkan hari ini.`,
+        data: { kind: 'service-reminder', serviceId: service.id, dueDate: service.next_service_date },
+        sound: 'default',
+      },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: dueDate },
+    });
+  }
 }
