@@ -92,13 +92,13 @@ export async function notifyOverdueRentals(rentals: RentalRecord[]) {
 export async function syncServiceReminders(services: (ServiceRecord & { car_name?: string })[]) {
   if (Platform.OS === 'web') return;
 
-  const reminders = services.filter((service) => service.reminder_enabled && service.next_service_date);
+  const reminders = services.filter((service) => service.status === 'scheduled' && service.reminder_enabled);
   const today = todayISO();
   const now = Date.now();
-  const pending = new Map<string, { service: ServiceRecord & { car_name?: string }; notificationDate: string; triggerDate: Date }>();
+  const pending = new Map<string, { service: ServiceRecord & { car_name?: string }; dueDate: string; notificationDate: string; triggerDate: Date }>();
 
   for (const service of reminders) {
-    const dueDate = service.next_service_date!;
+    const dueDate = service.next_service_date || service.service_date;
     const firstNotificationDate = addDaysToISO(dueDate, -7);
     let notificationDate = firstNotificationDate < today ? today : firstNotificationDate;
 
@@ -106,7 +106,7 @@ export async function syncServiceReminders(services: (ServiceRecord & { car_name
       const triggerDate = new Date(`${notificationDate}T09:00:00`);
       const notificationKey = `${service.id}:${dueDate}:${notificationDate}`;
       if (notificationDate === today && triggerDate.getTime() <= now) triggerDate.setTime(now + 15_000);
-      if (triggerDate.getTime() > now) pending.set(notificationKey, { service, notificationDate, triggerDate });
+      if (triggerDate.getTime() > now) pending.set(notificationKey, { service, dueDate, notificationDate, triggerDate });
       notificationDate = addDaysToISO(notificationDate, 1);
     }
   }
@@ -137,9 +137,9 @@ export async function syncServiceReminders(services: (ServiceRecord & { car_name
     });
   }
 
-  for (const [notificationKey, { service, notificationDate, triggerDate }] of pending) {
+  for (const [notificationKey, { service, dueDate, notificationDate, triggerDate }] of pending) {
     if (Number.isNaN(triggerDate.getTime())) continue;
-    const daysUntilService = Math.round((new Date(`${service.next_service_date}T00:00:00Z`).getTime() - new Date(`${notificationDate}T00:00:00Z`).getTime()) / (24 * 60 * 60 * 1000));
+    const daysUntilService = Math.round((new Date(`${dueDate}T00:00:00Z`).getTime() - new Date(`${notificationDate}T00:00:00Z`).getTime()) / (24 * 60 * 60 * 1000));
 
     await Notifications.scheduleNotificationAsync({
       content: {
@@ -147,7 +147,7 @@ export async function syncServiceReminders(services: (ServiceRecord & { car_name
         body: daysUntilService === 0
           ? `${service.service_type} untuk ${service.car_name || 'mobil'} dijadwalkan hari ini.`
           : `${service.service_type} untuk ${service.car_name || 'mobil'} dijadwalkan dalam ${daysUntilService} hari.`,
-        data: { kind: 'service-reminder', serviceId: service.id, dueDate: service.next_service_date, notificationDate, notificationKey },
+        data: { kind: 'service-reminder', serviceId: service.id, dueDate, notificationDate, notificationKey },
         sound: 'default',
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: triggerDate },

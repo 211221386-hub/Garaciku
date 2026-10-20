@@ -25,17 +25,12 @@ type ServiceForm = {
   mileage: string;
   workshop: string;
   status: 'completed' | 'scheduled';
-  next_service_date: string;
-  next_service_mileage: string;
-  reminder_enabled: boolean;
   reminder_interval_months: string;
-  reminder_interval_mileage: string;
 };
 
 const emptyForm: ServiceForm = {
   car_id: '', service_date: '', service_type: '', description: '', cost: '', mileage: '', workshop: '',
-  status: 'completed', next_service_date: '', next_service_mileage: '', reminder_enabled: false,
-  reminder_interval_months: '', reminder_interval_mileage: '',
+  status: 'completed', reminder_interval_months: '',
 };
 
 function getReminderStatus(nextServiceDate: string): 'Jatuh tempo' | 'Segera' | null {
@@ -86,9 +81,7 @@ export default function ServiceScreen() {
     const numericFields = [
       { label: 'Biaya', value: form.cost, integer: false },
       { label: 'Kilometer', value: form.mileage, integer: true },
-      { label: 'Kilometer berikutnya', value: form.next_service_mileage, integer: true },
-      { label: 'Interval bulan', value: form.reminder_interval_months, integer: true, positive: true },
-      { label: 'Interval kilometer', value: form.reminder_interval_mileage, integer: true, positive: true },
+      ...(form.status === 'scheduled' ? [{ label: 'Interval bulan', value: form.reminder_interval_months, integer: true, positive: true }] : []),
     ];
     for (const field of numericFields) {
       if (!field.value) continue;
@@ -98,16 +91,19 @@ export default function ServiceScreen() {
         return;
       }
     }
-    const serviceDate = form.service_date || todayISO();
-    const intervalMonths = form.reminder_interval_months ? Number(form.reminder_interval_months) : null;
-    const nextServiceDate = form.next_service_date || (form.reminder_enabled && intervalMonths ? addMonthsToISO(serviceDate, intervalMonths) : '');
-    if (form.reminder_enabled && !nextServiceDate && !form.next_service_mileage) {
-      Alert.alert('Jadwal reminder belum lengkap', 'Isi tanggal service berikutnya atau kilometer berikutnya.');
+    if (form.status === 'scheduled' && !form.service_date) {
+      Alert.alert('Tanggal service wajib diisi', 'Pilih tanggal rencana service agar reminder dapat dijadwalkan.');
+      return;
+    }
+    if (form.status === 'scheduled' && !form.reminder_interval_months) {
+      Alert.alert('Interval reminder wajib diisi', 'Masukkan interval service dalam bulan untuk membuat pengingat otomatis.');
       return;
     }
 
     setSaving(true);
     try {
+      const serviceDate = form.service_date || todayISO();
+      const isScheduled = form.status === 'scheduled';
       await apiClient.services.create({
         car_id: form.car_id,
         service_date: serviceDate,
@@ -117,11 +113,11 @@ export default function ServiceScreen() {
         cost: form.cost ? Number(form.cost) : null,
         mileage: form.mileage ? Number(form.mileage) : null,
         workshop: form.workshop.trim(),
-        next_service_date: nextServiceDate || null,
-        next_service_mileage: form.next_service_mileage ? Number(form.next_service_mileage) : null,
-        reminder_enabled: form.reminder_enabled,
-        reminder_interval_months: form.reminder_interval_months ? Number(form.reminder_interval_months) : null,
-        reminder_interval_mileage: form.reminder_interval_mileage ? Number(form.reminder_interval_mileage) : null,
+        next_service_date: isScheduled ? serviceDate : null,
+        next_service_mileage: null,
+        reminder_enabled: isScheduled,
+        reminder_interval_months: isScheduled ? Number(form.reminder_interval_months) : null,
+        reminder_interval_mileage: null,
       });
       setForm(emptyForm);
       setSheet(false);
@@ -148,37 +144,41 @@ export default function ServiceScreen() {
   };
 
   const confirmServiceDone = async (service: ServiceWithCar) => {
-    if (confirmingServiceId) return;
+    if (confirmingServiceId || service.status !== 'scheduled' || !service.reminder_enabled) return;
     setConfirmingServiceId(service.id);
     const completedDate = todayISO();
     const intervalMonths = service.reminder_interval_months;
-    const nextServiceDate = service.reminder_enabled && intervalMonths ? addMonthsToISO(completedDate, intervalMonths) : null;
+    const nextServiceDate = intervalMonths ? addMonthsToISO(completedDate, intervalMonths) : null;
     let nextRecord: ServiceRecord | null = null;
 
     try {
-      nextRecord = await apiClient.services.create({
-        car_id: service.car_id,
-        service_date: completedDate,
-        service_type: service.service_type,
-        description: '',
-        cost: null,
-        mileage: null,
-        workshop: '',
-        status: 'completed',
-        next_service_date: nextServiceDate,
-        next_service_mileage: null,
-        reminder_enabled: Boolean(nextServiceDate),
-        reminder_interval_months: nextServiceDate ? intervalMonths : null,
-        reminder_interval_mileage: null,
-      });
+      if (nextServiceDate) {
+        nextRecord = await apiClient.services.create({
+          car_id: service.car_id,
+          service_date: nextServiceDate,
+          service_type: service.service_type,
+          description: '',
+          cost: null,
+          mileage: null,
+          workshop: service.workshop,
+          status: 'scheduled',
+          next_service_date: nextServiceDate,
+          next_service_mileage: null,
+          reminder_enabled: true,
+          reminder_interval_months: intervalMonths,
+          reminder_interval_mileage: null,
+        });
+      }
       try {
         await apiClient.services.update(service.id, {
+          status: 'completed',
+          service_date: completedDate,
           reminder_enabled: false,
           next_service_date: null,
           next_service_mileage: null,
         });
       } catch (error) {
-        await apiClient.services.delete(nextRecord.id).catch(() => undefined);
+        if (nextRecord) await apiClient.services.delete(nextRecord.id).catch(() => undefined);
         throw error;
       }
       await fetchServices();
@@ -201,7 +201,9 @@ export default function ServiceScreen() {
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchServices(); }} colors={[Colors.primary]} />}
         renderItem={({ item }) => {
-          const reminderStatus = item.reminder_enabled && item.next_service_date ? getReminderStatus(item.next_service_date) : null;
+          const isScheduledReminder = item.status === 'scheduled' && item.reminder_enabled;
+          const dueDate = item.next_service_date || item.service_date;
+          const reminderStatus = isScheduledReminder ? getReminderStatus(dueDate) : null;
           const confirmationWindowEnd = addDaysToISO(todayISO(), 7);
           return (
           <View style={styles.card}>
@@ -217,7 +219,7 @@ export default function ServiceScreen() {
               <Text style={[styles.statusText, item.status === 'scheduled' && styles.scheduledText]}>
                 {item.status === 'scheduled' ? 'Terjadwal' : 'Sudah dilakukan'}
               </Text>
-              {item.reminder_enabled && (item.next_service_date || item.next_service_mileage !== null) ? <Text style={styles.reminderText}>Reminder: {[item.next_service_date ? formatDate(item.next_service_date) : null, item.next_service_mileage !== null ? `${item.next_service_mileage.toLocaleString('id-ID')} km` : null].filter(Boolean).join(' · ')}</Text> : null}
+              {isScheduledReminder ? <Text style={styles.reminderText}>Reminder: {formatDate(dueDate)}</Text> : null}
               {reminderStatus ? <Text style={[styles.reminderStatus, reminderStatus === 'Jatuh tempo' ? styles.overdueReminder : styles.soonReminder]}>{reminderStatus}</Text> : null}
               {item.cost !== null ? <Text style={styles.costText}>{formatCurrency(item.cost)}</Text> : null}
               {item.description ? <Text style={styles.description} numberOfLines={2}>{item.description}</Text> : null}
@@ -227,7 +229,7 @@ export default function ServiceScreen() {
             <TouchableOpacity style={styles.deleteButton} onPress={() => deleteService(item)} hitSlop={10} accessibilityLabel={`Hapus service ${item.service_type}`}>
               <Trash2 size={18} color={Colors.error} strokeWidth={2.2} />
             </TouchableOpacity>
-            {item.reminder_enabled && item.next_service_date && item.next_service_date <= confirmationWindowEnd ? (
+            {isScheduledReminder && dueDate <= confirmationWindowEnd ? (
               <TouchableOpacity style={[styles.confirmServiceButton, confirmingServiceId === item.id && styles.actionDisabled]} onPress={() => { void confirmServiceDone(item); }} disabled={confirmingServiceId === item.id}>
                 <Text style={styles.confirmServiceButtonText}>{confirmingServiceId === item.id ? 'Memproses...' : 'Konfirmasi sudah melakukan'}</Text>
               </TouchableOpacity>
@@ -266,18 +268,15 @@ export default function ServiceScreen() {
           <TouchableOpacity onPress={() => setForm({ ...form, status: 'completed' })} style={[styles.carChip, form.status === 'completed' && styles.carChipActive]}><Text style={[styles.carChipText, form.status === 'completed' && styles.carChipTextActive]}>Sudah dilakukan</Text></TouchableOpacity>
           <TouchableOpacity onPress={() => setForm({ ...form, status: 'scheduled' })} style={[styles.carChip, form.status === 'scheduled' && styles.carChipActive]}><Text style={[styles.carChipText, form.status === 'scheduled' && styles.carChipTextActive]}>Terjadwal</Text></TouchableOpacity>
         </View>
-        <DateField label="Tanggal Service" value={form.service_date} onChange={(value) => setForm({ ...form, service_date: value })} placeholder="Pilih tanggal (kosongkan = hari ini)" />
+        <DateField label={form.status === 'scheduled' ? 'Tanggal Rencana Service*' : 'Tanggal Service'} value={form.service_date} onChange={(value) => setForm({ ...form, service_date: value })} placeholder={form.status === 'scheduled' ? 'Pilih tanggal service' : 'Pilih tanggal (kosongkan = hari ini)'} />
         <Field label="Bengkel" value={form.workshop} onChangeText={(value) => setForm({ ...form, workshop: value })} placeholder="Nama bengkel" />
         <Field label="Biaya (Rp)" value={form.cost} onChangeText={(value) => setForm({ ...form, cost: value })} placeholder="0" keyboardType="numeric" />
         <Field label="Kilometer" value={form.mileage} onChangeText={(value) => setForm({ ...form, mileage: value })} placeholder="Contoh: 45000" keyboardType="numeric" />
         <Field label="Keterangan" value={form.description} onChangeText={(value) => setForm({ ...form, description: value })} placeholder="Detail pekerjaan service" multiline />
-        <Text style={styles.label}>Reminder Service Berikutnya</Text>
-        <TouchableOpacity onPress={() => setForm({ ...form, reminder_enabled: !form.reminder_enabled })} style={[styles.carChip, form.reminder_enabled && styles.carChipActive]}><Text style={[styles.carChipText, form.reminder_enabled && styles.carChipTextActive]}>{form.reminder_enabled ? 'Reminder aktif' : 'Aktifkan reminder'}</Text></TouchableOpacity>
-        {form.reminder_enabled ? <>
-          <DateField label="Tanggal Service Berikutnya" value={form.next_service_date} onChange={(value) => setForm({ ...form, next_service_date: value })} placeholder="Pilih tanggal" />
-          <Field label="Interval (bulan)" value={form.reminder_interval_months} onChangeText={(value) => setForm({ ...form, reminder_interval_months: value })} placeholder="Contoh: 6" keyboardType="numeric" />
-          <Field label="Kilometer Berikutnya" value={form.next_service_mileage} onChangeText={(value) => setForm({ ...form, next_service_mileage: value })} placeholder="Contoh: 50000" keyboardType="numeric" />
-          <Field label="Interval Kilometer" value={form.reminder_interval_mileage} onChangeText={(value) => setForm({ ...form, reminder_interval_mileage: value })} placeholder="Contoh: 10000" keyboardType="numeric" />
+        {form.status === 'scheduled' ? <>
+          <Text style={styles.label}>Reminder Otomatis</Text>
+          <Text style={styles.reminderText}>Notifikasi harian akan dimulai 7 hari sebelum tanggal service.</Text>
+          <Field label="Interval (bulan)*" value={form.reminder_interval_months} onChangeText={(value) => setForm({ ...form, reminder_interval_months: value })} placeholder="Contoh: 6" keyboardType="numeric" />
         </> : null}
         <Button label="Simpan Service" onPress={addService} loading={saving} disabled={!form.car_id || !form.service_type.trim()} />
       </Sheet>
