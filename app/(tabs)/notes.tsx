@@ -4,7 +4,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { Wrench, Plus, ChevronRight, Trash2 } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
-import { addMonthsToISO, formatDate, formatCurrency, todayISO } from '@/lib/format';
+import { addDaysToISO, addMonthsToISO, formatDate, formatCurrency, todayISO } from '@/lib/format';
 import { Sheet } from '@/components/Sheet';
 import { Field } from '@/components/Field';
 import { DateField } from '@/components/DateField';
@@ -202,6 +202,7 @@ export default function ServiceScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchServices(); }} colors={[Colors.primary]} />}
         renderItem={({ item }) => {
           const reminderStatus = item.reminder_enabled && item.next_service_date ? getReminderStatus(item.next_service_date) : null;
+          const confirmationWindowEnd = addDaysToISO(todayISO(), 7);
           return (
           <View style={styles.card}>
             <TouchableOpacity style={styles.cardMain} onPress={() => router.push(`/car/${item.car_id}`)} activeOpacity={0.85}>
@@ -226,7 +227,7 @@ export default function ServiceScreen() {
             <TouchableOpacity style={styles.deleteButton} onPress={() => deleteService(item)} hitSlop={10} accessibilityLabel={`Hapus service ${item.service_type}`}>
               <Trash2 size={18} color={Colors.error} strokeWidth={2.2} />
             </TouchableOpacity>
-            {item.reminder_enabled && item.next_service_date && item.next_service_date <= todayISO() ? (
+            {item.reminder_enabled && item.next_service_date && item.next_service_date <= confirmationWindowEnd ? (
               <TouchableOpacity style={[styles.confirmServiceButton, confirmingServiceId === item.id && styles.actionDisabled]} onPress={() => { void confirmServiceDone(item); }} disabled={confirmingServiceId === item.id}>
                 <Text style={styles.confirmServiceButtonText}>{confirmingServiceId === item.id ? 'Memproses...' : 'Konfirmasi sudah melakukan'}</Text>
               </TouchableOpacity>

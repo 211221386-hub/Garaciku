@@ -23,6 +23,12 @@ export function todayISO(): string {
   return new Date().toISOString().split('T')[0];
 }
 
+export function addDaysToISO(dateStr: string, days: number): string {
+  const date = new Date(`${dateStr}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 export function addMonthsToISO(dateStr: string, months: number): string {
   const [year, month, day] = dateStr.split('-').map(Number);
   const targetMonth = new Date(Date.UTC(year, month - 1 + months, 1));
