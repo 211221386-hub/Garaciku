@@ -29,6 +29,10 @@ export function addDaysToISO(dateStr: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+export function dateRangesOverlap(firstStart: string, firstEnd: string, secondStart: string, secondEnd: string): boolean {
+  return firstStart <= secondEnd && firstEnd >= secondStart;
+}
+
 export function addMonthsToISO(dateStr: string, months: number): string {
   const [year, month, day] = dateStr.split('-').map(Number);
   const targetMonth = new Date(Date.UTC(year, month - 1 + months, 1));

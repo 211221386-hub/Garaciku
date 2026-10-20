@@ -188,7 +188,9 @@ async function proxyQuery(env, user, body) {
   if (table === 'rental_records' && [3, 4].includes(user.role)) {
     const filters = validateFilters(table, body.filters ?? []);
     if (!filters) throw new Error('Invalid query filters.');
-    const isAvailabilityQuery = body.select?.replace(/\s/g, '') === 'car_id,status';
+    const requestedSelection = body.select?.replace(/\s/g, '');
+    const isAvailabilityQuery = requestedSelection === 'car_id,status' || requestedSelection === 'car_id,status,start_date,end_date';
+    const isDateAvailabilityQuery = requestedSelection === 'car_id,status,start_date,end_date';
     query = {
       ...body,
       filters: [
@@ -197,7 +199,7 @@ async function proxyQuery(env, user, body) {
           ? [{ column: 'status', operator: 'in', value: ['active', 'approved', 'overdue'] }]
           : [{ column: 'user_id', operator: 'eq', value: user.id }]),
       ],
-      ...(isAvailabilityQuery ? { select: 'car_id,status' } : {}),
+      ...(isAvailabilityQuery ? { select: isDateAvailabilityQuery ? 'car_id,status,start_date,end_date' : 'car_id,status' } : {}),
     };
   }
   const url = buildPostgrestUrl(env, table, query);

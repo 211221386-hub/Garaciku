@@ -255,6 +255,29 @@ test('rental availability queries expose only blocking car IDs and statuses', as
   }
 });
 
+test('rental availability queries expose dates without other users rental details', async () => {
+  const rows = [{ car_id: 'car-1', status: 'approved', start_date: '2026-10-20', end_date: '2026-10-22' }];
+  const mock = mockFetch(3, rows);
+  try {
+    const token = await login(envFor(3), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/data/query', {
+      table: 'rental_records',
+      select: 'car_id,status,start_date,end_date',
+      filters: [{ column: 'status', operator: 'in', value: ['pending'] }],
+      single: false,
+    }, token), envFor(3));
+    const result = await response.json();
+    const query = mock.calls.find((call) => call.url.pathname === '/rest/v1/rental_records');
+    assert.equal(response.status, 200);
+    assert.equal(query.url.searchParams.get('select'), 'car_id,status,start_date,end_date');
+    assert.equal(query.url.searchParams.get('status'), 'in.("active","approved","overdue")');
+    assert.equal(query.url.searchParams.has('user_id'), false);
+    assert.deepEqual(result.data, rows);
+  } finally {
+    mock.restore();
+  }
+});
+
 test('rental creation overrides requester identity and strips client audit metadata', async () => {
   const mock = mockFetch(3, [{ id: 'rental-1' }]);
   try {

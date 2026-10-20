@@ -1,6 +1,6 @@
 import { supabase, workerApiUrl } from '@/lib/supabase';
 import type { AppUser, Car, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStatus, ServiceRecord } from '@/lib/types';
-import { getRentalStatus, todayISO } from '@/lib/format';
+import { dateRangesOverlap, getRentalStatus, todayISO } from '@/lib/format';
 import { getSession } from '@/lib/auth';
 
 export type LoginResult = {
@@ -94,6 +94,9 @@ class ApiClient {
       );
       return [...new Set(rows.filter(isBlockingRental).map((rental) => rental.car_id))];
     },
+    getAvailability: () => unwrap<Pick<RentalRecord, 'car_id' | 'status' | 'start_date' | 'end_date'>[]>(
+      supabase.from('rental_records').select('car_id,status,start_date,end_date').in('status', ['active', 'approved', 'overdue'])
+    ),
     getAll: async () => {
       const session = getSession();
       let query = supabase.from('rental_records').select('*, cars(name)').order('created_at', { ascending: false });
@@ -116,9 +119,20 @@ class ApiClient {
       }
       const isRequester = session?.user.role === 3 || session?.user.role === 4;
       return (async () => {
-        const activeCarIds = await apiClient.rentals.getCurrentlyRentedCarIds();
-        if (typeof data.car_id === 'string' && activeCarIds.includes(data.car_id)) {
-          throw new Error('Mobil sudah dibooking atau sedang digunakan. Pilih mobil lain.');
+        if (typeof data.car_id === 'string' && typeof data.start_date === 'string') {
+          const requestedEnd = typeof data.end_date === 'string' ? data.end_date : data.start_date;
+          const reservations = await apiClient.rentals.getAvailability();
+          const hasConflict = reservations.some((reservation) =>
+            reservation.car_id === data.car_id
+            && isBlockingRental(reservation)
+            && dateRangesOverlap(
+              data.start_date as string,
+              requestedEnd,
+              reservation.start_date,
+              reservation.end_date ?? reservation.start_date,
+            )
+          );
+          if (hasConflict) throw new Error('Mobil sudah terbooking pada rentang tanggal tersebut. Pilih unit atau tanggal lain.');
         }
         return unwrap<RentalRecord>(supabase.from('rental_records').insert({
           ...data,
@@ -170,6 +184,20 @@ class ApiClient {
         supabase.from('rental_records').select('*').eq('id', id).eq('status', 'pending').single()
       );
       if (!rental) throw new Error('Permintaan rental tidak ditemukan atau sudah diproses.');
+      if (data.status === 'approved') {
+        const reservations = await apiClient.rentals.getAvailability();
+        const hasConflict = reservations.some((reservation) =>
+          reservation.car_id === data.car_id
+          && isBlockingRental(reservation)
+          && dateRangesOverlap(
+            rental.start_date,
+            rental.end_date ?? rental.start_date,
+            reservation.start_date,
+            reservation.end_date ?? reservation.start_date,
+          )
+        );
+        if (hasConflict) throw new Error('Unit sudah terbooking pada rentang tanggal permintaan ini. Pilih unit lain.');
+      }
 
       await unwrap(
         supabase.from('rental_records').update(data).eq('id', id).eq('status', 'pending')
