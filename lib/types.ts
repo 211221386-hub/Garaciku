@@ -86,6 +86,7 @@ export type RentalStatus = 'pending' | 'active' | 'approved' | 'overdue' | 'reje
 
 export type RentalRecord = {
   id: string;
+  cycle_id: string;
   car_id: string;
   user_id: string | null;
   renter_name: string;

@@ -4,14 +4,14 @@ import { router, useFocusEffect } from 'expo-router';
 import { KeyRound, Plus, ChevronRight, RotateCcw } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
-import { dateRangesOverlap, formatDate, formatCurrency } from '@/lib/format';
+import { dateRangesOverlap, differenceInCalendarDays, formatDate, formatCurrency } from '@/lib/format';
 import { Sheet } from '@/components/Sheet';
 import { Field } from '@/components/Field';
 import { DateField } from '@/components/DateField';
 import { TimeField } from '@/components/TimeField';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
-import type { RentalStatus } from '@/lib/types';
+import type { Car, RentalStatus } from '@/lib/types';
 import { getSession } from '@/lib/auth';
 import { notifyOverdueRentals } from '@/lib/notifications';
 
@@ -19,6 +19,7 @@ type RecordKind = 'rental' | 'duplicate';
 
 type RentalWithCar = {
   id: string;
+  cycle_id: string;
   car_id: string;
   renter_name: string;
   renter_email: string;
@@ -35,7 +36,7 @@ type RentalWithCar = {
 
 type RentalAvailability = Pick<RentalWithCar, 'car_id' | 'start_date' | 'end_date' | 'status'>;
 
-const blockingStatuses: RentalStatus[] = ['active', 'approved', 'overdue'];
+const blockingStatuses: RentalStatus[] = ['pending', 'active', 'approved', 'overdue'];
 
 function hasRentalConflict(reservations: RentalAvailability[], carId: string, startDate: string, endDate: string) {
   return reservations.some((reservation) =>
@@ -59,8 +60,9 @@ const statusConfig: Record<RentalStatus, { label: string; bg: string; text: stri
 export default function RentalScreen() {
   const [rentals, setRentals] = useState<RentalWithCar[]>([]);
   const [activeTab, setActiveTab] = useState<'borrowing' | 'return'>('borrowing');
-  const [cars, setCars] = useState<{ id: string; name: string }[]>([]);
+  const [cars, setCars] = useState<Pick<Car, 'id' | 'name' | 'plate_number'>[]>([]);
   const [availabilityRentals, setAvailabilityRentals] = useState<RentalAvailability[]>([]);
+  const [selectedCarIds, setSelectedCarIds] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
   const [sheet, setSheet] = useState(false);
@@ -108,6 +110,7 @@ export default function RentalScreen() {
   const displayedRentals = activeTab === 'borrowing' ? borrowingRentals : returnRentals;
   const pendingReturnCount = returnRentals.filter((rental) => ['approved', 'active', 'overdue'].includes(rental.status)).length;
   const isAdmin = [1, 2].includes(getSession()?.user.role ?? 0);
+  const hasOpenCycle = !isAdmin && rentals.some((rental) => ['pending', 'approved', 'active', 'overdue'].includes(rental.status));
   const rentalRangeValid = Boolean(form.start_date && form.end_date && form.end_date >= form.start_date);
   const duplicateRangeValid = Boolean(duplicateForm.start_date && duplicateForm.end_date && duplicateForm.end_date >= duplicateForm.start_date);
   const selectedRangeValid = recordKind === 'rental' ? rentalRangeValid : duplicateRangeValid;
@@ -116,18 +119,25 @@ export default function RentalScreen() {
   const availableCars = selectedRangeValid
     ? cars.filter((car) => !hasRentalConflict(availabilityRentals, car.id, rangeStart, rangeEnd))
     : [];
-  const selectedCarAvailable = availableCars.some((car) => car.id === form.car_id);
+  const selectedCarAvailable = recordKind === 'rental'
+    ? selectedCarIds.length > 0 && selectedCarIds.every((carId) => availableCars.some((car) => car.id === carId))
+    : availableCars.some((car) => car.id === form.car_id);
 
   const resetFormState = () => {
     setForm({ car_id: '', renter_name: '', renter_email: '', renter_phone: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
+    setSelectedCarIds([]);
     setDuplicateForm({ name: '', section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '' });
     setRecordKind('rental');
   };
 
   const addRecord = async () => {
     if (saving) return;
-    if (!form.car_id) {
+    if (recordKind === 'duplicate' && !form.car_id) {
       Alert.alert('Pilih mobil terlebih dahulu', 'Pilih salah satu mobil sebelum menyimpan data.');
+      return;
+    }
+    if (recordKind === 'rental' && selectedCarIds.length === 0) {
+      Alert.alert('Pilih unit terlebih dahulu', 'Pilih minimal satu unit untuk siklus peminjaman ini.');
       return;
     }
 
@@ -214,7 +224,35 @@ export default function RentalScreen() {
     const today = new Date().toISOString().split('T')[0];
     setSaving(true);
     try {
-      await apiClient.rentals.create({ car_id: form.car_id, renter_name: form.renter_name.trim(), renter_email: form.renter_email.trim(), renter_phone: form.renter_phone.trim(), start_date: form.start_date || today, start_time: form.start_time, end_date: form.end_date, end_time: form.end_time, purpose: form.purpose.trim(), notes: form.notes.trim() });
+      const createdRentals = await apiClient.rentals.createCycle({
+        car_ids: selectedCarIds,
+        renter_name: form.renter_name.trim(),
+        renter_email: form.renter_email.trim(),
+        renter_phone: form.renter_phone.trim(),
+        start_date: form.start_date || today,
+        start_time: form.start_time,
+        end_date: form.end_date || null,
+        end_time: form.end_time || null,
+        purpose: form.purpose.trim(),
+        notes: form.notes.trim(),
+      });
+      const firstRental = createdRentals[0];
+      if (getSession()?.user.role !== 2) {
+        try {
+          await apiClient.rentals.notifyCreated({
+            namaPemesan: firstRental.renter_name,
+            emailPemesan: firstRental.renter_email,
+            nomorTelepon: firstRental.renter_phone,
+            jenisKendaraan: cars.filter((car) => selectedCarIds.includes(car.id)).map((car) => car.name).join(', '),
+            platNomor: cars.filter((car) => selectedCarIds.includes(car.id)).map((car) => car.plate_number).join(', '),
+            tanggalMulaiSewa: firstRental.start_date,
+            tanggalSelesaiSewa: firstRental.end_date ?? '',
+            jumlahHariSewa: firstRental.end_date ? differenceInCalendarDays(firstRental.start_date, firstRental.end_date) : '',
+          });
+        } catch (error) {
+          Alert.alert('Peminjaman tersimpan', `Notifikasi otomatis gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
+        }
+      }
       resetFormState();
       setSheet(false);
       await fetchRentals();
@@ -254,13 +292,14 @@ export default function RentalScreen() {
       </View>
       <FlatList data={displayedRentals} keyExtractor={(item) => item.id} contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchRentals(); }} colors={[Colors.primary]} />}
-        renderItem={({ item }) => { const st = statusConfig[item.status] ?? statusConfig.active; return (
+        renderItem={({ item }) => { const st = statusConfig[item.status] ?? statusConfig.active; const cycleUnitCount = rentals.filter((rental) => rental.cycle_id === item.cycle_id).length; return (
           <TouchableOpacity style={styles.card} onPress={() => router.push(`/car/rental/${item.id}` as never)} activeOpacity={0.85}>
             <View style={styles.rentalIcon}><KeyRound size={16} color={Colors.primary} strokeWidth={2.2} /></View>
             <View style={styles.cardBody}>
               <Text style={styles.renterName} numberOfLines={1}>{item.renter_name}</Text>
               <Text style={styles.carName} numberOfLines={1}>{item.car_name ?? 'Mobil tidak diketahui'}</Text>
               <Text style={styles.emailText} numberOfLines={1}>{item.renter_email}</Text>
+              {cycleUnitCount > 1 ? <Text style={styles.emailText}>Satu siklus peminjaman · {cycleUnitCount} unit</Text> : null}
               <View style={styles.metaRow}><Text style={styles.metaText}>{formatDate(item.start_date)} {item.start_time || ''}</Text>{item.end_date ? <Text style={styles.metaText}> - {formatDate(item.end_date)} {item.end_time || ''}</Text> : null}</View>
               <View style={styles.metaRow}>{item.purpose ? <Text style={styles.metaText}>Tujuan: {item.purpose}</Text> : null}{item.total_cost ? <Text style={styles.costText}>{formatCurrency(item.total_cost)}</Text> : null}</View>
               <View style={[styles.statusPill, { backgroundColor: st.bg }]}><Text style={[styles.statusText, { color: st.text }]}>{st.label}</Text></View>
@@ -271,36 +310,46 @@ export default function RentalScreen() {
         ); }}
         ListEmptyComponent={<EmptyState icon={activeTab === 'borrowing' ? <KeyRound size={32} color={Colors.primary} strokeWidth={2} /> : <RotateCcw size={32} color={Colors.primary} strokeWidth={2} />} title={activeTab === 'borrowing' ? 'Belum ada peminjaman' : 'Belum ada pengembalian'} subtitle={activeTab === 'borrowing' ? 'Ajukan peminjaman mobil dengan tombol tambah.' : 'Peminjaman yang disetujui akan muncul di sini.'} />}
       />
-      {activeTab === 'borrowing' ? <TouchableOpacity style={styles.fab} onPress={() => setSheet(true)} activeOpacity={0.85}><View style={styles.fabContent}><Plus size={26} color={Colors.white} strokeWidth={2.6} /><Text style={styles.fabLabel}>Tambah rental/duplikasi</Text></View></TouchableOpacity> : null}
+      {activeTab === 'borrowing' ? <TouchableOpacity style={styles.fab} onPress={() => { if (hasOpenCycle) setRecordKind('duplicate'); setSheet(true); }} activeOpacity={0.85}><View style={styles.fabContent}><Plus size={26} color={Colors.white} strokeWidth={2.6} /><Text style={styles.fabLabel}>{hasOpenCycle ? 'Tambah duplikasi' : 'Tambah rental/duplikasi'}</Text></View></TouchableOpacity> : null}
       <Sheet visible={sheet} onClose={() => { setSheet(false); resetFormState(); }} title="Tambah Transaksi Mobil">
+        {hasOpenCycle ? <Text style={styles.cycleNoticeText}>Siklus peminjaman masih berjalan. Pengajuan baru tersedia setelah Admin mengonfirmasi semua unit sudah diterima.</Text> : null}
         <Text style={styles.label}>Jenis transaksi</Text>
         <View style={styles.recordTypeRow}>
-          <TouchableOpacity style={[styles.recordType, recordKind === 'rental' && styles.recordTypeActive]} onPress={() => { setRecordKind('rental'); setForm((current) => ({ ...current, car_id: '' })); }}>
+          <TouchableOpacity disabled={hasOpenCycle} style={[styles.recordType, recordKind === 'rental' && styles.recordTypeActive, hasOpenCycle && styles.actionDisabled]} onPress={() => { setRecordKind('rental'); setSelectedCarIds([]); setForm((current) => ({ ...current, car_id: '' })); }}>
             <Text style={[styles.recordTypeText, recordKind === 'rental' && styles.recordTypeTextActive]}>Peminjaman</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.recordType, recordKind === 'duplicate' && styles.recordTypeActive]} onPress={() => { setRecordKind('duplicate'); setForm((current) => ({ ...current, car_id: '' })); }}>
+          <TouchableOpacity style={[styles.recordType, recordKind === 'duplicate' && styles.recordTypeActive]} onPress={() => { setRecordKind('duplicate'); setSelectedCarIds([]); setForm((current) => ({ ...current, car_id: '' })); }}>
             <Text style={[styles.recordTypeText, recordKind === 'duplicate' && styles.recordTypeTextActive]}>Duplikat</Text>
           </TouchableOpacity>
         </View>
 
         {recordKind === 'rental' ? (
           <>
-            <DateField label="Tanggal Mulai*" value={form.start_date} onChange={(value) => setForm({ ...form, start_date: value, end_date: form.end_date && form.end_date < value ? '' : form.end_date, car_id: '' })} placeholder="Pilih tanggal mulai" />
-            <DateField label="Tanggal Selesai*" value={form.end_date} onChange={(value) => setForm({ ...form, end_date: value, car_id: '' })} placeholder="Pilih tanggal selesai" minimumDate={form.start_date ? new Date(`${form.start_date}T00:00:00`) : undefined} />
+            <DateField label="Tanggal Mulai*" value={form.start_date} onChange={(value) => { setForm({ ...form, start_date: value, end_date: form.end_date && form.end_date < value ? '' : form.end_date, car_id: '' }); setSelectedCarIds([]); }} placeholder="Pilih tanggal mulai" />
+            <DateField label="Tanggal Selesai*" value={form.end_date} onChange={(value) => { setForm({ ...form, end_date: value, car_id: '' }); setSelectedCarIds([]); }} placeholder="Pilih tanggal selesai" minimumDate={form.start_date ? new Date(`${form.start_date}T00:00:00`) : undefined} />
           </>
         ) : (
           <>
-            <DateField label="Mulai*" value={duplicateForm.start_date} onChange={(value) => { setDuplicateForm({ ...duplicateForm, start_date: value, end_date: duplicateForm.end_date && duplicateForm.end_date < value ? '' : duplicateForm.end_date }); setForm((current) => ({ ...current, car_id: '' })); }} placeholder="Pilih tanggal mulai" />
-            <DateField label="Selesai*" value={duplicateForm.end_date} onChange={(value) => { setDuplicateForm({ ...duplicateForm, end_date: value }); setForm((current) => ({ ...current, car_id: '' })); }} placeholder="Pilih tanggal selesai" minimumDate={duplicateForm.start_date ? new Date(`${duplicateForm.start_date}T00:00:00`) : undefined} />
+            <DateField label="Mulai*" value={duplicateForm.start_date} onChange={(value) => { setDuplicateForm({ ...duplicateForm, start_date: value, end_date: duplicateForm.end_date && duplicateForm.end_date < value ? '' : duplicateForm.end_date }); setForm((current) => ({ ...current, car_id: '' })); setSelectedCarIds([]); }} placeholder="Pilih tanggal mulai" />
+            <DateField label="Selesai*" value={duplicateForm.end_date} onChange={(value) => { setDuplicateForm({ ...duplicateForm, end_date: value }); setForm((current) => ({ ...current, car_id: '' })); setSelectedCarIds([]); }} placeholder="Pilih tanggal selesai" minimumDate={duplicateForm.start_date ? new Date(`${duplicateForm.start_date}T00:00:00`) : undefined} />
           </>
         )}
 
         {selectedRangeValid ? (
           <>
-            <Text style={styles.label}>Unit tersedia*</Text>
+            <Text style={styles.label}>{recordKind === 'rental' ? 'Pilih Unit (bisa lebih dari satu)*' : 'Unit tersedia*'}</Text>
             {availabilityLoading ? <Text style={styles.availabilityMessage}>Memeriksa ketersediaan unit...</Text> : (
               <View style={styles.carPicker}>
-                {availableCars.map((car) => <TouchableOpacity key={car.id} onPress={() => setForm({ ...form, car_id: car.id })} style={[styles.carChip, form.car_id === car.id && styles.carChipActive]}><Text style={[styles.carChipText, form.car_id === car.id && styles.carChipTextActive]}>{car.name}</Text></TouchableOpacity>)}
+                {availableCars.map((car) => {
+                  const selected = recordKind === 'rental' ? selectedCarIds.includes(car.id) : form.car_id === car.id;
+                  return <TouchableOpacity key={car.id} onPress={() => {
+                    if (recordKind === 'rental') {
+                      setSelectedCarIds((current) => current.includes(car.id) ? current.filter((id) => id !== car.id) : [...current, car.id]);
+                    } else {
+                      setForm({ ...form, car_id: car.id });
+                    }
+                  }} style={[styles.carChip, selected && styles.carChipActive]}><Text style={[styles.carChipText, selected && styles.carChipTextActive]}>{car.name}</Text></TouchableOpacity>;
+                })}
                 {availableCars.length === 0 ? <Text style={styles.availabilityMessage}>Tidak ada unit tersedia untuk rentang tanggal ini.</Text> : null}
               </View>
             )}
@@ -330,7 +379,7 @@ export default function RentalScreen() {
         )}
 
         <View style={{ height: Spacing.sm }} />
-        <Button label={recordKind === 'rental' ? 'Simpan Rental' : 'Simpan Duplikasi'} onPress={addRecord} loading={saving} disabled={!selectedCarAvailable || (recordKind === 'rental' ? !form.renter_name.trim() || !form.renter_email.trim() || !form.renter_phone.trim() || !form.start_time || !form.end_time : !duplicateForm.name.trim() || !duplicateForm.section.trim() || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
+        <Button label={recordKind === 'rental' ? 'Simpan Rental' : 'Simpan Duplikasi'} onPress={addRecord} loading={saving} disabled={(hasOpenCycle && recordKind === 'rental') || !selectedCarAvailable || (recordKind === 'rental' ? !form.renter_name.trim() || !form.renter_email.trim() || !form.renter_phone.trim() || !form.start_time || !form.end_time : !duplicateForm.name.trim() || !duplicateForm.section.trim() || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
       </Sheet>
     </View>
   );
@@ -370,6 +419,7 @@ const styles = StyleSheet.create({
   label: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary, marginBottom: Spacing.xs },
   carPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginBottom: Spacing.sm },
   availabilityMessage: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textSecondary, marginBottom: Spacing.md },
+  cycleNoticeText: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.warning, lineHeight: 20, marginBottom: Spacing.sm },
   carChip: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.pill, backgroundColor: Colors.surfaceAlt },
   carChipActive: { backgroundColor: Colors.primary },
   carChipText: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary },

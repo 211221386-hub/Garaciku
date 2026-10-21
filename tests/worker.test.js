@@ -248,7 +248,7 @@ test('rental availability queries expose only blocking car IDs and statuses', as
     const query = mock.calls.find((call) => call.url.pathname === '/rest/v1/rental_records');
     assert.equal(response.status, 200);
     assert.equal(query.url.searchParams.get('select'), 'car_id,status');
-    assert.equal(query.url.searchParams.get('status'), 'in.("active","approved","overdue")');
+    assert.equal(query.url.searchParams.get('status'), 'in.("pending","active","approved","overdue")');
     assert.equal(query.url.searchParams.has('user_id'), false);
   } finally {
     mock.restore();
@@ -270,7 +270,7 @@ test('rental availability queries expose dates without other users rental detail
     const query = mock.calls.find((call) => call.url.pathname === '/rest/v1/rental_records');
     assert.equal(response.status, 200);
     assert.equal(query.url.searchParams.get('select'), 'car_id,status,start_date,end_date');
-    assert.equal(query.url.searchParams.get('status'), 'in.("active","approved","overdue")');
+    assert.equal(query.url.searchParams.get('status'), 'in.("pending","active","approved","overdue")');
     assert.equal(query.url.searchParams.has('user_id'), false);
     assert.deepEqual(result.data, rows);
   } finally {
@@ -278,32 +278,153 @@ test('rental availability queries expose dates without other users rental detail
   }
 });
 
-test('rental creation overrides requester identity and strips client audit metadata', async () => {
+test('rental records cannot be inserted through the generic data endpoint', async () => {
   const mock = mockFetch(3, [{ id: 'rental-1' }]);
   try {
     const token = await login(envFor(3), mock.calls);
+    const before = mock.calls.length;
     const response = await worker.fetch(makeRequest('/api/data/insert', {
       table: 'rental_records',
-      values: {
-        car_id: 'car-1',
-        user_id: 'another-user',
-        status: 'approved',
-        approved_by: 'another-admin',
-        approved_at: '2026-10-16T00:00:00Z',
-        return_confirmed_by: 'another-admin',
-        return_confirmed_at: '2026-10-16T00:00:00Z',
-      },
-      single: true,
+      values: { car_id: 'car-1' },
     }, token), envFor(3));
-    const insert = mock.calls.find((call) => call.url.pathname === '/rest/v1/rental_records' && call.options.method === 'POST');
-    const values = JSON.parse(insert.options.body);
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /cycle endpoint/);
+    assert.equal(mock.calls.slice(before).some((call) => call.options.method === 'POST' && call.url.pathname === '/rest/v1/rental_records'), false);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('rental cycle creation uses the authenticated role and user for all selected cars', async () => {
+  const rentalRows = [{ id: 'rental-1', cycle_id: 'cycle-1' }, { id: 'rental-2', cycle_id: 'cycle-1' }];
+  const mock = mockFetch(3, rentalRows);
+  try {
+    const token = await login(envFor(3), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/rentals/create-cycle', {
+      car_ids: ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'],
+      user_id: 'another-user',
+      user_role: 1,
+      renter_name: ' Test User ',
+      renter_email: ' test@example.com ',
+      renter_phone: ' 08123456789 ',
+      start_date: '2026-10-22',
+      start_time: '09:00',
+      end_date: '2026-10-24',
+      end_time: '17:00',
+      purpose: ' Dinas ',
+      notes: ' Catatan ',
+    }, token), envFor(3));
+    const result = await response.json();
+    const rpc = mock.calls.find((call) => call.url.pathname === '/rest/v1/rpc/create_rental_cycle');
+    const parameters = JSON.parse(rpc.options.body);
+    assert.equal(response.status, 201);
+    assert.deepEqual(result.data, rentalRows);
+    assert.equal(rpc.options.headers.apikey, 'test-service-role-key');
+    assert.equal(parameters._user_id, profile.id);
+    assert.equal(parameters._user_role, 3);
+    assert.deepEqual(parameters._car_ids, ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']);
+    assert.equal(parameters._renter_name, 'Test User');
+    assert.equal(parameters._renter_email, 'test@example.com');
+    assert.equal(parameters._renter_phone, '08123456789');
+  } finally {
+    mock.restore();
+  }
+});
+
+test('rental cycle creation allows role 2 to create an independent cycle', async () => {
+  const mock = mockFetch(2, [{ id: 'rental-1', cycle_id: 'cycle-2' }]);
+  try {
+    const token = await login(envFor(2), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/rentals/create-cycle', {
+      car_ids: ['11111111-1111-4111-8111-111111111111'],
+      renter_name: 'Admin',
+      renter_email: 'admin@example.com',
+      renter_phone: '0800',
+      start_date: '2026-10-22',
+      start_time: '00:00',
+      end_date: null,
+      end_time: null,
+      purpose: '',
+      notes: '',
+    }, token), envFor(2));
+    const rpc = mock.calls.find((call) => call.url.pathname === '/rest/v1/rpc/create_rental_cycle');
+    assert.equal(response.status, 201);
+    assert.equal(JSON.parse(rpc.options.body)._user_role, 2);
+    assert.equal(JSON.parse(rpc.options.body)._end_date, null);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('role 2 can confirm a returned unit through the dedicated endpoint', async () => {
+  const rental = { id: 'rental-1', status: 'completed', return_confirmed_by: profile.id };
+  const mock = mockFetch(2, rental);
+  try {
+    const token = await login(envFor(2), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/rentals/confirm-return', {
+      rental_id: '11111111-1111-4111-8111-111111111111',
+    }, token), envFor(2));
+    const result = await response.json();
+    const rpc = mock.calls.find((call) => call.url.pathname === '/rest/v1/rpc/confirm_rental_return');
+    const parameters = JSON.parse(rpc.options.body);
     assert.equal(response.status, 200);
-    assert.equal(values.user_id, profile.id);
-    assert.equal(values.status, 'pending');
-    assert.equal('approved_by' in values, false);
-    assert.equal('approved_at' in values, false);
-    assert.equal('return_confirmed_by' in values, false);
-    assert.equal('return_confirmed_at' in values, false);
+    assert.deepEqual(result.data, rental);
+    assert.equal(parameters._confirmed_by, profile.id);
+    assert.equal(parameters._user_role, 2);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('roles 3 and 4 cannot confirm returned units', async () => {
+  for (const role of [3, 4]) {
+    const mock = mockFetch(role);
+    try {
+      const token = await login(envFor(role), mock.calls);
+      const before = mock.calls.length;
+      const response = await worker.fetch(makeRequest('/api/rentals/confirm-return', {
+        rental_id: '11111111-1111-4111-8111-111111111111',
+      }, token), envFor(role));
+      assert.equal(response.status, 403);
+      assert.equal(mock.calls.slice(before).some((call) => call.url.pathname === '/rest/v1/rpc/confirm_rental_return'), false);
+    } finally {
+      mock.restore();
+    }
+  }
+});
+
+test('only role 1 can approve a rental cycle unit through the dedicated endpoint', async () => {
+  const mock = mockFetch(1, { id: 'rental-1', status: 'approved', car_id: '11111111-1111-4111-8111-111111111111' });
+  try {
+    const token = await login(envFor(1), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/rentals/approve-unit', {
+      rental_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      car_id: '11111111-1111-4111-8111-111111111111',
+      approved_by: 'another-user',
+    }, token), envFor(1));
+    const result = await response.json();
+    const rpc = mock.calls.find((call) => call.url.pathname === '/rest/v1/rpc/approve_rental_cycle_unit');
+    const parameters = JSON.parse(rpc.options.body);
+    assert.equal(response.status, 200);
+    assert.equal(result.data.status, 'approved');
+    assert.equal(parameters._approved_by, profile.id);
+    assert.equal(parameters._user_role, 1);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('role 2 cannot approve rental cycle units', async () => {
+  const mock = mockFetch(2);
+  try {
+    const token = await login(envFor(2), mock.calls);
+    const before = mock.calls.length;
+    const response = await worker.fetch(makeRequest('/api/rentals/approve-unit', {
+      rental_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      car_id: '11111111-1111-4111-8111-111111111111',
+    }, token), envFor(2));
+    assert.equal(response.status, 403);
+    assert.equal(mock.calls.slice(before).some((call) => call.url.pathname === '/rest/v1/rpc/approve_rental_cycle_unit'), false);
   } finally {
     mock.restore();
   }

@@ -1,12 +1,25 @@
 import { supabase, workerApiUrl } from '@/lib/supabase';
 import type { AppUser, Car, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStatus, ServiceRecord } from '@/lib/types';
-import { dateRangesOverlap, getRentalStatus, todayISO } from '@/lib/format';
+import { getRentalStatus, todayISO } from '@/lib/format';
 import { getSession } from '@/lib/auth';
 
 export type LoginResult = {
   user: AppUser;
   token?: string;
   expiresAt?: number;
+};
+
+export type CreateRentalCycleInput = {
+  car_ids: string[];
+  renter_name: string;
+  renter_email: string;
+  renter_phone: string;
+  start_date: string;
+  start_time: string;
+  end_date: string | null;
+  end_time: string | null;
+  purpose: string;
+  notes: string;
 };
 
 async function unwrap<T>(request: PromiseLike<{ data: T | null; error: { message: string } | null }>): Promise<T> {
@@ -34,6 +47,20 @@ async function callWorker(path: string, payload: Record<string, unknown>) {
   });
   const result = await response.json().catch(() => null) as { error?: string } | null;
   if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
+}
+
+async function createWorkerRentalCycle(payload: CreateRentalCycleInput): Promise<RentalRecord[]> {
+  const session = getSession();
+  if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+  const response = await fetch(workerApiUrl('/api/rentals/create-cycle'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => null) as { data?: RentalRecord[]; error?: string } | null;
+  if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
+  if (!Array.isArray(result?.data)) throw new Error('Worker mengembalikan data siklus peminjaman yang tidak valid.');
+  return result.data;
 }
 
 class ApiClient {
@@ -95,7 +122,7 @@ class ApiClient {
       return [...new Set(rows.filter(isBlockingRental).map((rental) => rental.car_id))];
     },
     getAvailability: () => unwrap<Pick<RentalRecord, 'car_id' | 'status' | 'start_date' | 'end_date'>[]>(
-      supabase.from('rental_records').select('car_id,status,start_date,end_date').in('status', ['active', 'approved', 'overdue'])
+      supabase.from('rental_records').select('car_id,status,start_date,end_date').in('status', ['pending', 'active', 'approved', 'overdue'])
     ),
     getAll: async () => {
       const session = getSession();
@@ -112,35 +139,31 @@ class ApiClient {
       const rental = await unwrap<RentalRecord>(query.single());
       return { ...rental, status: getRentalStatus(rental.status, rental.end_date, rental.end_time) };
     },
-    create: (data: Record<string, unknown>) => {
+    createCycle: async (data: CreateRentalCycleInput) => {
       const session = getSession();
-      if (!session || ![1, 3, 4].includes(session.user.role)) {
+      if (!session || ![1, 2, 3, 4].includes(session.user.role)) {
         throw new Error('Role ini tidak memiliki izin membuat rental.');
       }
-      const isRequester = session?.user.role === 3 || session?.user.role === 4;
-      return (async () => {
-        if (typeof data.car_id === 'string' && typeof data.start_date === 'string') {
-          const requestedEnd = typeof data.end_date === 'string' ? data.end_date : data.start_date;
-          const reservations = await apiClient.rentals.getAvailability();
-          const hasConflict = reservations.some((reservation) =>
-            reservation.car_id === data.car_id
-            && isBlockingRental(reservation)
-            && dateRangesOverlap(
-              data.start_date as string,
-              requestedEnd,
-              reservation.start_date,
-              reservation.end_date ?? reservation.start_date,
-            )
-          );
-          if (hasConflict) throw new Error('Mobil sudah terbooking pada rentang tanggal tersebut. Pilih unit atau tanggal lain.');
-        }
-        return unwrap<RentalRecord>(supabase.from('rental_records').insert({
-          ...data,
-          status: isRequester ? 'pending' : (data.status ?? 'active'),
-          start_time: data.start_time ?? '00:00',
-          user_id: session?.user.id ?? null,
-        }).select().single());
-      })();
+      return createWorkerRentalCycle(data);
+    },
+    create: async (data: Record<string, unknown>) => {
+      const session = getSession();
+      if (!session || ![1, 2, 3, 4].includes(session.user.role)) throw new Error('Role ini tidak memiliki izin membuat rental.');
+      if (typeof data.car_id !== 'string' || typeof data.start_date !== 'string') throw new Error('Unit dan tanggal mulai wajib dipilih.');
+      const rows = await createWorkerRentalCycle({
+        car_ids: [data.car_id],
+        renter_name: typeof data.renter_name === 'string' ? data.renter_name : '',
+        renter_email: typeof data.renter_email === 'string' ? data.renter_email : '',
+        renter_phone: typeof data.renter_phone === 'string' ? data.renter_phone : '',
+        start_date: data.start_date,
+        start_time: typeof data.start_time === 'string' ? data.start_time : '00:00',
+        end_date: typeof data.end_date === 'string' ? data.end_date : null,
+        end_time: typeof data.end_time === 'string' ? data.end_time : null,
+        purpose: typeof data.purpose === 'string' ? data.purpose : '',
+        notes: typeof data.notes === 'string' ? data.notes : '',
+      });
+      if (!rows[0]) throw new Error('Siklus peminjaman tidak menghasilkan unit.');
+      return rows[0];
     },
     notifyCreated: async (payload: {
       namaPemesan: string;
@@ -185,18 +208,15 @@ class ApiClient {
       );
       if (!rental) throw new Error('Permintaan rental tidak ditemukan atau sudah diproses.');
       if (data.status === 'approved') {
-        const reservations = await apiClient.rentals.getAvailability();
-        const hasConflict = reservations.some((reservation) =>
-          reservation.car_id === data.car_id
-          && isBlockingRental(reservation)
-          && dateRangesOverlap(
-            rental.start_date,
-            rental.end_date ?? rental.start_date,
-            reservation.start_date,
-            reservation.end_date ?? reservation.start_date,
-          )
-        );
-        if (hasConflict) throw new Error('Unit sudah terbooking pada rentang tanggal permintaan ini. Pilih unit lain.');
+        const response = await fetch(workerApiUrl('/api/rentals/approve-unit'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+          body: JSON.stringify({ rental_id: id, car_id: data.car_id }),
+        });
+        const result = await response.json().catch(() => null) as { data?: RentalRecord; error?: string } | null;
+        if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
+        if (!result?.data) throw new Error('Worker mengembalikan data approval yang tidak valid.');
+        return result.data;
       }
 
       await unwrap(
@@ -206,14 +226,16 @@ class ApiClient {
     },
     confirmReturn: async (id: string) => {
       const session = getSession();
-      if (!session || session.user.role !== 1) throw new Error('Hanya Super Admin (Role 1) yang dapat mengonfirmasi pengembalian.');
-      const rental = await unwrap<RentalRecord>(supabase.from('rental_records').select('*').eq('id', id).in('status', ['approved', 'active', 'overdue']).single());
-      await unwrap(supabase.from('rental_records').update({
-        status: 'completed',
-        return_confirmed_by: session.user.id,
-        return_confirmed_at: new Date().toISOString(),
-      }).eq('id', id).in('status', ['approved', 'active', 'overdue']));
-      return { ...rental, status: 'completed' } as RentalRecord;
+      if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya Role 1 atau 2 yang dapat mengonfirmasi pengembalian.');
+      const response = await fetch(workerApiUrl('/api/rentals/confirm-return'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ rental_id: id }),
+      });
+      const result = await response.json().catch(() => null) as { data?: RentalRecord; error?: string } | null;
+      if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
+      if (!result?.data) throw new Error('Worker mengembalikan data rental yang tidak valid.');
+      return result.data;
     },
     delete: async (id: string) => {
       const session = getSession();

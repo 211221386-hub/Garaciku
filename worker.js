@@ -124,7 +124,7 @@ function userCanWrite(table, operation, role) {
   }
   if (table === 'service_records') return [1, 2].includes(role);
   if (table === 'rental_records') {
-    if (operation === 'insert') return [1, 3, 4].includes(role);
+    if (operation === 'insert') return [1, 2, 3, 4].includes(role);
     if (operation === 'update') return role === 1;
     if (operation === 'delete') return [1, 2].includes(role);
   }
@@ -196,7 +196,7 @@ async function proxyQuery(env, user, body) {
       filters: [
         ...filters.filter((filter) => filter.column !== 'user_id' && (!isAvailabilityQuery || filter.column !== 'status')),
         ...(isAvailabilityQuery
-          ? [{ column: 'status', operator: 'in', value: ['active', 'approved', 'overdue'] }]
+          ? [{ column: 'status', operator: 'in', value: ['pending', 'active', 'approved', 'overdue'] }]
           : [{ column: 'user_id', operator: 'eq', value: user.id }]),
       ],
       ...(isAvailabilityQuery ? { select: isDateAvailabilityQuery ? 'car_id,status,start_date,end_date' : 'car_id,status' } : {}),
@@ -217,6 +217,9 @@ async function proxyMutation(env, user, body) {
   const { table, operation } = body;
   if (!TABLES.has(table) || !['insert', 'update', 'delete'].includes(operation) || !userCanWrite(table, operation, user.role)) {
     return { status: 403, error: 'Role is not allowed to perform this operation.' };
+  }
+  if (table === 'rental_records' && operation === 'insert') {
+    return { status: 400, error: 'Rental records must be created through the cycle endpoint.' };
   }
 
   const requiredFilters = operation !== 'insert';
@@ -358,6 +361,114 @@ async function proxyNotification(request, env, user, path, headers) {
   }
 }
 
+async function createRentalCycle(request, env, user, headers) {
+  if (![1, 2, 3, 4].includes(user.role)) return { status: 403, error: 'Role is not allowed to create rental cycles.' };
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return { status: 400, error: 'Invalid JSON body.' };
+  }
+
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  const timePattern = /^\d{2}:\d{2}(?::\d{2})?$/;
+  if (!body || typeof body !== 'object' || Array.isArray(body)
+    || !Array.isArray(body.car_ids) || body.car_ids.length === 0 || body.car_ids.length > 25
+    || body.car_ids.some((carId) => typeof carId !== 'string' || !uuidPattern.test(carId))
+    || new Set(body.car_ids).size !== body.car_ids.length
+    || typeof body.renter_name !== 'string' || !body.renter_name.trim()
+    || typeof body.renter_email !== 'string' || !/^\S+@\S+\.\S+$/.test(body.renter_email.trim())
+    || typeof body.renter_phone !== 'string' || !body.renter_phone.trim()
+    || typeof body.start_date !== 'string' || !datePattern.test(body.start_date)
+    || (body.end_date !== null && (typeof body.end_date !== 'string' || !datePattern.test(body.end_date)))
+    || typeof body.start_time !== 'string' || !timePattern.test(body.start_time)
+    || (body.end_time !== null && (typeof body.end_time !== 'string' || !timePattern.test(body.end_time)))
+    || (body.end_date !== null && body.end_date < body.start_date)
+    || (body.end_date === body.start_date && body.end_time !== null && body.end_time <= body.start_time)) {
+    return { status: 400, error: 'Data siklus peminjaman tidak valid.' };
+  }
+
+  const rpcUrl = new URL(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/create_rental_cycle`);
+  const rpcResponse = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({
+      _user_id: user.id,
+      _user_role: user.role,
+      _car_ids: body.car_ids,
+      _renter_name: body.renter_name.trim(),
+      _renter_email: body.renter_email.trim(),
+      _renter_phone: body.renter_phone.trim(),
+      _start_date: body.start_date,
+      _start_time: body.start_time,
+      _end_date: body.end_date ?? null,
+      _end_time: body.end_time,
+      _purpose: typeof body.purpose === 'string' ? body.purpose.trim() : '',
+      _notes: typeof body.notes === 'string' ? body.notes.trim() : '',
+    }),
+  });
+  const result = await rpcResponse.json().catch(() => null);
+  if (!rpcResponse.ok) {
+    const error = typeof result?.message === 'string' ? result.message : 'Rental cycle creation failed.';
+    const isConflict = /Siklus peminjaman|Unit sudah terbooking/i.test(error);
+    return { status: isConflict ? 409 : 400, error };
+  }
+  return { status: 201, data: result };
+}
+
+async function confirmRentalReturn(request, env, user) {
+  if (![1, 2].includes(user.role)) return { status: 403, error: 'Hanya Role 1 atau 2 yang dapat mengonfirmasi pengembalian.' };
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return { status: 400, error: 'Invalid JSON body.' };
+  }
+
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!body || typeof body.rental_id !== 'string' || !uuidPattern.test(body.rental_id)) {
+    return { status: 400, error: 'ID rental tidak valid.' };
+  }
+
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/confirm_rental_return`, {
+    method: 'POST',
+    headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ _rental_id: body.rental_id, _confirmed_by: user.id, _user_role: user.role }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) return { status: 409, error: typeof result?.message === 'string' ? result.message : 'Konfirmasi pengembalian gagal.' };
+  return { status: 200, data: result };
+}
+
+async function approveRentalCycleUnit(request, env, user) {
+  if (user.role !== 1) return { status: 403, error: 'Hanya Super Admin (Role 1) yang dapat menyetujui rental.' };
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return { status: 400, error: 'Invalid JSON body.' };
+  }
+
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!body || typeof body.rental_id !== 'string' || !uuidPattern.test(body.rental_id)
+    || typeof body.car_id !== 'string' || !uuidPattern.test(body.car_id)) {
+    return { status: 400, error: 'ID rental atau unit tidak valid.' };
+  }
+
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/approve_rental_cycle_unit`, {
+    method: 'POST',
+    headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ _rental_id: body.rental_id, _car_id: body.car_id, _approved_by: user.id, _user_role: user.role }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) return { status: 409, error: typeof result?.message === 'string' ? result.message : 'Approval rental gagal.' };
+  return { status: 200, data: result };
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -368,6 +479,9 @@ export default {
       '/api/data/insert',
       '/api/data/update',
       '/api/data/delete',
+      '/api/rentals/create-cycle',
+      '/api/rentals/confirm-return',
+      '/api/rentals/approve-unit',
       '/api/rental-created',
       '/api/rental-approved',
     ]);
@@ -405,6 +519,36 @@ export default {
       return Response.json({ error: 'Authentication service failed.' }, { status: 503, headers });
     }
     if (!user) return Response.json({ error: 'Session is invalid or expired.' }, { status: 401, headers });
+
+    if (url.pathname === '/api/rentals/create-cycle') {
+      try {
+        const result = await createRentalCycle(request, env, user, headers);
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Rental cycle creation failed:', error);
+        return Response.json({ error: 'Rental cycle creation failed.' }, { status: 503, headers });
+      }
+    }
+
+    if (url.pathname === '/api/rentals/confirm-return') {
+      try {
+        const result = await confirmRentalReturn(request, env, user);
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Rental return confirmation failed:', error);
+        return Response.json({ error: 'Rental return confirmation failed.' }, { status: 503, headers });
+      }
+    }
+
+    if (url.pathname === '/api/rentals/approve-unit') {
+      try {
+        const result = await approveRentalCycleUnit(request, env, user);
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Rental approval failed:', error);
+        return Response.json({ error: 'Rental approval failed.' }, { status: 503, headers });
+      }
+    }
 
     if (url.pathname === '/api/data/query' || url.pathname === '/api/data/insert' || url.pathname === '/api/data/update' || url.pathname === '/api/data/delete') {
       let body;
