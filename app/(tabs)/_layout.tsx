@@ -49,7 +49,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="service"
         options={{
-          title: 'Rental',
+          title: 'Transportation',
           tabBarIcon: ({ size, color }) => <KeyRound size={size} color={color} strokeWidth={2.2} />,
         }}
       />

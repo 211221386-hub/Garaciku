@@ -137,13 +137,13 @@ export default function RentalScreen() {
       return;
     }
     if (recordKind === 'rental' && selectedCarIds.length === 0) {
-      Alert.alert('Pilih unit terlebih dahulu', 'Pilih minimal satu unit untuk siklus peminjaman ini.');
+      Alert.alert('Pilih unit terlebih dahulu', 'Pilih minimal satu unit untuk siklus Transportation ini.');
       return;
     }
 
     if (recordKind === 'duplicate') {
       if (!duplicateForm.name.trim() || !duplicateForm.section.trim() || !duplicateForm.start_date || !duplicateForm.end_date || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim()) {
-        Alert.alert('Data belum lengkap', 'Isi semua field duplikasi sebelum menyimpan catatan mobil.');
+        Alert.alert('Data belum lengkap', 'Isi semua field investigasi sebelum menyimpan catatan mobil.');
         return;
       }
 
@@ -190,7 +190,7 @@ export default function RentalScreen() {
         resetFormState();
         setSheet(false);
       } catch (error) {
-        Alert.alert('Gagal menyimpan duplikasi', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+        Alert.alert('Gagal menyimpan investigasi', error instanceof Error ? error.message : 'Terjadi kesalahan.');
       } finally {
         setSaving(false);
       }
@@ -198,11 +198,11 @@ export default function RentalScreen() {
     }
 
     if (!form.renter_name.trim()) {
-      Alert.alert('Nama penyewa wajib diisi', 'Masukkan nama penyewa sebelum menyimpan rental.');
+      Alert.alert('Nama penyewa wajib diisi', 'Masukkan nama penyewa sebelum menyimpan Transportation.');
       return;
     }
     if (!form.renter_phone.trim()) {
-      Alert.alert('Nomor telepon wajib diisi', 'Masukkan nomor telepon penyewa sebelum menyimpan rental.');
+      Alert.alert('Nomor telepon wajib diisi', 'Masukkan nomor telepon penyewa sebelum menyimpan Transportation.');
       return;
     }
     if (!form.start_date || !form.start_time || !form.end_date || !form.end_time) {
@@ -250,14 +250,14 @@ export default function RentalScreen() {
             jumlahHariSewa: firstRental.end_date ? differenceInCalendarDays(firstRental.start_date, firstRental.end_date) : '',
           });
         } catch (error) {
-          Alert.alert('Peminjaman tersimpan', `Notifikasi otomatis gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
+          Alert.alert('Transportation tersimpan', `Notifikasi otomatis gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
         }
       }
       resetFormState();
       setSheet(false);
       await fetchRentals();
     } catch (error) {
-      Alert.alert('Gagal menyimpan rental', error instanceof Error ? error.message : 'Terjadi kesalahan. Pastikan migration jadwal rental sudah dijalankan di Supabase.');
+      Alert.alert('Gagal menyimpan Transportation', error instanceof Error ? error.message : 'Terjadi kesalahan. Pastikan migration jadwal Transportation sudah dijalankan di Supabase.');
     } finally {
       setSaving(false);
     }
@@ -278,11 +278,11 @@ export default function RentalScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}><Text style={styles.greeting}>Rental Mobil</Text><Text style={styles.title}>{activeTab === 'borrowing' ? 'Peminjaman' : 'Pengembalian'}</Text>{activeTab === 'return' && isAdmin && overdueCount > 0 ? <Text style={styles.overdueNotice}>{overdueCount} rental perlu konfirmasi pengembalian</Text> : null}</View>
+      <View style={styles.header}><Text style={styles.greeting}>Transportation Mobil</Text><Text style={styles.title}>{activeTab === 'borrowing' ? 'Transportation' : 'Pengembalian'}</Text>{activeTab === 'return' && isAdmin && overdueCount > 0 ? <Text style={styles.overdueNotice}>{overdueCount} Transportation perlu konfirmasi pengembalian</Text> : null}</View>
       <View style={styles.tabs}>
         <TouchableOpacity style={[styles.tab, activeTab === 'borrowing' && styles.activeTab]} onPress={() => setActiveTab('borrowing')}>
           <KeyRound size={17} color={activeTab === 'borrowing' ? Colors.primary : Colors.textSecondary} strokeWidth={2.2} />
-          <Text style={[styles.tabText, activeTab === 'borrowing' && styles.activeTabText]}>Peminjaman</Text>
+          <Text style={[styles.tabText, activeTab === 'borrowing' && styles.activeTabText]}>Transportation</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.tab, activeTab === 'return' && styles.activeTab]} onPress={() => setActiveTab('return')}>
           <RotateCcw size={17} color={activeTab === 'return' ? Colors.primary : Colors.textSecondary} strokeWidth={2.2} />
@@ -299,7 +299,7 @@ export default function RentalScreen() {
               <Text style={styles.renterName} numberOfLines={1}>{item.renter_name}</Text>
               <Text style={styles.carName} numberOfLines={1}>{item.car_name ?? 'Mobil tidak diketahui'}</Text>
               <Text style={styles.emailText} numberOfLines={1}>{item.renter_email}</Text>
-              {cycleUnitCount > 1 ? <Text style={styles.emailText}>Satu siklus peminjaman · {cycleUnitCount} unit</Text> : null}
+              {cycleUnitCount > 1 ? <Text style={styles.emailText}>Satu siklus Transportation · {cycleUnitCount} unit</Text> : null}
               <View style={styles.metaRow}><Text style={styles.metaText}>{formatDate(item.start_date)} {item.start_time || ''}</Text>{item.end_date ? <Text style={styles.metaText}> - {formatDate(item.end_date)} {item.end_time || ''}</Text> : null}</View>
               <View style={styles.metaRow}>{item.purpose ? <Text style={styles.metaText}>Tujuan: {item.purpose}</Text> : null}{item.total_cost ? <Text style={styles.costText}>{formatCurrency(item.total_cost)}</Text> : null}</View>
               <View style={[styles.statusPill, { backgroundColor: st.bg }]}><Text style={[styles.statusText, { color: st.text }]}>{st.label}</Text></View>
@@ -308,18 +308,18 @@ export default function RentalScreen() {
             <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2.2} />
           </TouchableOpacity>
         ); }}
-        ListEmptyComponent={<EmptyState icon={activeTab === 'borrowing' ? <KeyRound size={32} color={Colors.primary} strokeWidth={2} /> : <RotateCcw size={32} color={Colors.primary} strokeWidth={2} />} title={activeTab === 'borrowing' ? 'Belum ada peminjaman' : 'Belum ada pengembalian'} subtitle={activeTab === 'borrowing' ? 'Ajukan peminjaman mobil dengan tombol tambah.' : 'Peminjaman yang disetujui akan muncul di sini.'} />}
+        ListEmptyComponent={<EmptyState icon={activeTab === 'borrowing' ? <KeyRound size={32} color={Colors.primary} strokeWidth={2} /> : <RotateCcw size={32} color={Colors.primary} strokeWidth={2} />} title={activeTab === 'borrowing' ? 'Belum ada Transportation' : 'Belum ada pengembalian'} subtitle={activeTab === 'borrowing' ? 'Ajukan Transportation untuk mobil dengan tombol tambah.' : 'Transportation yang disetujui akan muncul di sini.'} />}
       />
-      {activeTab === 'borrowing' ? <TouchableOpacity style={styles.fab} onPress={() => { if (hasOpenCycle) setRecordKind('duplicate'); setSheet(true); }} activeOpacity={0.85}><View style={styles.fabContent}><Plus size={26} color={Colors.white} strokeWidth={2.6} /><Text style={styles.fabLabel}>{hasOpenCycle ? 'Tambah duplikasi' : 'Tambah rental/duplikasi'}</Text></View></TouchableOpacity> : null}
-      <Sheet visible={sheet} onClose={() => { setSheet(false); resetFormState(); }} title="Tambah Transaksi Mobil">
-        {hasOpenCycle ? <Text style={styles.cycleNoticeText}>Siklus peminjaman masih berjalan. Pengajuan baru tersedia setelah Admin mengonfirmasi semua unit sudah diterima.</Text> : null}
+      {activeTab === 'borrowing' ? <TouchableOpacity style={styles.fab} onPress={() => { if (hasOpenCycle) setRecordKind('duplicate'); setSheet(true); }} activeOpacity={0.85}><View style={styles.fabContent}><Plus size={26} color={Colors.white} strokeWidth={2.6} /><Text style={styles.fabLabel}>{hasOpenCycle ? 'Tambah investigasi' : 'Tambah Transportation/investigasi'}</Text></View></TouchableOpacity> : null}
+      <Sheet visible={sheet} onClose={() => { setSheet(false); resetFormState(); }} title="Tambah Transportation/Investigasi">
+        {hasOpenCycle ? <Text style={styles.cycleNoticeText}>Siklus Transportation masih berjalan. Pengajuan baru tersedia setelah Admin mengonfirmasi semua unit sudah diterima.</Text> : null}
         <Text style={styles.label}>Jenis transaksi</Text>
         <View style={styles.recordTypeRow}>
           <TouchableOpacity disabled={hasOpenCycle} style={[styles.recordType, recordKind === 'rental' && styles.recordTypeActive, hasOpenCycle && styles.actionDisabled]} onPress={() => { setRecordKind('rental'); setSelectedCarIds([]); setForm((current) => ({ ...current, car_id: '' })); }}>
-            <Text style={[styles.recordTypeText, recordKind === 'rental' && styles.recordTypeTextActive]}>Peminjaman</Text>
+            <Text style={[styles.recordTypeText, recordKind === 'rental' && styles.recordTypeTextActive]}>Transportation</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.recordType, recordKind === 'duplicate' && styles.recordTypeActive]} onPress={() => { setRecordKind('duplicate'); setSelectedCarIds([]); setForm((current) => ({ ...current, car_id: '' })); }}>
-            <Text style={[styles.recordTypeText, recordKind === 'duplicate' && styles.recordTypeTextActive]}>Duplikat</Text>
+            <Text style={[styles.recordTypeText, recordKind === 'duplicate' && styles.recordTypeTextActive]}>Investigasi</Text>
           </TouchableOpacity>
         </View>
 
@@ -363,7 +363,7 @@ export default function RentalScreen() {
             <Field label="Nomor Telepon*" value={form.renter_phone} onChangeText={(t) => setForm({ ...form, renter_phone: t })} placeholder="Contoh: 08123456789" keyboardType="phone-pad" />
             <TimeField label="Jam Mulai (WIB)" value={form.start_time} onChange={(value) => setForm({ ...form, start_time: value })} />
             <TimeField label="Jam Selesai (WIB)" value={form.end_time} onChange={(value) => setForm({ ...form, end_time: value })} />
-            <Field label="Tujuan Peminjaman" value={form.purpose} onChangeText={(t) => setForm({ ...form, purpose: t })} placeholder="Contoh: Perjalanan dinas, liburan keluarga" />
+            <Field label="Tujuan Transportation" value={form.purpose} onChangeText={(t) => setForm({ ...form, purpose: t })} placeholder="Contoh: Perjalanan dinas, liburan keluarga" />
             <Field label="Catatan" value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} placeholder="Catatan tambahan..." multiline />
           </>
         ) : (
@@ -379,7 +379,7 @@ export default function RentalScreen() {
         )}
 
         <View style={{ height: Spacing.sm }} />
-        <Button label={recordKind === 'rental' ? 'Simpan Rental' : 'Simpan Duplikasi'} onPress={addRecord} loading={saving} disabled={(hasOpenCycle && recordKind === 'rental') || !selectedCarAvailable || (recordKind === 'rental' ? !form.renter_name.trim() || !form.renter_email.trim() || !form.renter_phone.trim() || !form.start_time || !form.end_time : !duplicateForm.name.trim() || !duplicateForm.section.trim() || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
+        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigasi'} onPress={addRecord} loading={saving} disabled={(hasOpenCycle && recordKind === 'rental') || !selectedCarAvailable || (recordKind === 'rental' ? !form.renter_name.trim() || !form.renter_email.trim() || !form.renter_phone.trim() || !form.start_time || !form.end_time : !duplicateForm.name.trim() || !duplicateForm.section.trim() || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
       </Sheet>
     </View>
   );

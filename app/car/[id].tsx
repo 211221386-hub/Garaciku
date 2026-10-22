@@ -347,12 +347,12 @@ export default function CarDetailScreen() {
           jumlahHariSewa: endDate ? differenceInCalendarDays(rental.start_date, endDate) : '',
         });
       } catch (error) {
-        Alert.alert('Rental tersimpan', `Notifikasi otomatis gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
+        Alert.alert('Transportation tersimpan', `Notifikasi otomatis gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
       }
       setNewRental({ renter_name: '', renter_email: '', renter_phone: '', start_date: '', end_date: '', purpose: '', notes: '' });
       setRentalSheet(false);
       await fetchAll();
-    } catch (error) { Alert.alert('Gagal menyimpan rental', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
+    } catch (error) { Alert.alert('Gagal menyimpan Transportation', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
     finally { setSubmitting(false); }
   };
 
@@ -362,12 +362,12 @@ export default function CarDetailScreen() {
     const update: Partial<RentalRecord> = { status: next };
     if (next === 'returned' && !rental.end_date) update.end_date = todayISO();
     try { await apiClient.rentals.update(rental.id, update); fetchAll(); }
-    catch (error) { Alert.alert('Gagal mengubah status rental', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
+    catch (error) { Alert.alert('Gagal mengubah status Transportation', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
   };
 
   const deleteRental = async (rentalId: string) => {
     try { await apiClient.rentals.delete(rentalId); fetchAll(); }
-    catch (error) { Alert.alert('Gagal menghapus rental', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
+    catch (error) { Alert.alert('Gagal menghapus Transportation', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
   };
 
   if (loading) {
@@ -379,10 +379,10 @@ export default function CarDetailScreen() {
   }
 
   const tabs: { key: Tab; label: string; icon: typeof NotebookPen }[] = [
-    { key: 'notes', label: 'Catatan Duplikasi', icon: NotebookPen },
+    { key: 'notes', label: 'Investigasi', icon: NotebookPen },
     { key: 'completeness', label: 'Kelengkapan', icon: ClipboardCheck },
     { key: 'damages', label: 'Kerusakan', icon: AlertTriangle },
-    { key: 'rental', label: 'Rental', icon: KeyRound },
+    { key: 'rental', label: 'Transportation', icon: KeyRound },
   ];
 
   const reminderTypeLabels: Record<CompletenessReminderType, string> = {
@@ -452,7 +452,7 @@ export default function CarDetailScreen() {
         {activeTab === 'notes' && (
           <View style={styles.section}>
             {notes.length === 0 ? (
-              <Text style={styles.emptyText}>Belum ada catatan duplikasi untuk mobil ini.</Text>
+              <Text style={styles.emptyText}>Belum ada catatan investigasi untuk mobil ini.</Text>
             ) : (
               notes.map((note) => (
                 <View key={note.id} style={styles.card}>
@@ -588,7 +588,7 @@ export default function CarDetailScreen() {
         {activeTab === 'rental' && (
           <View style={styles.section}>
             {rentals.length === 0 ? (
-              <Text style={styles.emptyText}>Belum ada riwayat rental.</Text>
+              <Text style={styles.emptyText}>Belum ada riwayat Transportation.</Text>
             ) : (
               rentals.map((rental) => {
                 const statusLabel = rental.status === 'active' ? 'Aktif' : rental.status === 'returned' ? 'Dikembalikan' : rental.status === 'completed' ? 'Selesai' : 'Dibatalkan';
@@ -652,7 +652,7 @@ export default function CarDetailScreen() {
       ) : null}
 
       {/* Note Sheet */}
-      <Sheet visible={noteSheet} onClose={() => { setNoteSheet(false); setEditingNoteId(null); }} title={editingNoteId ? 'Ubah Catatan Duplikasi' : 'Catatan Duplikasi Baru'}>
+      <Sheet visible={noteSheet} onClose={() => { setNoteSheet(false); setEditingNoteId(null); }} title={editingNoteId ? 'Ubah Investigasi' : 'Investigasi Baru'}>
         <Field label="Nama*" value={newNote.name} onChangeText={(value) => setNewNote({ ...newNote, name: value })} placeholder="Nama petugas atau pencatat" />
         <Field label="Section*" value={newNote.section} onChangeText={(value) => setNewNote({ ...newNote, section: value })} placeholder="Section" />
         <DateField label="Tanggal Mulai*" value={newNote.start_date} onChange={(value) => setNewNote({ ...newNote, start_date: value })} />
@@ -752,7 +752,7 @@ export default function CarDetailScreen() {
       </Sheet>
 
       {/* Rental Sheet */}
-      <Sheet visible={rentalSheet} onClose={() => setRentalSheet(false)} title="Tambah Rental Mobil">
+      <Sheet visible={rentalSheet} onClose={() => setRentalSheet(false)} title="Tambah Transportation Mobil">
         <Field
           label="Nama Penyewa*"
           value={newRental.renter_name}
@@ -775,7 +775,7 @@ export default function CarDetailScreen() {
           minimumDate={newRental.start_date ? new Date(`${newRental.start_date}T00:00:00`) : undefined}
         />
         <Field
-          label="Tujuan Peminjaman"
+          label="Tujuan Transportation"
           value={newRental.purpose}
           onChangeText={(t) => setNewRental({ ...newRental, purpose: t })}
           placeholder="Contoh: Perjalanan dinas, liburan keluarga"
@@ -788,7 +788,7 @@ export default function CarDetailScreen() {
           multiline
         />
         <View style={{ height: Spacing.sm }} />
-        <Button label="Simpan Rental" onPress={addRental} loading={submitting} />
+        <Button label="Simpan Transportation" onPress={addRental} loading={submitting} />
       </Sheet>
     </View>
   );

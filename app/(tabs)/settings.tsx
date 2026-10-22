@@ -37,7 +37,7 @@ export default function SettingsScreen() {
     { icon: Car, label: 'Mobil', value: stats.cars, color: Colors.primary },
     { icon: ClipboardCheck, label: 'Kelengkapan', value: stats.completeness, color: Colors.secondary },
     { icon: AlertTriangle, label: 'Kerusakan', value: stats.damages, color: Colors.warning },
-    { icon: KeyRound, label: 'Rental', value: stats.rentals, color: Colors.success },
+    { icon: KeyRound, label: 'Transportation', value: stats.rentals, color: Colors.success },
   ];
 
   const handleLogout = () => {
@@ -100,7 +100,7 @@ export default function SettingsScreen() {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Tips Perawatan</Text>
               <View style={styles.tipsCard}>
-                <Text style={styles.tipText}>- Catat setiap rental mobil secara teratur</Text>
+                <Text style={styles.tipText}>- Catat setiap aktivitas Transportation secara teratur</Text>
                 <Text style={styles.tipText}>- Periksa kelengkapan mobil minimal sebulan sekali</Text>
                 <Text style={styles.tipText}>- Laporkan kerusakan segera setelah ditemukan</Text>
                 <Text style={styles.tipText}>- Tulis catatan harian untuk melacak aktivitas</Text>
@@ -121,7 +121,7 @@ export default function SettingsScreen() {
             </View>
 
             <View style={styles.summaryCard}>
-              <Text style={styles.summaryLabel}>Jumlah rental yang pernah dibuat</Text>
+              <Text style={styles.summaryLabel}>Jumlah Transportation yang pernah dibuat</Text>
               <Text style={styles.summaryValue}>{stats.rentals}</Text>
             </View>
 

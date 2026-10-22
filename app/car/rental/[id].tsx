@@ -33,7 +33,7 @@ export default function RentalDetailScreen() {
       setRental(rentalData);
       setCar(carData);
     } catch (error) {
-      Alert.alert('Gagal memuat rental', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+      Alert.alert('Gagal memuat Transportation', error instanceof Error ? error.message : 'Terjadi kesalahan.');
       router.back();
     } finally {
       setLoading(false);
@@ -44,7 +44,7 @@ export default function RentalDetailScreen() {
 
   const deleteRental = () => {
     if (!rental) return;
-    Alert.alert('Hapus Rental', 'Data rental ini akan dihapus permanen.', [
+    Alert.alert('Hapus Transportation', 'Data Transportation ini akan dihapus permanen.', [
       { text: 'Batal', style: 'cancel' },
       {
         text: 'Hapus',
@@ -54,7 +54,7 @@ export default function RentalDetailScreen() {
             await apiClient.rentals.delete(rental.id);
             router.back();
           } catch (error) {
-            Alert.alert('Gagal menghapus rental', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+            Alert.alert('Gagal menghapus Transportation', error instanceof Error ? error.message : 'Terjadi kesalahan.');
           }
         },
       },
@@ -72,7 +72,7 @@ export default function RentalDetailScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton} hitSlop={12}>
           <ChevronLeft size={24} color={Colors.white} strokeWidth={2.4} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Detail Rental</Text>
+        <Text style={styles.headerTitle}>Detail Transportation</Text>
         {canManageRental ? (
           <TouchableOpacity onPress={deleteRental} style={styles.deleteButton} hitSlop={12}>
             <Trash2 size={19} color={Colors.white} strokeWidth={2.2} />
@@ -102,11 +102,11 @@ export default function RentalDetailScreen() {
           <Text style={styles.sectionTitle}>Informasi Kendaraan</Text>
           <DetailRow label="Kendaraan" value={car?.name ?? '-'} />
           <DetailRow label="Plat nomor" value={car?.plate_number ?? '-'} />
-          <DetailRow label="Tujuan peminjaman" value={rental.purpose || '-'} icon={<Compass size={17} color={Colors.primary} />} />
+          <DetailRow label="Tujuan Transportation" value={rental.purpose || '-'} icon={<Compass size={17} color={Colors.primary} />} />
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Periode Rental</Text>
+          <Text style={styles.sectionTitle}>Periode Transportation</Text>
           <DetailRow label="Tanggal mulai" value={formatDate(rental.start_date)} />
           <DetailRow label="Tanggal selesai" value={rental.end_date ? formatDate(rental.end_date) : 'Masih berjalan'} />
           <DetailRow label="Total biaya" value={formatCurrency(rental.total_cost)} />

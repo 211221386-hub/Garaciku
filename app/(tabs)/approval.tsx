@@ -79,7 +79,7 @@ export default function ApprovalScreen() {
             jumlahHariSewa: Math.max(1, differenceInCalendarDays(rental.start_date, endDate)),
           });
         } catch (error) {
-          setNotificationError(`Rental berhasil disetujui, tetapi notifikasi gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
+          setNotificationError(`Transportation berhasil disetujui, tetapi notifikasi gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
         }
       }
       setDecision(null);
@@ -99,8 +99,8 @@ export default function ApprovalScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.greeting}>Persetujuan Rental</Text>
-        <Text style={styles.title}>{isSuperAdmin() ? 'Review Permintaan' : 'Riwayat Rental'}</Text>
+        <Text style={styles.greeting}>Persetujuan Transportation</Text>
+        <Text style={styles.title}>{isSuperAdmin() ? 'Review Permintaan' : 'Riwayat Transportation'}</Text>
       </View>
       {notificationError ? (
         <View style={styles.notificationError}>
@@ -126,7 +126,7 @@ export default function ApprovalScreen() {
               <View style={[styles.pending, { backgroundColor: statusConfig[item.status].backgroundColor }]}><Text style={[styles.pendingText, { color: statusConfig[item.status].color }]}>{statusConfig[item.status].label}</Text></View>
             </View>
             <Text style={styles.meta}>{formatDate(item.start_date)}{item.end_date ? ` - ${formatDate(item.end_date)}` : ''}</Text>
-            <Text style={styles.purpose}>{item.purpose || 'Tanpa tujuan peminjaman'}</Text>
+            <Text style={styles.purpose}>{item.purpose || 'Tanpa tujuan Transportation'}</Text>
             {isSuperAdmin() ? (
               <>
                 <Text style={styles.label}>Mobil yang disetujui</Text>
@@ -144,7 +144,7 @@ export default function ApprovalScreen() {
             ) : <Text style={styles.waiting}>{item.status === 'pending' ? 'Menunggu Super Admin memilih dan menyetujui mobil.' : item.status === 'approved' || item.status === 'completed' ? 'Permintaan Anda sudah disetujui.' : 'Permintaan Anda ditolak.'}</Text>}
           </View>
         )}
-        ListEmptyComponent={<EmptyState icon={<ClipboardCheck size={32} color={Colors.primary} strokeWidth={2} />} title={isSuperAdmin() ? 'Tidak ada approval pending' : 'Belum ada riwayat approval'} subtitle={isSuperAdmin() ? 'Permintaan baru dari role 3 dan 4 akan muncul di sini.' : 'Permintaan rental Anda akan muncul di sini.'} />}
+        ListEmptyComponent={<EmptyState icon={<ClipboardCheck size={32} color={Colors.primary} strokeWidth={2} />} title={isSuperAdmin() ? 'Tidak ada approval pending' : 'Belum ada riwayat approval'} subtitle={isSuperAdmin() ? 'Permintaan baru dari role 3 dan 4 akan muncul di sini.' : 'Permintaan Transportation Anda akan muncul di sini.'} />}
       />
       {decision ? (
         <View style={styles.modalOverlay}>
@@ -152,7 +152,7 @@ export default function ApprovalScreen() {
             <View style={[styles.confirmIcon, decision.status === 'rejected' && styles.rejectIcon]}>
               {decision.status === 'approved' ? <Check size={24} color={Colors.primary} strokeWidth={2.5} /> : <X size={24} color={Colors.error} strokeWidth={2.5} />}
             </View>
-            <Text style={styles.confirmTitle}>{decision.status === 'approved' ? 'Approve Rental?' : 'Tolak Rental?'}</Text>
+            <Text style={styles.confirmTitle}>{decision.status === 'approved' ? 'Setujui Transportation?' : 'Tolak Transportation?'}</Text>
             <Text style={styles.confirmMessage}>{decision.status === 'approved' ? 'Permintaan' : 'Permintaan'} {decision.rental.renter_name} akan {decision.status === 'approved' ? 'disetujui' : 'ditolak'}.</Text>
             <View style={styles.confirmActions}>
               <TouchableOpacity style={[styles.confirmButton, styles.cancelButton]} onPress={() => setDecision(null)}><Text style={styles.cancelButtonText}>Batal</Text></TouchableOpacity>
