@@ -452,7 +452,7 @@ export default function CarDetailScreen() {
         {activeTab === 'notes' && (
           <View style={styles.section}>
             {notes.length === 0 ? (
-              <Text style={styles.emptyText}>Belum ada catatan investigasi untuk mobil ini.</Text>
+              <Text style={styles.emptyText}>Belum ada data Investigation untuk mobil ini.</Text>
             ) : (
               notes.map((note) => (
                 <View key={note.id} style={styles.card}>
@@ -652,7 +652,7 @@ export default function CarDetailScreen() {
       ) : null}
 
       {/* Note Sheet */}
-      <Sheet visible={noteSheet} onClose={() => { setNoteSheet(false); setEditingNoteId(null); }} title={editingNoteId ? 'Ubah Catatan Investigasi' : 'Catatan Investigasi Baru'}>
+      <Sheet visible={noteSheet} onClose={() => { setNoteSheet(false); setEditingNoteId(null); }} title={editingNoteId ? 'Ubah Investigation' : 'Investigation Baru'}>
         <Field label="Nama*" value={newNote.name} onChangeText={(value) => setNewNote({ ...newNote, name: value })} placeholder="Nama petugas atau pencatat" />
         <Field label="Section*" value={newNote.section} onChangeText={(value) => setNewNote({ ...newNote, section: value })} placeholder="Section" />
         <DateField label="Tanggal Mulai*" value={newNote.start_date} onChange={(value) => setNewNote({ ...newNote, start_date: value })} />
