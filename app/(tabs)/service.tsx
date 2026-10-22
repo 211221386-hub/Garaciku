@@ -143,7 +143,7 @@ export default function RentalScreen() {
 
     if (recordKind === 'duplicate') {
       if (!duplicateForm.name.trim() || !duplicateForm.section.trim() || !duplicateForm.start_date || !duplicateForm.end_date || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim()) {
-        Alert.alert('Data belum lengkap', 'Isi semua field investigasi sebelum menyimpan catatan mobil.');
+        Alert.alert('Data belum lengkap', 'Isi semua field Catatan Investigasi sebelum menyimpan.');
         return;
       }
 
@@ -190,7 +190,7 @@ export default function RentalScreen() {
         resetFormState();
         setSheet(false);
       } catch (error) {
-        Alert.alert('Gagal menyimpan investigasi', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+        Alert.alert('Gagal menyimpan Catatan Investigasi', error instanceof Error ? error.message : 'Terjadi kesalahan.');
       } finally {
         setSaving(false);
       }
@@ -310,8 +310,8 @@ export default function RentalScreen() {
         ); }}
         ListEmptyComponent={<EmptyState icon={activeTab === 'borrowing' ? <KeyRound size={32} color={Colors.primary} strokeWidth={2} /> : <RotateCcw size={32} color={Colors.primary} strokeWidth={2} />} title={activeTab === 'borrowing' ? 'Belum ada Transportation' : 'Belum ada pengembalian'} subtitle={activeTab === 'borrowing' ? 'Ajukan Transportation untuk mobil dengan tombol tambah.' : 'Transportation yang disetujui akan muncul di sini.'} />}
       />
-      {activeTab === 'borrowing' ? <TouchableOpacity style={styles.fab} onPress={() => { if (hasOpenCycle) setRecordKind('duplicate'); setSheet(true); }} activeOpacity={0.85}><View style={styles.fabContent}><Plus size={26} color={Colors.white} strokeWidth={2.6} /><Text style={styles.fabLabel}>{hasOpenCycle ? 'Tambah investigasi' : 'Tambah Transportation/investigasi'}</Text></View></TouchableOpacity> : null}
-      <Sheet visible={sheet} onClose={() => { setSheet(false); resetFormState(); }} title="Tambah Transportation/Investigasi">
+      {activeTab === 'borrowing' ? <TouchableOpacity style={styles.fab} onPress={() => { if (hasOpenCycle) setRecordKind('duplicate'); setSheet(true); }} activeOpacity={0.85}><View style={styles.fabContent}><Plus size={26} color={Colors.white} strokeWidth={2.6} /><Text style={styles.fabLabel}>{hasOpenCycle ? 'Tambah Catatan Investigasi' : 'Tambah Transportation/Catatan Investigasi'}</Text></View></TouchableOpacity> : null}
+      <Sheet visible={sheet} onClose={() => { setSheet(false); resetFormState(); }} title="Tambah Transportation/Catatan Investigasi">
         {hasOpenCycle ? <Text style={styles.cycleNoticeText}>Siklus Transportation masih berjalan. Pengajuan baru tersedia setelah Admin mengonfirmasi semua unit sudah diterima.</Text> : null}
         <Text style={styles.label}>Jenis transaksi</Text>
         <View style={styles.recordTypeRow}>
@@ -319,7 +319,7 @@ export default function RentalScreen() {
             <Text style={[styles.recordTypeText, recordKind === 'rental' && styles.recordTypeTextActive]}>Transportation</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.recordType, recordKind === 'duplicate' && styles.recordTypeActive]} onPress={() => { setRecordKind('duplicate'); setSelectedCarIds([]); setForm((current) => ({ ...current, car_id: '' })); }}>
-            <Text style={[styles.recordTypeText, recordKind === 'duplicate' && styles.recordTypeTextActive]}>Investigasi</Text>
+            <Text style={[styles.recordTypeText, recordKind === 'duplicate' && styles.recordTypeTextActive]}>Catatan Investigasi</Text>
           </TouchableOpacity>
         </View>
 
@@ -379,7 +379,7 @@ export default function RentalScreen() {
         )}
 
         <View style={{ height: Spacing.sm }} />
-        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigasi'} onPress={addRecord} loading={saving} disabled={(hasOpenCycle && recordKind === 'rental') || !selectedCarAvailable || (recordKind === 'rental' ? !form.renter_name.trim() || !form.renter_email.trim() || !form.renter_phone.trim() || !form.start_time || !form.end_time : !duplicateForm.name.trim() || !duplicateForm.section.trim() || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
+        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Catatan Investigasi'} onPress={addRecord} loading={saving} disabled={(hasOpenCycle && recordKind === 'rental') || !selectedCarAvailable || (recordKind === 'rental' ? !form.renter_name.trim() || !form.renter_email.trim() || !form.renter_phone.trim() || !form.start_time || !form.end_time : !duplicateForm.name.trim() || !duplicateForm.section.trim() || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
       </Sheet>
     </View>
   );

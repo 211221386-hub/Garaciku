@@ -379,7 +379,7 @@ export default function CarDetailScreen() {
   }
 
   const tabs: { key: Tab; label: string; icon: typeof NotebookPen }[] = [
-    { key: 'notes', label: 'Investigasi', icon: NotebookPen },
+    { key: 'notes', label: 'Catatan Investigasi', icon: NotebookPen },
     { key: 'completeness', label: 'Kelengkapan', icon: ClipboardCheck },
     { key: 'damages', label: 'Kerusakan', icon: AlertTriangle },
     { key: 'rental', label: 'Transportation', icon: KeyRound },
@@ -652,7 +652,7 @@ export default function CarDetailScreen() {
       ) : null}
 
       {/* Note Sheet */}
-      <Sheet visible={noteSheet} onClose={() => { setNoteSheet(false); setEditingNoteId(null); }} title={editingNoteId ? 'Ubah Investigasi' : 'Investigasi Baru'}>
+      <Sheet visible={noteSheet} onClose={() => { setNoteSheet(false); setEditingNoteId(null); }} title={editingNoteId ? 'Ubah Catatan Investigasi' : 'Catatan Investigasi Baru'}>
         <Field label="Nama*" value={newNote.name} onChangeText={(value) => setNewNote({ ...newNote, name: value })} placeholder="Nama petugas atau pencatat" />
         <Field label="Section*" value={newNote.section} onChangeText={(value) => setNewNote({ ...newNote, section: value })} placeholder="Section" />
         <DateField label="Tanggal Mulai*" value={newNote.start_date} onChange={(value) => setNewNote({ ...newNote, start_date: value })} />
