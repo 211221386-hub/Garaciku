@@ -5,8 +5,11 @@ export type AppUser = {
   username: string;
   password?: string;
   full_name: string;
+  email: string;
+  phone: string;
   role: UserRole;
   is_active: boolean;
+  must_reset_password: boolean;
   created_at: string;
 };
 

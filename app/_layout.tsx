@@ -33,10 +33,15 @@ export default function RootLayout() {
   useEffect(() => {
     const checkSession = () => {
       const isPublicRoute = pathname === '/' || pathname === '/login';
-      if (!isPublicRoute && !getSession()) {
+      const session = getSession();
+      const isFirstLoginRoute = pathname === '/first-login';
+      if (!isPublicRoute && !session) {
         clearSession();
         router.replace('/login');
+        return;
       }
+      if (session?.user.must_reset_password && !isFirstLoginRoute) router.replace('/first-login' as never);
+      else if (session && !session.user.must_reset_password && isFirstLoginRoute) router.replace('/(tabs)');
     };
 
     checkSession();
@@ -53,6 +58,7 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
+        <Stack.Screen name="first-login" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="car/[id]" options={{ headerShown: false, animation: 'slide_from_right' }} />
         <Stack.Screen name="car/edit/[id]" options={{ headerShown: false, presentation: 'modal' }} />

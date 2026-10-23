@@ -11,9 +11,6 @@ export type LoginResult = {
 
 export type CreateRentalCycleInput = {
   car_ids: string[];
-  renter_name: string;
-  renter_email: string;
-  renter_phone: string;
   start_date: string;
   start_time: string;
   end_date: string | null;
@@ -65,7 +62,7 @@ async function createWorkerRentalCycle(payload: CreateRentalCycleInput): Promise
 
 class ApiClient {
   users = {
-    getAll: () => unwrap<AppUser[]>(supabase.from('users').select('id, username, full_name, role, is_active, created_at').order('created_at', { ascending: false })),
+    getAll: () => unwrap<AppUser[]>(supabase.from('users').select('id, username, full_name, email, phone, role, is_active, created_at').order('created_at', { ascending: false })),
     login: async (username: string, password: string): Promise<LoginResult | null> => {
       const response = await fetch(workerApiUrl('/api/auth/login'), {
         method: 'POST',
@@ -78,16 +75,42 @@ class ApiClient {
       if (!result?.user || !result.token || !result.expiresAt) return null;
       return { user: result.user, token: result.token, expiresAt: result.expiresAt };
     },
-    register: async (username: string, fullName: string, password: string): Promise<LoginResult> => {
+    register: async (username: string, fullName: string, email: string, phone: string, password: string): Promise<LoginResult> => {
       const response = await fetch(workerApiUrl('/api/auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, fullName, password }),
+        body: JSON.stringify({ username, fullName, email, phone, password }),
       });
       const result = await response.json().catch(() => null) as { user?: AppUser; token?: string; expiresAt?: number; error?: string } | null;
       if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
       if (!result?.user || !result.token || !result.expiresAt) throw new Error('Respons pendaftaran tidak valid.');
       return { user: result.user, token: result.token, expiresAt: result.expiresAt };
+    },
+    updateProfile: async (profile: Pick<AppUser, 'full_name' | 'email' | 'phone'>): Promise<AppUser> => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/profile/update'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify(profile),
+      });
+      const result = await response.json().catch(() => null) as { data?: AppUser; error?: string } | null;
+      if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
+      if (!result?.data) throw new Error('Worker mengembalikan data profil yang tidak valid.');
+      return result.data;
+    },
+    completeFirstLogin: async (data: Pick<AppUser, 'full_name' | 'email' | 'phone'> & { new_password: string }): Promise<AppUser> => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/auth/complete-profile'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify(data),
+      });
+      const result = await response.json().catch(() => null) as { data?: AppUser; error?: string } | null;
+      if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
+      if (!result?.data) throw new Error('Worker mengembalikan data onboarding yang tidak valid.');
+      return result.data;
     },
   };
 
@@ -152,9 +175,6 @@ class ApiClient {
       if (typeof data.car_id !== 'string' || typeof data.start_date !== 'string') throw new Error('Unit dan tanggal mulai wajib dipilih.');
       const rows = await createWorkerRentalCycle({
         car_ids: [data.car_id],
-        renter_name: typeof data.renter_name === 'string' ? data.renter_name : '',
-        renter_email: typeof data.renter_email === 'string' ? data.renter_email : '',
-        renter_phone: typeof data.renter_phone === 'string' ? data.renter_phone : '',
         start_date: data.start_date,
         start_time: typeof data.start_time === 'string' ? data.start_time : '00:00',
         end_date: typeof data.end_date === 'string' ? data.end_date : null,

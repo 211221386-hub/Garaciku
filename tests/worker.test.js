@@ -11,8 +11,11 @@ const profile = {
   id: 'profile-123',
   username: 'EMP001',
   full_name: 'Test User',
+  email: 'test@example.com',
+  phone: '08123456789',
   role: 1,
   is_active: true,
+  must_reset_password: false,
   created_at: '2026-01-01T00:00:00Z',
 };
 
@@ -43,20 +46,23 @@ function makeRequest(path, body, token) {
   });
 }
 
-function mockFetch(role, databaseRows = []) {
+function mockFetch(role, databaseRows = [], userOverrides = {}) {
   const originalFetch = globalThis.fetch;
   const calls = [];
+  const currentUser = { ...profile, ...userOverrides, role };
   globalThis.fetch = async (input, options = {}) => {
     const url = new URL(input);
     calls.push({ url, options });
     if (url.pathname === '/rest/v1/rpc/auth_login') {
-      return Response.json([{ ...profile, role }]);
+      return Response.json([currentUser]);
     }
     if (url.pathname === '/rest/v1/rpc/auth_register') {
-      return Response.json([{ ...profile, username: 'new.user', full_name: 'New User', role: 4 }]);
+      const values = JSON.parse(options.body);
+      return Response.json([{ ...profile, username: values._username, full_name: values._full_name, email: values._email, phone: values._phone, role: 4, must_reset_password: false }]);
     }
     if (url.pathname === '/rest/v1/users') {
-      return Response.json([{ ...profile, role }]);
+      if (options.method === 'PATCH') return Response.json([{ ...currentUser, ...JSON.parse(options.body) }]);
+      return Response.json([currentUser]);
     }
     if (url.pathname.startsWith('/rest/v1/')) {
       if (options.method === 'PATCH' && role === 3) return Response.json({ message: 'must not reach this route' }, { status: 403 });
@@ -131,6 +137,8 @@ test('registration creates a Viewer account and returns a signed session', async
     const response = await worker.fetch(makeRequest('/api/auth/register', {
       username: ' new.user ',
       fullName: ' New User ',
+      email: ' NEW@EXAMPLE.COM ',
+      phone: ' 08123456789 ',
       password: 'valid-password',
     }), envFor(1));
     const result = await response.json();
@@ -140,8 +148,81 @@ test('registration creates a Viewer account and returns a signed session', async
     assert.ok(result.token);
     assert.equal(JSON.parse(rpcCall.options.body)._username, 'new.user');
     assert.equal(JSON.parse(rpcCall.options.body)._full_name, 'New User');
+    assert.equal(JSON.parse(rpcCall.options.body)._email, 'new@example.com');
+    assert.equal(JSON.parse(rpcCall.options.body)._phone, '08123456789');
     assert.equal(JSON.parse(rpcCall.options.body)._password, 'valid-password');
     assert.equal(rpcCall.options.headers.apikey, 'test-service-role-key');
+  } finally {
+    mock.restore();
+  }
+});
+
+test('profile update only patches contact fields for the authenticated user', async () => {
+  const mock = mockFetch(3);
+  try {
+    const token = await login(envFor(3), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/profile/update', {
+      full_name: ' Updated User ',
+      email: ' UPDATED@EXAMPLE.COM ',
+      phone: ' 08111111111 ',
+      id: 'another-user',
+      role: 1,
+      is_active: false,
+    }, token), envFor(3));
+    const result = await response.json();
+    const update = mock.calls.find((call) => call.url.pathname === '/rest/v1/users' && call.options.method === 'PATCH');
+    const values = JSON.parse(update.options.body);
+    assert.equal(response.status, 200);
+    assert.equal(update.url.searchParams.get('id'), `eq.${profile.id}`);
+    assert.deepEqual(values, { full_name: 'Updated User', email: 'updated@example.com', phone: '08111111111' });
+    assert.equal(result.data.role, 3);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('first-login accounts are blocked from app APIs until setup is complete', async () => {
+  const mock = mockFetch(3, [], { must_reset_password: true });
+  try {
+    const token = await login(envFor(3), mock.calls);
+    const before = mock.calls.length;
+    const response = await worker.fetch(makeRequest('/api/data/query', {
+      table: 'cars',
+      select: '*',
+      filters: [],
+      single: false,
+    }, token), envFor(3));
+    assert.equal(response.status, 403);
+    assert.match((await response.json()).error, /Selesaikan penggantian password/);
+    assert.equal(mock.calls.slice(before).some((call) => call.url.pathname === '/rest/v1/cars'), false);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('first-login completion uses the authenticated user and updates password profile through RPC', async () => {
+  const updatedUser = { ...profile, full_name: 'Updated Name', email: 'updated@example.com', phone: '08111111111', must_reset_password: false };
+  const mock = mockFetch(3, [updatedUser], { must_reset_password: true });
+  try {
+    const token = await login(envFor(3), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/auth/complete-profile', {
+      user_id: 'another-user',
+      role: 1,
+      full_name: ' Updated Name ',
+      email: ' UPDATED@EXAMPLE.COM ',
+      phone: ' 08111111111 ',
+      new_password: 'new-secure-password',
+    }, token), envFor(3));
+    const result = await response.json();
+    const rpc = mock.calls.find((call) => call.url.pathname === '/rest/v1/rpc/complete_user_first_login');
+    const parameters = JSON.parse(rpc.options.body);
+    assert.equal(response.status, 200);
+    assert.deepEqual(result.data, updatedUser);
+    assert.equal(parameters._user_id, profile.id);
+    assert.equal(parameters._full_name, 'Updated Name');
+    assert.equal(parameters._email, 'updated@example.com');
+    assert.equal(parameters._new_password, 'new-secure-password');
+    assert.equal('_user_role' in parameters, false);
   } finally {
     mock.restore();
   }
@@ -304,9 +385,9 @@ test('rental cycle creation uses the authenticated role and user for all selecte
       car_ids: ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'],
       user_id: 'another-user',
       user_role: 1,
-      renter_name: ' Test User ',
-      renter_email: ' test@example.com ',
-      renter_phone: ' 08123456789 ',
+      renter_name: 'Spoofed Name',
+      renter_email: 'spoofed@example.com',
+      renter_phone: '08999999999',
       start_date: '2026-10-22',
       start_time: '09:00',
       end_date: '2026-10-24',
@@ -323,7 +404,7 @@ test('rental cycle creation uses the authenticated role and user for all selecte
     assert.equal(parameters._user_id, profile.id);
     assert.equal(parameters._user_role, 3);
     assert.deepEqual(parameters._car_ids, ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']);
-    assert.equal(parameters._renter_name, 'Test User');
+    assert.equal(parameters._renter_name, profile.full_name);
     assert.equal(parameters._renter_email, 'test@example.com');
     assert.equal(parameters._renter_phone, '08123456789');
   } finally {

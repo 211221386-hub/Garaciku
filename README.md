@@ -52,6 +52,23 @@ Gunakan proyek staging terlebih dahulu dan buat backup sebelum mengubah database
 
 Migrasi awal menyertakan akun demo. Jangan memakai akun atau password demo untuk deployment produksi; siapkan kredensial produksi yang unik dan verifikasi login sebelum membuka aplikasi ke pengguna.
 
+### Bulk Onboarding User
+
+Setelah migration `20261023100000_add_user_contact_profile.sql` dan `20261023110000_first_login_password_reset.sql` diterapkan, import akun melalui Supabase SQL Editor dengan fungsi `public.bulk_import_users`. Fungsi menerima array JSON dengan `username`, `role` (1-4), dan password sementara:
+
+```sql
+SELECT * FROM public.bulk_import_users(
+	'[
+		{"username":"staff001","role":3,"password":"TEMP-password-123"},
+		{"username":"viewer001","role":4,"password":"TEMP-password-456"}
+	]'::jsonb
+);
+```
+
+Gunakan password sementara yang unik dan hanya untuk onboarding. Fungsi langsung menyimpan hash password, menandai akun agar wajib onboarding, serta tidak mengisi profil kontak. Jangan memasukkan password produksi yang dipakai ulang ke SQL Editor.
+
+Saat login pertama, pengguna harus mengisi nama lengkap, email, nomor telepon, dan password baru. Aplikasi mengganti password sementara dengan hash password baru dan baru membuka fitur setelah proses selesai. Registrasi dari aplikasi tetap membuat akun normal yang tidak memerlukan reset pertama kali.
+
 ## Environment
 
 ### Aplikasi Expo

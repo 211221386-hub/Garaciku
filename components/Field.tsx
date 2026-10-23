@@ -7,10 +7,11 @@ type Props = {
   onChangeText: (text: string) => void;
   placeholder?: string;
   multiline?: boolean;
-  keyboardType?: 'default' | 'numeric' | 'phone-pad';
+  secureTextEntry?: boolean;
+  keyboardType?: 'default' | 'email-address' | 'numeric' | 'phone-pad';
 };
 
-export function Field({ label, value, onChangeText, placeholder, multiline, keyboardType = 'default' }: Props) {
+export function Field({ label, value, onChangeText, placeholder, multiline, secureTextEntry, keyboardType = 'default' }: Props) {
   return (
     <View style={styles.container}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
@@ -20,6 +21,7 @@ export function Field({ label, value, onChangeText, placeholder, multiline, keyb
         placeholder={placeholder}
         placeholderTextColor={Colors.textTertiary}
         multiline={multiline}
+        secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
         style={[styles.input, multiline && styles.multiline]}
       />

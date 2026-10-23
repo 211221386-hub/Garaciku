@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, Modal, KeyboardAvo
 import { router } from 'expo-router';
 import { CircleAlert } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
-import { createSession, hasValidSession } from '@/lib/auth';
+import { createSession, getSession, hasValidSession } from '@/lib/auth';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
 
 const roleLabels: Record<number, string> = {
@@ -16,6 +16,8 @@ const roleLabels: Record<number, string> = {
 export default function LoginScreen() {
   const [username, setUsername] = useState('');
   const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -31,7 +33,7 @@ export default function LoginScreen() {
     }
 
     if (hasValidSession()) {
-      router.replace('/(tabs)');
+      router.replace(getSession()?.user.must_reset_password ? '/first-login' as never : '/(tabs)');
       return;
     }
 
@@ -45,7 +47,7 @@ export default function LoginScreen() {
 
       const sessionUser = loginResult.user ?? loginResult;
       createSession(sessionUser, loginResult.token, loginResult.expiresAt);
-      router.replace('/(tabs)');
+      router.replace(sessionUser.must_reset_password ? '/first-login' as never : '/(tabs)');
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
       setLoginError(message || 'Terjadi kesalahan saat login. Silakan coba lagi.');
@@ -56,9 +58,17 @@ export default function LoginScreen() {
 
   const handleRegister = async () => {
     setFeedbackTitle('Pendaftaran gagal');
-    if (!fullName.trim() || !username.trim() || !password) {
+    if (!fullName.trim() || !username.trim() || !email.trim() || !phone.trim() || !password) {
       setFeedbackTitle('Pendaftaran gagal');
-      setLoginError('Nama lengkap, username, dan password wajib diisi.');
+      setLoginError('Nama lengkap, username, email, nomor telepon, dan password wajib diisi.');
+      return;
+    }
+    if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
+      setLoginError('Alamat email tidak valid.');
+      return;
+    }
+    if (phone.replace(/\D/g, '').length < 7) {
+      setLoginError('Nomor telepon harus memiliki minimal 7 angka.');
       return;
     }
     if (password.length < 8) {
@@ -74,7 +84,7 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      const result = await apiClient.users.register(username.trim(), fullName.trim(), password);
+      const result = await apiClient.users.register(username.trim(), fullName.trim(), email.trim(), phone.trim(), password);
       createSession(result.user, result.token, result.expiresAt);
       router.replace('/(tabs)');
     } catch (error) {
@@ -102,6 +112,33 @@ export default function LoginScreen() {
               onChangeText={setFullName}
               placeholder="Masukkan nama lengkap"
               autoCapitalize="words"
+              style={styles.input}
+            />
+          </View>
+        )}
+
+        {isRegistering && (
+          <View style={styles.inputWrap}>
+            <Text style={styles.label}>Email</Text>
+            <TextInput
+              value={email}
+              onChangeText={setEmail}
+              placeholder="nama@email.com"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              style={styles.input}
+            />
+          </View>
+        )}
+
+        {isRegistering && (
+          <View style={styles.inputWrap}>
+            <Text style={styles.label}>Nomor telepon</Text>
+            <TextInput
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="Contoh: 08123456789"
+              keyboardType="phone-pad"
               style={styles.input}
             />
           </View>

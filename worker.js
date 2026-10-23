@@ -9,7 +9,7 @@ const TABLES = new Set([
 ]);
 
 const COLUMNS = {
-  users: new Set(['id', 'username', 'full_name', 'role', 'is_active', 'created_at']),
+  users: new Set(['id', 'username', 'full_name', 'email', 'phone', 'role', 'is_active', 'must_reset_password', 'created_at']),
   cars: new Set(['id', 'name', 'brand', 'model', 'year', 'plate_number', 'color', 'photo_url', 'created_at']),
   daily_notes: new Set(['id', 'car_id', 'name', 'section', 'note_date', 'start_date', 'end_date', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'created_at']),
   completeness_items: new Set(['id', 'car_id', 'name', 'is_present', 'reminder_type', 'next_due_date', 'created_at']),
@@ -85,7 +85,7 @@ async function verifyToken(token, secret) {
 async function getUserById(env, userId) {
   const url = new URL(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/users`);
   url.searchParams.set('id', `eq.${userId}`);
-  url.searchParams.set('select', 'id,username,full_name,role,is_active,created_at');
+  url.searchParams.set('select', 'id,username,full_name,email,phone,role,is_active,must_reset_password,created_at');
   url.searchParams.set('limit', '1');
   const response = await fetch(url, { headers: serviceHeaders(env) });
   if (!response.ok) throw new Error('User profile lookup failed.');
@@ -154,7 +154,7 @@ function encodeFilter(filter) {
 }
 
 function safeSelection(table, requested) {
-  if (table === 'users') return 'id,username,full_name,role,is_active,created_at';
+  if (table === 'users') return 'id,username,full_name,email,phone,role,is_active,must_reset_password,created_at';
   if (typeof requested !== 'string') return '*';
   if (requested.replace(/\s/g, '') === '*,cars(name)') {
     return ['rental_records', 'daily_notes', 'service_records', 'completeness_items', 'damages'].includes(table)
@@ -311,9 +311,13 @@ async function register(request, env) {
   }
   const username = typeof body?.username === 'string' ? body.username.trim() : '';
   const fullName = typeof body?.fullName === 'string' ? body.fullName.trim() : '';
+  const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const phone = typeof body?.phone === 'string' ? body.phone.trim() : '';
   const password = typeof body?.password === 'string' ? body.password : '';
   if (!/^[a-zA-Z0-9._-]{3,30}$/.test(username)) return { status: 400, error: 'Username must be 3-30 characters and use only letters, numbers, dots, underscores, or hyphens.' };
   if (!fullName || fullName.length > 100) return { status: 400, error: 'Full name is required and must be at most 100 characters.' };
+  if (email.length > 254 || !/^\S+@\S+\.\S+$/.test(email)) return { status: 400, error: 'A valid email address is required.' };
+  if (phone.length > 30 || phone.replace(/\D/g, '').length < 7) return { status: 400, error: 'A valid phone number is required.' };
   if (password.length < 8 || password.length > 128) return { status: 400, error: 'Password must be between 8 and 128 characters.' };
 
   const usernameLimit = await env.AUTH_USERNAME_LIMITER.limit({ key: `register:${username.toLowerCase()}` });
@@ -322,7 +326,7 @@ async function register(request, env) {
   const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/auth_register`, {
     method: 'POST',
     headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ _username: username, _full_name: fullName, _password: password }),
+    body: JSON.stringify({ _username: username, _full_name: fullName, _email: email, _phone: phone, _password: password }),
   });
   const result = await response.json().catch(() => null);
   if (!response.ok) throw new Error('Account registration failed.');
@@ -331,6 +335,72 @@ async function register(request, env) {
   const expiresAt = Math.floor(Date.now() / 1000) + 8 * 60 * 60;
   const token = await signToken({ sub: user.id, exp: expiresAt }, env.APP_JWT_SECRET);
   return { status: 201, data: { user, token, expiresAt: expiresAt * 1000 } };
+}
+
+async function updateUserProfile(request, env, user) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return { status: 400, error: 'Invalid JSON body.' };
+  }
+
+  const fullName = typeof body?.full_name === 'string' ? body.full_name.trim() : '';
+  const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const phone = typeof body?.phone === 'string' ? body.phone.trim() : '';
+  if (!fullName || fullName.length > 100) return { status: 400, error: 'Nama lengkap wajib diisi dan maksimal 100 karakter.' };
+  if (email.length > 254 || !/^\S+@\S+\.\S+$/.test(email)) return { status: 400, error: 'Alamat email tidak valid.' };
+  if (phone.length > 30 || phone.replace(/\D/g, '').length < 7) return { status: 400, error: 'Nomor telepon tidak valid.' };
+
+  const url = new URL(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/users`);
+  url.searchParams.set('id', `eq.${user.id}`);
+  url.searchParams.set('select', 'id,username,full_name,email,phone,role,is_active,created_at');
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: serviceHeaders(env, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+    body: JSON.stringify({ full_name: fullName, email, phone }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) return { status: 400, error: result?.message ?? 'Profile update failed.' };
+  if (!Array.isArray(result) || !result[0]) return { status: 404, error: 'Profil pengguna tidak ditemukan.' };
+  return { status: 200, data: result[0] };
+}
+
+async function completeFirstLogin(request, env, user) {
+  if (!user.must_reset_password) return { status: 409, error: 'Akun ini tidak memerlukan onboarding.' };
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return { status: 400, error: 'Invalid JSON body.' };
+  }
+
+  const fullName = typeof body?.full_name === 'string' ? body.full_name.trim() : '';
+  const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const phone = typeof body?.phone === 'string' ? body.phone.trim() : '';
+  const newPassword = typeof body?.new_password === 'string' ? body.new_password : '';
+  if (!fullName || fullName.length > 100) return { status: 400, error: 'Nama lengkap wajib diisi dan maksimal 100 karakter.' };
+  if (email.length > 254 || !/^\S+@\S+\.\S+$/.test(email)) return { status: 400, error: 'Alamat email tidak valid.' };
+  if (phone.length > 30 || phone.replace(/\D/g, '').length < 7) return { status: 400, error: 'Nomor telepon tidak valid.' };
+  if (newPassword.length < 8 || newPassword.length > 128) return { status: 400, error: 'Password baru harus 8 sampai 128 karakter.' };
+
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/complete_user_first_login`, {
+    method: 'POST',
+    headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({
+      _user_id: user.id,
+      _full_name: fullName,
+      _email: email,
+      _phone: phone,
+      _new_password: newPassword,
+    }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(result) || !result[0]) {
+    return { status: 409, error: typeof result?.message === 'string' ? result.message : 'Onboarding akun gagal disimpan.' };
+  }
+  return { status: 200, data: result[0] };
 }
 
 async function proxyNotification(request, env, user, path, headers) {
@@ -374,13 +444,16 @@ async function createRentalCycle(request, env, user, headers) {
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
   const timePattern = /^\d{2}:\d{2}(?::\d{2})?$/;
+  const renterName = typeof user.full_name === 'string' ? user.full_name.trim() : '';
+  const renterEmail = typeof user.email === 'string' ? user.email.trim().toLowerCase() : '';
+  const renterPhone = typeof user.phone === 'string' ? user.phone.trim() : '';
   if (!body || typeof body !== 'object' || Array.isArray(body)
     || !Array.isArray(body.car_ids) || body.car_ids.length === 0 || body.car_ids.length > 25
     || body.car_ids.some((carId) => typeof carId !== 'string' || !uuidPattern.test(carId))
     || new Set(body.car_ids).size !== body.car_ids.length
-    || typeof body.renter_name !== 'string' || !body.renter_name.trim()
-    || typeof body.renter_email !== 'string' || !/^\S+@\S+\.\S+$/.test(body.renter_email.trim())
-    || typeof body.renter_phone !== 'string' || !body.renter_phone.trim()
+    || !renterName
+    || !/^\S+@\S+\.\S+$/.test(renterEmail)
+    || renterPhone.replace(/\D/g, '').length < 7
     || typeof body.start_date !== 'string' || !datePattern.test(body.start_date)
     || (body.end_date !== null && (typeof body.end_date !== 'string' || !datePattern.test(body.end_date)))
     || typeof body.start_time !== 'string' || !timePattern.test(body.start_time)
@@ -398,9 +471,9 @@ async function createRentalCycle(request, env, user, headers) {
       _user_id: user.id,
       _user_role: user.role,
       _car_ids: body.car_ids,
-      _renter_name: body.renter_name.trim(),
-      _renter_email: body.renter_email.trim(),
-      _renter_phone: body.renter_phone.trim(),
+      _renter_name: renterName,
+      _renter_email: renterEmail,
+      _renter_phone: renterPhone,
       _start_date: body.start_date,
       _start_time: body.start_time,
       _end_date: body.end_date ?? null,
@@ -475,6 +548,8 @@ export default {
     const routes = new Set([
       '/api/auth/login',
       '/api/auth/register',
+      '/api/auth/complete-profile',
+      '/api/profile/update',
       '/api/data/query',
       '/api/data/insert',
       '/api/data/update',
@@ -520,6 +595,20 @@ export default {
     }
     if (!user) return Response.json({ error: 'Session is invalid or expired.' }, { status: 401, headers });
 
+    if (url.pathname === '/api/auth/complete-profile') {
+      try {
+        const result = await completeFirstLogin(request, env, user);
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('First login setup failed:', error);
+        return Response.json({ error: 'First login setup failed.' }, { status: 503, headers });
+      }
+    }
+
+    if (user.must_reset_password) {
+      return Response.json({ error: 'Selesaikan penggantian password dan profil sebelum menggunakan aplikasi.' }, { status: 403, headers });
+    }
+
     if (url.pathname === '/api/rentals/create-cycle') {
       try {
         const result = await createRentalCycle(request, env, user, headers);
@@ -527,6 +616,16 @@ export default {
       } catch (error) {
         console.error('Rental cycle creation failed:', error);
         return Response.json({ error: 'Rental cycle creation failed.' }, { status: 503, headers });
+      }
+    }
+
+    if (url.pathname === '/api/profile/update') {
+      try {
+        const result = await updateUserProfile(request, env, user);
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Profile update failed:', error);
+        return Response.json({ error: 'Profile update failed.' }, { status: 503, headers });
       }
     }
 

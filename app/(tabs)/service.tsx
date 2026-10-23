@@ -69,7 +69,7 @@ export default function RentalScreen() {
   const [recordKind, setRecordKind] = useState<RecordKind>('rental');
   const [saving, setSaving] = useState(false);
   const [returningId, setReturningId] = useState<string | null>(null);
-  const [form, setForm] = useState({ car_id: '', renter_name: '', renter_email: '', renter_phone: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
+  const [form, setForm] = useState({ car_id: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
   const [duplicateForm, setDuplicateForm] = useState({
     name: '',
     section: '',
@@ -110,6 +110,14 @@ export default function RentalScreen() {
   const displayedRentals = activeTab === 'borrowing' ? borrowingRentals : returnRentals;
   const pendingReturnCount = returnRentals.filter((rental) => ['approved', 'active', 'overdue'].includes(rental.status)).length;
   const isAdmin = [1, 2].includes(getSession()?.user.role ?? 0);
+  const userProfile = getSession()?.user;
+  const profileEmail = userProfile?.email?.trim() ?? '';
+  const profilePhone = userProfile?.phone?.trim() ?? '';
+  const profileComplete = Boolean(
+    userProfile?.full_name?.trim()
+    && /^\S+@\S+\.\S+$/.test(profileEmail)
+    && profilePhone.replace(/\D/g, '').length >= 7
+  );
   const hasOpenCycle = !isAdmin && rentals.some((rental) => ['pending', 'approved', 'active', 'overdue'].includes(rental.status));
   const rentalRangeValid = Boolean(form.start_date && form.end_date && form.end_date >= form.start_date);
   const duplicateRangeValid = Boolean(duplicateForm.start_date && duplicateForm.end_date && duplicateForm.end_date >= duplicateForm.start_date);
@@ -124,7 +132,7 @@ export default function RentalScreen() {
     : availableCars.some((car) => car.id === form.car_id);
 
   const resetFormState = () => {
-    setForm({ car_id: '', renter_name: '', renter_email: '', renter_phone: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
+    setForm({ car_id: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
     setSelectedCarIds([]);
     setDuplicateForm({ name: '', section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '' });
     setRecordKind('rental');
@@ -197,12 +205,12 @@ export default function RentalScreen() {
       return;
     }
 
-    if (!form.renter_name.trim()) {
-      Alert.alert('Nama penyewa wajib diisi', 'Masukkan nama penyewa sebelum menyimpan Transportation.');
-      return;
-    }
-    if (!form.renter_phone.trim()) {
-      Alert.alert('Nomor telepon wajib diisi', 'Masukkan nomor telepon penyewa sebelum menyimpan Transportation.');
+    const renterProfile = getSession()?.user;
+    const renterName = renterProfile?.full_name?.trim() ?? '';
+    const renterEmail = renterProfile?.email?.trim() ?? '';
+    const renterPhone = renterProfile?.phone?.trim() ?? '';
+    if (!renterName || !/^\S+@\S+\.\S+$/.test(renterEmail) || renterPhone.replace(/\D/g, '').length < 7) {
+      Alert.alert('Profil belum lengkap', 'Lengkapi nama lengkap, email, dan nomor telepon di Settings sebelum membuat Transportation.');
       return;
     }
     if (!form.start_date || !form.start_time || !form.end_date || !form.end_time) {
@@ -217,18 +225,11 @@ export default function RentalScreen() {
       Alert.alert('Jadwal tidak valid', 'Tanggal selesai harus sama atau setelah tanggal mulai.');
       return;
     }
-    if (!/^\S+@\S+\.\S+$/.test(form.renter_email.trim())) {
-      Alert.alert('Email wajib diisi', 'Masukkan alamat email penyewa yang valid.');
-      return;
-    }
     const today = new Date().toISOString().split('T')[0];
     setSaving(true);
     try {
       const createdRentals = await apiClient.rentals.createCycle({
         car_ids: selectedCarIds,
-        renter_name: form.renter_name.trim(),
-        renter_email: form.renter_email.trim(),
-        renter_phone: form.renter_phone.trim(),
         start_date: form.start_date || today,
         start_time: form.start_time,
         end_date: form.end_date || null,
@@ -358,9 +359,7 @@ export default function RentalScreen() {
 
         {recordKind === 'rental' ? (
           <>
-            <Field label="Nama Penyewa*" value={form.renter_name} onChangeText={(t) => setForm({ ...form, renter_name: t })} placeholder="Contoh: Budi Santoso" />
-            <Field label="Email Penyewa*" value={form.renter_email} onChangeText={(t) => setForm({ ...form, renter_email: t })} placeholder="contoh@email.com" keyboardType="default" />
-            <Field label="Nomor Telepon*" value={form.renter_phone} onChangeText={(t) => setForm({ ...form, renter_phone: t })} placeholder="Contoh: 08123456789" keyboardType="phone-pad" />
+            <Text style={styles.profileHint}>{profileComplete ? `Pemesan: ${userProfile?.full_name} · ${profileEmail} · ${profilePhone}` : 'Lengkapi nama, email, dan nomor telepon di Settings sebelum menyimpan Transportation.'}</Text>
             <TimeField label="Jam Mulai (WIB)" value={form.start_time} onChange={(value) => setForm({ ...form, start_time: value })} />
             <TimeField label="Jam Selesai (WIB)" value={form.end_time} onChange={(value) => setForm({ ...form, end_time: value })} />
             <Field label="Tujuan Transportation" value={form.purpose} onChangeText={(t) => setForm({ ...form, purpose: t })} placeholder="Contoh: Perjalanan dinas, liburan keluarga" />
@@ -379,7 +378,7 @@ export default function RentalScreen() {
         )}
 
         <View style={{ height: Spacing.sm }} />
-        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigation'} onPress={addRecord} loading={saving} disabled={(hasOpenCycle && recordKind === 'rental') || !selectedCarAvailable || (recordKind === 'rental' ? !form.renter_name.trim() || !form.renter_email.trim() || !form.renter_phone.trim() || !form.start_time || !form.end_time : !duplicateForm.name.trim() || !duplicateForm.section.trim() || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
+        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigation'} onPress={addRecord} loading={saving} disabled={(hasOpenCycle && recordKind === 'rental') || !selectedCarAvailable || (recordKind === 'rental' ? !profileComplete || !form.start_time || !form.end_time : !duplicateForm.name.trim() || !duplicateForm.section.trim() || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
       </Sheet>
     </View>
   );
@@ -420,6 +419,7 @@ const styles = StyleSheet.create({
   carPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginBottom: Spacing.sm },
   availabilityMessage: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textSecondary, marginBottom: Spacing.md },
   cycleNoticeText: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.warning, lineHeight: 20, marginBottom: Spacing.sm },
+  profileHint: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textSecondary, marginBottom: Spacing.sm },
   carChip: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.pill, backgroundColor: Colors.surfaceAlt },
   carChipActive: { backgroundColor: Colors.primary },
   carChipText: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary },

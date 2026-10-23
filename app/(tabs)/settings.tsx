@@ -1,19 +1,29 @@
 import { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { Alert, View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useFocusEffect, router } from 'expo-router';
 import { Car, KeyRound, AlertTriangle, ClipboardCheck, Info, LogOut, UserRound, ShieldCheck } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
-import { clearSession, getSession } from '@/lib/auth';
+import { clearSession, createSession, getSession } from '@/lib/auth';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
+import { Field } from '@/components/Field';
+import { Button } from '@/components/Button';
 
 export default function SettingsScreen() {
   const [stats, setStats] = useState({ cars: 0, notes: 0, damages: 0, rentals: 0, completeness: 0 });
+  const [profileFullName, setProfileFullName] = useState(getSession()?.user.full_name ?? '');
+  const [profileEmail, setProfileEmail] = useState(getSession()?.user.email ?? '');
+  const [profilePhone, setProfilePhone] = useState(getSession()?.user.phone ?? '');
+  const [profileSaving, setProfileSaving] = useState(false);
   const session = getSession();
   const role = session?.user.role ?? 4;
   const canSeeFullSettings = role === 1 || role === 2;
 
   useFocusEffect(
     useCallback(() => {
+      const currentUser = getSession()?.user;
+      setProfileFullName(currentUser?.full_name ?? '');
+      setProfileEmail(currentUser?.email ?? '');
+      setProfilePhone(currentUser?.phone ?? '');
       (async () => {
         const [c, n, d, s, comp] = await Promise.all([
           apiClient.cars.getAll(),
@@ -43,6 +53,25 @@ export default function SettingsScreen() {
   const handleLogout = () => {
     clearSession();
     router.replace('/login');
+  };
+
+  const handleSaveProfile = async () => {
+    const currentSession = getSession();
+    if (!currentSession) return;
+    setProfileSaving(true);
+    try {
+      const updatedUser = await apiClient.users.updateProfile({
+        full_name: profileFullName,
+        email: profileEmail,
+        phone: profilePhone,
+      });
+      createSession(updatedUser, currentSession.token, currentSession.expiresAt);
+      Alert.alert('Profil tersimpan', 'Nama, email, dan nomor telepon berhasil diperbarui.');
+    } catch (error) {
+      Alert.alert('Gagal menyimpan profil', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+    } finally {
+      setProfileSaving(false);
+    }
   };
 
   return (
@@ -82,6 +111,16 @@ export default function SettingsScreen() {
                   </View>
                 );
               })}
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Profil Transportation</Text>
+              <View style={styles.aboutCard}>
+                <Field label="Nama lengkap*" value={profileFullName} onChangeText={setProfileFullName} placeholder="Nama lengkap" />
+                <Field label="Email*" value={profileEmail} onChangeText={setProfileEmail} placeholder="nama@email.com" keyboardType="email-address" />
+                <Field label="Nomor telepon*" value={profilePhone} onChangeText={setProfilePhone} placeholder="Contoh: 08123456789" keyboardType="phone-pad" />
+                <Button label="Simpan profil" onPress={() => { void handleSaveProfile(); }} loading={profileSaving} />
+              </View>
             </View>
 
             <View style={styles.section}>
@@ -127,7 +166,9 @@ export default function SettingsScreen() {
 
             <View style={styles.summaryCard}>
               <Text style={styles.summaryLabel}>Detail akun</Text>
-              <Text style={styles.summaryText}>Nama: {session?.user.full_name ?? '-'}</Text>
+              <Text style={styles.summaryText}>Nama: {profileFullName || '-'}</Text>
+              <Text style={styles.summaryText}>Email: {profileEmail || '-'}</Text>
+              <Text style={styles.summaryText}>Nomor telepon: {profilePhone || '-'}</Text>
               <Text style={styles.summaryText}>Username: {session?.user.username ?? '-'}</Text>
               <Text style={styles.summaryText}>Role: {role}</Text>
               <Text style={styles.summaryText}>Status: {session?.user.is_active ? 'Aktif' : 'Nonaktif'}</Text>

@@ -34,7 +34,13 @@ type Tab = 'notes' | 'completeness' | 'damages' | 'rental';
 
 export default function CarDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const sessionRole = getSession()?.user.role ?? 0;
+  const sessionUser = getSession()?.user;
+  const sessionRole = sessionUser?.role ?? 0;
+  const profileEmail = sessionUser?.email?.trim() ?? '';
+  const profilePhone = sessionUser?.phone?.trim() ?? '';
+  const profileComplete = Boolean(sessionUser?.full_name?.trim()
+    && /^\S+@\S+\.\S+$/.test(profileEmail)
+    && profilePhone.replace(/\D/g, '').length >= 7);
   const canManageCar = [1, 2].includes(sessionRole);
   const isSuperAdmin = sessionRole === 1;
   const canManageRental = isSuperAdmin;
@@ -69,9 +75,6 @@ export default function CarDetailScreen() {
   const [rentalSheet, setRentalSheet] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [newRental, setNewRental] = useState({
-    renter_name: '',
-    renter_email: '',
-    renter_phone: '',
     start_date: '',
     end_date: '',
     purpose: '',
@@ -321,19 +324,18 @@ export default function CarDetailScreen() {
   // --- Rental CRUD ---
   const addRental = async () => {
     if (submitting) return;
-    if (!newRental.renter_name.trim()) return;
-    if (!/^\S+@\S+\.\S+$/.test(newRental.renter_email.trim())) {
-      Alert.alert('Email wajib diisi', 'Masukkan alamat email penyewa yang valid.');
-      return;
-    }
-    if (!newRental.renter_phone.trim()) {
-      Alert.alert('Nomor telepon wajib diisi', 'Masukkan nomor telepon pemesan.');
+    const renterProfile = getSession()?.user;
+    const renterName = renterProfile?.full_name?.trim() ?? '';
+    const renterEmail = renterProfile?.email?.trim() ?? '';
+    const renterPhone = renterProfile?.phone?.trim() ?? '';
+    if (!renterName || !/^\S+@\S+\.\S+$/.test(renterEmail) || renterPhone.replace(/\D/g, '').length < 7) {
+      Alert.alert('Profil belum lengkap', 'Lengkapi nama lengkap, email, dan nomor telepon di Settings sebelum membuat Transportation.');
       return;
     }
     setSubmitting(true);
     try {
       const startDate = newRental.start_date || todayISO();
-      const rental = await apiClient.rentals.create({ car_id: id, renter_name: newRental.renter_name.trim(), renter_email: newRental.renter_email.trim(), renter_phone: newRental.renter_phone.trim(), start_date: startDate, end_date: newRental.end_date || null, purpose: newRental.purpose.trim(), notes: newRental.notes.trim(), status: 'active' });
+      const rental = await apiClient.rentals.create({ car_id: id, renter_name: renterName, renter_email: renterEmail, renter_phone: renterPhone, start_date: startDate, end_date: newRental.end_date || null, purpose: newRental.purpose.trim(), notes: newRental.notes.trim(), status: 'active' });
       try {
         const endDate = rental.end_date ?? '';
         await apiClient.rentals.notifyCreated({
@@ -349,7 +351,7 @@ export default function CarDetailScreen() {
       } catch (error) {
         Alert.alert('Transportation tersimpan', `Notifikasi otomatis gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
       }
-      setNewRental({ renter_name: '', renter_email: '', renter_phone: '', start_date: '', end_date: '', purpose: '', notes: '' });
+      setNewRental({ start_date: '', end_date: '', purpose: '', notes: '' });
       setRentalSheet(false);
       await fetchAll();
     } catch (error) { Alert.alert('Gagal menyimpan Transportation', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
@@ -753,14 +755,7 @@ export default function CarDetailScreen() {
 
       {/* Rental Sheet */}
       <Sheet visible={rentalSheet} onClose={() => setRentalSheet(false)} title="Tambah Transportation Mobil">
-        <Field
-          label="Nama Penyewa*"
-          value={newRental.renter_name}
-          onChangeText={(t) => setNewRental({ ...newRental, renter_name: t })}
-          placeholder="Contoh: Budi Santoso"
-        />
-        <Field label="Email Penyewa*" value={newRental.renter_email} onChangeText={(t) => setNewRental({ ...newRental, renter_email: t })} placeholder="contoh@email.com" />
-        <Field label="Nomor Telepon*" value={newRental.renter_phone} onChangeText={(t) => setNewRental({ ...newRental, renter_phone: t })} placeholder="Contoh: 08123456789" keyboardType="phone-pad" />
+        <Text style={styles.profileHint}>{profileComplete ? `Pemesan: ${sessionUser?.full_name} · ${profileEmail} · ${profilePhone}` : 'Lengkapi nama, email, dan nomor telepon di Settings sebelum membuat Transportation.'}</Text>
         <DateField
           label="Tanggal Mulai"
           value={newRental.start_date}
@@ -788,7 +783,7 @@ export default function CarDetailScreen() {
           multiline
         />
         <View style={{ height: Spacing.sm }} />
-        <Button label="Simpan Transportation" onPress={addRental} loading={submitting} />
+        <Button label="Simpan Transportation" onPress={addRental} loading={submitting} disabled={!profileComplete} />
       </Sheet>
     </View>
   );
@@ -798,6 +793,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  profileHint: {
+    marginBottom: Spacing.md,
+    fontSize: Typography.sm,
+    fontFamily: Typography.fontRegular,
+    color: Colors.textSecondary,
   },
   loading: {
     flex: 1,
