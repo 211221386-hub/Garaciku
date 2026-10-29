@@ -78,7 +78,7 @@ export default function AddCarScreen() {
         <Field label="Warna" value={color} onChangeText={setColor} placeholder="Hitam" />
         <Field label="URL Gambar Mobil" value={photoUrl} onChangeText={setPhotoUrl} placeholder="https://contoh.com/mobil.jpg" />
         <Text style={styles.sectionTitle}>Jadwal Service Berkala</Text>
-        <DateField label="Tanggal Service Berkala Pertama*" value={periodicServiceDate} onChange={setPeriodicServiceDate} minimumDate={new Date(`${todayISO()}T00:00:00`)} />
+        <DateField label="Tanggal Service Berkala Pertama*" value={periodicServiceDate} onChange={setPeriodicServiceDate} />
         <Text style={styles.helperText}>Tanggal awal default 6 bulan dari hari ini. Jadwal berikutnya otomatis dibuat 6 bulan setelah service dikonfirmasi.</Text>
         <View style={{ height: Spacing.md }} />
         <Button label="Simpan Mobil" onPress={save} loading={saving} />
