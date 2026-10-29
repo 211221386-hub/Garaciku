@@ -478,7 +478,7 @@ export default function CarDetailScreen() {
                   <Text style={styles.cardTitle}>{note.name || 'Catatan lama'}</Text>
                   {note.section ? <Text style={styles.metaText}>Section: {note.section}</Text> : null}
                   <View style={styles.serviceMeta}>
-                    <Text style={styles.metaText}>Tanggal: {formatDate(note.start_date || note.note_date)} - {formatDate(note.end_date || note.note_date)}</Text>
+                    <Text style={styles.metaText}>Tanggal: {formatDate(note.start_date || note.note_date)} {note.start_time?.slice(0, 5) || ''} - {formatDate(note.end_date || note.note_date)} {note.end_time?.slice(0, 5) || ''}</Text>
                   </View>
                   {note.start_km !== null && note.end_km !== null ? <Text style={styles.metaText}>KM: {note.start_km.toLocaleString('id-ID')} - {note.end_km.toLocaleString('id-ID')}</Text> : null}
                   {note.start_fuel !== null && note.end_fuel !== null ? <Text style={styles.metaText}>Fuel: {note.start_fuel}% - {note.end_fuel}%</Text> : null}

@@ -74,7 +74,9 @@ export default function RentalScreen() {
     name: '',
     section: '',
     start_date: '',
+    start_time: '',
     end_date: '',
+    end_time: '',
     start_km: '',
     end_km: '',
     start_fuel: '',
@@ -134,7 +136,7 @@ export default function RentalScreen() {
   const resetFormState = () => {
     setForm({ car_id: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
     setSelectedCarIds([]);
-    setDuplicateForm({ name: '', section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '' });
+    setDuplicateForm({ name: '', section: '', start_date: '', start_time: '', end_date: '', end_time: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '' });
     setRecordKind('rental');
   };
 
@@ -150,7 +152,8 @@ export default function RentalScreen() {
     }
 
     if (recordKind === 'duplicate') {
-      if (!duplicateForm.name.trim() || !duplicateForm.section.trim() || !duplicateForm.start_date || !duplicateForm.end_date || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim()) {
+      const recorderName = getSession()?.user.full_name?.trim() ?? '';
+      if (!recorderName || !duplicateForm.section.trim() || !duplicateForm.start_date || !duplicateForm.start_time || !duplicateForm.end_date || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim()) {
         Alert.alert('Data belum lengkap', 'Isi semua field Investigation sebelum menyimpan.');
         return;
       }
@@ -175,6 +178,10 @@ export default function RentalScreen() {
         Alert.alert('Rentang tanggal tidak valid', 'Tanggal selesai harus sama atau setelah tanggal mulai.');
         return;
       }
+      if (duplicateForm.end_date === duplicateForm.start_date && duplicateForm.end_time <= duplicateForm.start_time) {
+        Alert.alert('Jadwal tidak valid', 'Jam selesai harus lebih lambat dari jam mulai.');
+        return;
+      }
 
       setSaving(true);
       try {
@@ -184,11 +191,13 @@ export default function RentalScreen() {
         }
         await apiClient.notes.create({
           car_id: form.car_id,
-          name: duplicateForm.name.trim(),
+          name: recorderName,
           section: duplicateForm.section.trim(),
           note_date: duplicateForm.start_date,
           start_date: duplicateForm.start_date,
+          start_time: duplicateForm.start_time,
           end_date: duplicateForm.end_date,
+          end_time: duplicateForm.end_time,
           start_km: startKm,
           end_km: endKm,
           start_fuel: startFuel,
@@ -367,8 +376,10 @@ export default function RentalScreen() {
           </>
         ) : (
           <>
-            <Field label="Pencatat*" value={duplicateForm.name} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, name: t })} placeholder="Contoh: Rizky / Tim Operasional" />
+            <Text style={styles.profileHint}>Pencatat: {userProfile?.full_name?.trim() || 'Nama lengkap belum diatur di profil.'}</Text>
             <Field label="Bagian*" value={duplicateForm.section} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, section: t })} placeholder="Contoh: Maintenance / Ops" />
+            <TimeField label="Jam Mulai (WIB)*" value={duplicateForm.start_time} onChange={(value) => setDuplicateForm({ ...duplicateForm, start_time: value })} />
+            <TimeField label="Jam Selesai (WIB)*" value={duplicateForm.end_time} onChange={(value) => setDuplicateForm({ ...duplicateForm, end_time: value })} />
             <Field label="KM Awal*" value={duplicateForm.start_km} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, start_km: t })} placeholder="Contoh: 12000" keyboardType="numeric" />
             <Field label="KM Akhir*" value={duplicateForm.end_km} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, end_km: t })} placeholder="Contoh: 12150" keyboardType="numeric" />
             <Field label="Fuel Awal*" value={duplicateForm.start_fuel} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, start_fuel: t })} placeholder="0-100" keyboardType="numeric" />
@@ -378,7 +389,7 @@ export default function RentalScreen() {
         )}
 
         <View style={{ height: Spacing.sm }} />
-        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigation'} onPress={addRecord} loading={saving} disabled={(hasOpenCycle && recordKind === 'rental') || !selectedCarAvailable || (recordKind === 'rental' ? !profileComplete || !form.start_time || !form.end_time : !duplicateForm.name.trim() || !duplicateForm.section.trim() || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
+        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigation'} onPress={addRecord} loading={saving} disabled={(hasOpenCycle && recordKind === 'rental') || !selectedCarAvailable || (recordKind === 'rental' ? !profileComplete || !form.start_time || !form.end_time : !userProfile?.full_name?.trim() || !duplicateForm.section.trim() || !duplicateForm.start_time || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
       </Sheet>
     </View>
   );

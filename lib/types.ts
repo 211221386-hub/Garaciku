@@ -32,7 +32,9 @@ export type DailyNote = {
   section: string;
   note_date: string;
   start_date: string;
+  start_time: string | null;
   end_date: string;
+  end_time: string | null;
   start_km: number | null;
   end_km: number | null;
   start_fuel: number | null;
