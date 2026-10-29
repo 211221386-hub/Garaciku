@@ -14,7 +14,7 @@ const COLUMNS = {
   daily_notes: new Set(['id', 'car_id', 'name', 'section', 'note_date', 'start_date', 'end_date', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'created_at']),
   completeness_items: new Set(['id', 'car_id', 'name', 'is_present', 'reminder_type', 'next_due_date', 'created_at']),
   damages: new Set(['id', 'car_id', 'description', 'severity', 'status', 'reported_date', 'resolved_date', 'created_at']),
-  service_records: new Set(['id', 'car_id', 'service_date', 'service_type', 'description', 'cost', 'mileage', 'workshop', 'status', 'next_service_date', 'next_service_mileage', 'reminder_enabled', 'reminder_interval_months', 'reminder_interval_mileage', 'created_at']),
+  service_records: new Set(['id', 'car_id', 'service_date', 'service_type', 'description', 'cost', 'mileage', 'workshop', 'status', 'next_service_date', 'next_service_mileage', 'reminder_enabled', 'is_recurring', 'reminder_interval_months', 'reminder_interval_mileage', 'created_at']),
   rental_records: new Set(['id', 'car_id', 'user_id', 'renter_name', 'renter_email', 'renter_phone', 'start_date', 'start_time', 'end_date', 'end_time', 'total_cost', 'purpose', 'status', 'approved_by', 'approved_at', 'return_confirmed_by', 'return_confirmed_at', 'notes', 'created_at']),
 };
 

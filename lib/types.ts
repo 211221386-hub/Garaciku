@@ -56,6 +56,7 @@ export type ServiceRecord = {
   next_service_date: string | null;
   next_service_mileage: number | null;
   reminder_enabled: boolean;
+  is_recurring: boolean;
   reminder_interval_months: number | null;
   reminder_interval_mileage: number | null;
   created_at: string;

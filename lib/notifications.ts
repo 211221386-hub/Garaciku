@@ -90,21 +90,51 @@ export async function notifyOverdueRentals(rentals: RentalRecord[]) {
 }
 
 export async function syncServiceReminders(services: (ServiceRecord & { car_name?: string })[]) {
-  if (Platform.OS === 'web') return;
-
   const reminders = services.filter((service) => service.status === 'scheduled' && service.reminder_enabled);
   const today = todayISO();
+
+  if (Platform.OS === 'web') {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    const dueReminders = reminders.filter((service) => {
+      const dueDate = service.next_service_date || service.service_date;
+      return today >= addDaysToISO(dueDate, service.is_recurring ? -7 : -2);
+    });
+    if (dueReminders.length === 0) return;
+    if (Notification.permission === 'default') {
+      try { await Notification.requestPermission(); } catch { return; }
+    }
+    if (Notification.permission !== 'granted') return;
+
+    for (const service of dueReminders) {
+      const dueDate = service.next_service_date || service.service_date;
+      const key = 'garaciku.service-reminder:' + service.id + ':' + dueDate + ':' + today;
+      if (window.localStorage.getItem(key)) continue;
+      const daysUntilService = Math.round((new Date(dueDate + 'T00:00:00Z').getTime() - new Date(today + 'T00:00:00Z').getTime()) / (24 * 60 * 60 * 1000));
+      const carName = service.car_name || 'mobil';
+      const body = daysUntilService < 0
+        ? service.service_type + ' untuk ' + carName + ' belum dikonfirmasi selesai.'
+        : daysUntilService === 0
+          ? service.service_type + ' untuk ' + carName + ' dijadwalkan hari ini.'
+          : service.service_type + ' untuk ' + carName + ' dijadwalkan dalam ' + daysUntilService + ' hari.';
+      new Notification('Jadwal service mobil', { body, tag: key });
+      window.localStorage.setItem(key, '1');
+    }
+    return;
+  }
+
   const now = Date.now();
   const pending = new Map<string, { service: ServiceRecord & { car_name?: string }; dueDate: string; notificationDate: string; triggerDate: Date }>();
 
   for (const service of reminders) {
     const dueDate = service.next_service_date || service.service_date;
-    const firstNotificationDate = addDaysToISO(dueDate, -7);
+    const firstNotificationDate = addDaysToISO(dueDate, service.is_recurring ? -7 : -2);
     let notificationDate = firstNotificationDate < today ? today : firstNotificationDate;
+    const afterDueDate = addDaysToISO(dueDate, 14);
+    const lastNotificationDate = afterDueDate < today ? addDaysToISO(today, 14) : afterDueDate;
 
-    while (notificationDate <= dueDate) {
-      const triggerDate = new Date(`${notificationDate}T09:00:00`);
-      const notificationKey = `${service.id}:${dueDate}:${notificationDate}`;
+    while (notificationDate <= lastNotificationDate) {
+      const triggerDate = new Date(notificationDate + 'T09:00:00+07:00');
+      const notificationKey = service.id + ':' + dueDate + ':' + notificationDate;
       if (notificationDate === today && triggerDate.getTime() <= now) triggerDate.setTime(now + 15_000);
       if (triggerDate.getTime() > now) pending.set(notificationKey, { service, dueDate, notificationDate, triggerDate });
       notificationDate = addDaysToISO(notificationDate, 1);
@@ -139,14 +169,18 @@ export async function syncServiceReminders(services: (ServiceRecord & { car_name
 
   for (const [notificationKey, { service, dueDate, notificationDate, triggerDate }] of pending) {
     if (Number.isNaN(triggerDate.getTime())) continue;
-    const daysUntilService = Math.round((new Date(`${dueDate}T00:00:00Z`).getTime() - new Date(`${notificationDate}T00:00:00Z`).getTime()) / (24 * 60 * 60 * 1000));
+    const daysUntilService = Math.round((new Date(dueDate + 'T00:00:00Z').getTime() - new Date(notificationDate + 'T00:00:00Z').getTime()) / (24 * 60 * 60 * 1000));
+    const carName = service.car_name || 'mobil';
+    const body = daysUntilService < 0
+      ? service.service_type + ' untuk ' + carName + ' belum dikonfirmasi selesai.'
+      : daysUntilService === 0
+        ? service.service_type + ' untuk ' + carName + ' dijadwalkan hari ini.'
+        : service.service_type + ' untuk ' + carName + ' dijadwalkan dalam ' + daysUntilService + ' hari.';
 
     await Notifications.scheduleNotificationAsync({
       content: {
         title: 'Jadwal service mobil',
-        body: daysUntilService === 0
-          ? `${service.service_type} untuk ${service.car_name || 'mobil'} dijadwalkan hari ini.`
-          : `${service.service_type} untuk ${service.car_name || 'mobil'} dijadwalkan dalam ${daysUntilService} hari.`,
+        body,
         data: { kind: 'service-reminder', serviceId: service.id, dueDate, notificationDate, notificationKey },
         sound: 'default',
       },

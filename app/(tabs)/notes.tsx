@@ -25,12 +25,11 @@ type ServiceForm = {
   mileage: string;
   workshop: string;
   status: 'completed' | 'scheduled';
-  reminder_interval_months: string;
 };
 
 const emptyForm: ServiceForm = {
   car_id: '', service_date: '', service_type: '', description: '', cost: '', mileage: '', workshop: '',
-  status: 'completed', reminder_interval_months: '',
+  status: 'completed',
 };
 
 function getReminderStatus(nextServiceDate: string): 'Jatuh tempo' | 'Segera' | null {
@@ -76,7 +75,11 @@ export default function ServiceScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { fetchServices(); }, [fetchServices]));
+  useFocusEffect(useCallback(() => {
+    void fetchServices();
+    const reminderRefresh = setInterval(() => { void fetchServices(); }, 60 * 60 * 1000);
+    return () => clearInterval(reminderRefresh);
+  }, [fetchServices]));
 
   const addService = async () => {
     if (saving) return;
@@ -85,22 +88,17 @@ export default function ServiceScreen() {
     const numericFields = [
       { label: 'Biaya', value: form.cost, integer: false },
       { label: 'Kilometer', value: form.mileage, integer: true },
-      ...(form.status === 'scheduled' ? [{ label: 'Interval bulan', value: form.reminder_interval_months, integer: true, positive: true }] : []),
     ];
     for (const field of numericFields) {
       if (!field.value) continue;
       const value = Number(field.value);
-      if (!Number.isFinite(value) || value < 0 || (field.integer && !Number.isInteger(value)) || (field.positive && value === 0)) {
-        Alert.alert('Angka tidak valid', `${field.label} harus berupa angka${field.positive ? ' lebih dari 0' : ' nol atau lebih'}${field.integer ? ' tanpa desimal' : ''}.`);
+      if (!Number.isFinite(value) || value < 0 || (field.integer && !Number.isInteger(value))) {
+        Alert.alert('Angka tidak valid', `${field.label} harus berupa angka nol atau lebih${field.integer ? ' tanpa desimal' : ''}.`);
         return;
       }
     }
     if (form.status === 'scheduled' && !form.service_date) {
       Alert.alert('Tanggal service wajib diisi', 'Pilih tanggal rencana service agar reminder dapat dijadwalkan.');
-      return;
-    }
-    if (form.status === 'scheduled' && !form.reminder_interval_months) {
-      Alert.alert('Interval reminder wajib diisi', 'Masukkan interval service dalam bulan untuk membuat pengingat otomatis.');
       return;
     }
 
@@ -120,8 +118,9 @@ export default function ServiceScreen() {
         next_service_date: isScheduled ? serviceDate : null,
         next_service_mileage: null,
         reminder_enabled: isScheduled,
-        reminder_interval_months: isScheduled ? Number(form.reminder_interval_months) : null,
+        reminder_interval_months: null,
         reminder_interval_mileage: null,
+        is_recurring: false,
       });
       setForm(emptyForm);
       setSheet(false);
@@ -151,8 +150,7 @@ export default function ServiceScreen() {
     if (confirmingServiceId || service.status !== 'scheduled' || !service.reminder_enabled) return;
     setConfirmingServiceId(service.id);
     const completedDate = todayISO();
-    const intervalMonths = service.reminder_interval_months;
-    const nextServiceDate = intervalMonths ? addMonthsToISO(completedDate, intervalMonths) : null;
+    const nextServiceDate = service.is_recurring ? addMonthsToISO(completedDate, 6) : null;
     let nextRecord: ServiceRecord | null = null;
 
     try {
@@ -169,8 +167,9 @@ export default function ServiceScreen() {
           next_service_date: nextServiceDate,
           next_service_mileage: null,
           reminder_enabled: true,
-          reminder_interval_months: intervalMonths,
+          reminder_interval_months: 6,
           reminder_interval_mileage: null,
+          is_recurring: true,
         });
       }
       try {
@@ -211,7 +210,7 @@ export default function ServiceScreen() {
             const isScheduledReminder = item.status === 'scheduled' && item.reminder_enabled;
             const dueDate = item.next_service_date || item.service_date;
             const reminderStatus = isScheduledReminder ? getReminderStatus(dueDate) : null;
-            const confirmationWindowEnd = addDaysToISO(todayISO(), 7);
+            const confirmationWindowEnd = addDaysToISO(todayISO(), item.is_recurring ? 7 : 2);
             return (
               <View style={styles.card}>
                 <TouchableOpacity style={styles.cardMain} onPress={() => router.push(`/car/${item.car_id}`)} activeOpacity={0.85}>
@@ -220,7 +219,7 @@ export default function ServiceScreen() {
                     <Text style={styles.serviceType} numberOfLines={1}>{item.service_type}</Text>
                     <Text style={styles.metaText}>{formatDate(item.service_date)}{item.workshop ? ` · ${item.workshop}` : ''}</Text>
                     <Text style={[styles.statusText, item.status === 'scheduled' && styles.scheduledText]}>{item.status === 'scheduled' ? 'Terjadwal' : 'Sudah dilakukan'}</Text>
-                    {isScheduledReminder ? <Text style={styles.reminderText}>Reminder: {formatDate(dueDate)}</Text> : null}
+                    {isScheduledReminder ? <Text style={styles.reminderText}>{item.is_recurring ? 'Berkala tiap 6 bulan · ' : 'Reminder: '}{formatDate(dueDate)}</Text> : null}
                     {reminderStatus ? <Text style={[styles.reminderStatus, reminderStatus === 'Jatuh tempo' ? styles.overdueReminder : styles.soonReminder]}>{reminderStatus}</Text> : null}
                     {item.cost !== null ? <Text style={styles.costText}>{formatCurrency(item.cost)}</Text> : null}
                     {item.description ? <Text style={styles.description} numberOfLines={2}>{item.description}</Text> : null}
@@ -301,11 +300,7 @@ export default function ServiceScreen() {
         <Field label="Biaya (Rp)" value={form.cost} onChangeText={(value) => setForm({ ...form, cost: value })} placeholder="0" keyboardType="numeric" />
         <Field label="Kilometer" value={form.mileage} onChangeText={(value) => setForm({ ...form, mileage: value })} placeholder="Contoh: 45000" keyboardType="numeric" />
         <Field label="Keterangan" value={form.description} onChangeText={(value) => setForm({ ...form, description: value })} placeholder="Detail pekerjaan service" multiline />
-        {form.status === 'scheduled' ? <>
-          <Text style={styles.label}>Reminder Otomatis</Text>
-          <Text style={styles.reminderText}>Notifikasi harian akan dimulai 7 hari sebelum tanggal service.</Text>
-          <Field label="Interval (bulan)*" value={form.reminder_interval_months} onChangeText={(value) => setForm({ ...form, reminder_interval_months: value })} placeholder="Contoh: 6" keyboardType="numeric" />
-        </> : null}
+        {form.status === 'scheduled' ? <Text style={styles.reminderText}>Pengingat harian mulai H-2 (H-2, H-1, dan hari-H) sampai dikonfirmasi.</Text> : null}
         <Button label="Simpan Service" onPress={addService} loading={saving} disabled={!form.car_id || !form.service_type.trim()} />
       </Sheet>
     </View>
