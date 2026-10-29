@@ -14,6 +14,7 @@ export default function SettingsScreen() {
   const [profileEmail, setProfileEmail] = useState(getSession()?.user.email ?? '');
   const [profilePhone, setProfilePhone] = useState(getSession()?.user.phone ?? '');
   const [profileSaving, setProfileSaving] = useState(false);
+  const [profileEditing, setProfileEditing] = useState(false);
   const session = getSession();
   const role = session?.user.role ?? 4;
   const canSeeFullSettings = role === 1 || role === 2;
@@ -66,6 +67,7 @@ export default function SettingsScreen() {
         phone: profilePhone,
       });
       createSession(updatedUser, currentSession.token, currentSession.expiresAt);
+      setProfileEditing(false);
       Alert.alert('Profil tersimpan', 'Nama, email, dan nomor telepon berhasil diperbarui.');
     } catch (error) {
       Alert.alert('Gagal menyimpan profil', error instanceof Error ? error.message : 'Terjadi kesalahan.');
@@ -154,7 +156,7 @@ export default function SettingsScreen() {
                 <ShieldCheck size={22} color={Colors.primary} strokeWidth={2} />
                 <View style={styles.aboutText}>
                   <Text style={styles.aboutTitle}>Akun Anda hanya menampilkan ringkasan</Text>
-                  <Text style={styles.aboutSubtitle}>Role {role} tidak memiliki akses penuh ke pengaturan detail.</Text>
+                  <Text style={styles.aboutSubtitle}>Gunakan Edit akun untuk memperbarui nama, email, dan nomor telepon.</Text>
                 </View>
               </View>
             </View>
@@ -172,6 +174,17 @@ export default function SettingsScreen() {
               <Text style={styles.summaryText}>Username: {session?.user.username ?? '-'}</Text>
               <Text style={styles.summaryText}>Role: {role}</Text>
               <Text style={styles.summaryText}>Status: {session?.user.is_active ? 'Aktif' : 'Nonaktif'}</Text>
+              <TouchableOpacity style={styles.editAccountButton} onPress={() => setProfileEditing((editing) => !editing)}>
+                <Text style={styles.editAccountButtonText}>{profileEditing ? 'Tutup edit akun' : 'Edit akun'}</Text>
+              </TouchableOpacity>
+              {profileEditing ? (
+                <View style={[styles.aboutCard, { marginTop: Spacing.sm }]}>
+                  <Field label="Nama lengkap*" value={profileFullName} onChangeText={setProfileFullName} placeholder="Nama lengkap" />
+                  <Field label="Email*" value={profileEmail} onChangeText={setProfileEmail} placeholder="nama@email.com" keyboardType="email-address" />
+                  <Field label="Nomor telepon*" value={profilePhone} onChangeText={setProfilePhone} placeholder="Contoh: 08123456789" keyboardType="phone-pad" />
+                  <Button label="Simpan profil" onPress={() => { void handleSaveProfile(); }} loading={profileSaving} />
+                </View>
+              ) : null}
             </View>
           </View>
         )}
@@ -360,6 +373,19 @@ const styles = StyleSheet.create({
     fontFamily: Typography.fontRegular,
     color: Colors.textPrimary,
     marginBottom: 4,
+  },
+  editAccountButton: {
+    alignSelf: 'flex-start',
+    marginTop: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.primaryLight,
+  },
+  editAccountButtonText: {
+    color: Colors.primary,
+    fontSize: Typography.sm,
+    fontFamily: Typography.fontSemiBold,
   },
   logoutButton: {
     backgroundColor: Colors.primary,
