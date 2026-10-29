@@ -290,6 +290,7 @@ export default function ServiceScreen() {
           </View>
         </>}
         <Field label="Jenis Service*" value={form.service_type} onChangeText={(value) => setForm({ ...form, service_type: value })} placeholder="Contoh: Ganti oli" />
+        <Text style={styles.reminderText}>Pengingat harian mulai H-2 (H-2, H-1, dan hari-H) sampai dikonfirmasi.</Text>
         <Text style={styles.label}>Status Service</Text>
         <View style={styles.carPicker}>
           <TouchableOpacity onPress={() => setForm({ ...form, status: 'completed' })} style={[styles.carChip, form.status === 'completed' && styles.carChipActive]}><Text style={[styles.carChipText, form.status === 'completed' && styles.carChipTextActive]}>Sudah dilakukan</Text></TouchableOpacity>
@@ -300,7 +301,7 @@ export default function ServiceScreen() {
         <Field label="Biaya (Rp)" value={form.cost} onChangeText={(value) => setForm({ ...form, cost: value })} placeholder="0" keyboardType="numeric" />
         <Field label="Kilometer" value={form.mileage} onChangeText={(value) => setForm({ ...form, mileage: value })} placeholder="Contoh: 45000" keyboardType="numeric" />
         <Field label="Keterangan" value={form.description} onChangeText={(value) => setForm({ ...form, description: value })} placeholder="Detail pekerjaan service" multiline />
-        {form.status === 'scheduled' ? <Text style={styles.reminderText}>Pengingat harian mulai H-2 (H-2, H-1, dan hari-H) sampai dikonfirmasi.</Text> : null}
+
         <Button label="Simpan Service" onPress={addService} loading={saving} disabled={!form.car_id || !form.service_type.trim()} />
       </Sheet>
     </View>
