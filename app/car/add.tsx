@@ -5,8 +5,10 @@ import { ChevronLeft } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
 import { Field } from '@/components/Field';
+import { DateField } from '@/components/DateField';
 import { Button } from '@/components/Button';
 import { getSession } from '@/lib/auth';
+import { addMonthsToISO, todayISO } from '@/lib/format';
 
 export default function AddCarScreen() {
   useEffect(() => {
@@ -22,6 +24,7 @@ export default function AddCarScreen() {
   const [plate, setPlate] = useState('');
   const [color, setColor] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
+  const [periodicServiceDate, setPeriodicServiceDate] = useState(() => addMonthsToISO(todayISO(), 6));
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
@@ -31,6 +34,10 @@ export default function AddCarScreen() {
     }
     if (!name.trim()) {
       Alert.alert('Nama wajib diisi', 'Beri nama untuk mobil Anda.');
+      return;
+    }
+    if (!periodicServiceDate) {
+      Alert.alert('Tanggal service berkala wajib diisi', 'Pilih tanggal service berkala pertama untuk mobil ini.');
       return;
     }
     setSaving(true);
@@ -43,6 +50,7 @@ export default function AddCarScreen() {
         plate_number: plate.trim().toUpperCase(),
         color: color.trim(),
         photo_url: photoUrl.trim() || null,
+        periodic_service_start_date: periodicServiceDate,
       });
       router.replace('/(tabs)');
     } catch (error) {
@@ -69,6 +77,9 @@ export default function AddCarScreen() {
         <Field label="Plat Nomor" value={plate} onChangeText={setPlate} placeholder="B 1234 ABC" />
         <Field label="Warna" value={color} onChangeText={setColor} placeholder="Hitam" />
         <Field label="URL Gambar Mobil" value={photoUrl} onChangeText={setPhotoUrl} placeholder="https://contoh.com/mobil.jpg" />
+        <Text style={styles.sectionTitle}>Jadwal Service Berkala</Text>
+        <DateField label="Tanggal Service Berkala Pertama*" value={periodicServiceDate} onChange={setPeriodicServiceDate} minimumDate={new Date(`${todayISO()}T00:00:00`)} />
+        <Text style={styles.helperText}>Tanggal awal default 6 bulan dari hari ini. Jadwal berikutnya otomatis dibuat 6 bulan setelah service dikonfirmasi.</Text>
         <View style={{ height: Spacing.md }} />
         <Button label="Simpan Mobil" onPress={save} loading={saving} />
       </ScrollView>
@@ -106,5 +117,18 @@ const styles = StyleSheet.create({
   form: {
     padding: Spacing.lg,
     paddingBottom: Spacing.xxl,
+  },
+  sectionTitle: {
+    fontSize: Typography.base,
+    fontFamily: Typography.fontSemiBold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  helperText: {
+    fontSize: Typography.sm,
+    fontFamily: Typography.fontRegular,
+    color: Colors.textSecondary,
+    marginTop: -Spacing.sm,
+    marginBottom: Spacing.md,
   },
 });

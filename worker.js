@@ -10,7 +10,7 @@ const TABLES = new Set([
 
 const COLUMNS = {
   users: new Set(['id', 'username', 'full_name', 'email', 'phone', 'role', 'is_active', 'must_reset_password', 'created_at']),
-  cars: new Set(['id', 'name', 'brand', 'model', 'year', 'plate_number', 'color', 'photo_url', 'created_at']),
+  cars: new Set(['id', 'name', 'brand', 'model', 'year', 'plate_number', 'color', 'photo_url', 'periodic_service_start_date', 'created_at']),
   daily_notes: new Set(['id', 'car_id', 'name', 'section', 'note_date', 'start_date', 'end_date', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'created_at']),
   completeness_items: new Set(['id', 'car_id', 'name', 'is_present', 'reminder_type', 'next_due_date', 'created_at']),
   damages: new Set(['id', 'car_id', 'description', 'severity', 'status', 'reported_date', 'resolved_date', 'created_at']),
