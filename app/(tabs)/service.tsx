@@ -333,6 +333,8 @@ export default function RentalScreen() {
           </TouchableOpacity>
         </View>
 
+        {!selectedRangeValid ? <Text style={styles.availabilityMessage}>Pilih tanggal mulai dan selesai terlebih dahulu untuk melihat unit yang tersedia.</Text> : null}
+
         {recordKind === 'rental' ? (
           <>
             <DateField label="Tanggal Mulai*" value={form.start_date} onChange={(value) => { setForm({ ...form, start_date: value, end_date: form.end_date && form.end_date < value ? '' : form.end_date, car_id: '' }); setSelectedCarIds([]); }} placeholder="Pilih tanggal mulai" />
@@ -364,11 +366,11 @@ export default function RentalScreen() {
               </View>
             )}
           </>
-        ) : <Text style={styles.availabilityMessage}>Pilih tanggal mulai dan selesai terlebih dahulu untuk melihat unit yang tersedia.</Text>}
+        ) : null}
 
         {recordKind === 'rental' ? (
           <>
-            <Text style={styles.profileHint}>{profileComplete ? `Pemesan: ${userProfile?.full_name} · ${profileEmail} · ${profilePhone}` : 'Lengkapi nama, email, dan nomor telepon di Settings sebelum menyimpan Transportation.'}</Text>
+            {!profileComplete ? <Text style={styles.profileWarning}>Lengkapi nama, email, dan nomor telepon di Settings sebelum menyimpan Transportation.</Text> : null}
             <TimeField label="Jam Mulai (WIB)" value={form.start_time} onChange={(value) => setForm({ ...form, start_time: value })} />
             <TimeField label="Jam Selesai (WIB)" value={form.end_time} onChange={(value) => setForm({ ...form, end_time: value })} />
             <Field label="Tujuan Transportation" value={form.purpose} onChangeText={(t) => setForm({ ...form, purpose: t })} placeholder="Contoh: Perjalanan dinas, liburan keluarga" />
@@ -376,7 +378,6 @@ export default function RentalScreen() {
           </>
         ) : (
           <>
-            <Text style={styles.profileHint}>Pencatat: {userProfile?.full_name?.trim() || 'Nama lengkap belum diatur di profil.'}</Text>
             <Field label="Bagian*" value={duplicateForm.section} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, section: t })} placeholder="Contoh: Maintenance / Ops" />
             <TimeField label="Jam Mulai (WIB)*" value={duplicateForm.start_time} onChange={(value) => setDuplicateForm({ ...duplicateForm, start_time: value })} />
             <TimeField label="Jam Selesai (WIB)*" value={duplicateForm.end_time} onChange={(value) => setDuplicateForm({ ...duplicateForm, end_time: value })} />
@@ -430,7 +431,7 @@ const styles = StyleSheet.create({
   carPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginBottom: Spacing.sm },
   availabilityMessage: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textSecondary, marginBottom: Spacing.md },
   cycleNoticeText: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.warning, lineHeight: 20, marginBottom: Spacing.sm },
-  profileHint: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textSecondary, marginBottom: Spacing.sm },
+  profileWarning: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.error, marginBottom: Spacing.sm },
   carChip: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: Radius.pill, backgroundColor: Colors.surfaceAlt },
   carChipActive: { backgroundColor: Colors.primary },
   carChipText: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary },
