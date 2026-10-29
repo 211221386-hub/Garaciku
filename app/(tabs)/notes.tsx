@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Alert } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
-import { Wrench, Plus, ChevronRight, Trash2 } from 'lucide-react-native';
+import { Wrench, Plus, ChevronRight, ChevronLeft, Trash2 } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
 import { addDaysToISO, addMonthsToISO, formatDate, formatCurrency, todayISO } from '@/lib/format';
@@ -51,13 +51,17 @@ export default function ServiceScreen() {
   }, []);
 
   const [services, setServices] = useState<ServiceWithCar[]>([]);
-  const [cars, setCars] = useState<{ id: string; name: string }[]>([]);
+  const [cars, setCars] = useState<{ id: string; name: string; plate_number: string }[]>([]);
+  const [selectedCarId, setSelectedCarId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [sheet, setSheet] = useState(false);
   const [serviceToDelete, setServiceToDelete] = useState<ServiceWithCar | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmingServiceId, setConfirmingServiceId] = useState<string | null>(null);
   const [form, setForm] = useState<ServiceForm>(emptyForm);
+
+  const selectedCar = cars.find((car) => car.id === selectedCarId) ?? null;
+  const selectedCarServices = selectedCarId ? services.filter((service) => service.car_id === selectedCarId) : [];
 
   const fetchServices = useCallback(async () => {
     try {
@@ -192,54 +196,76 @@ export default function ServiceScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
+        {selectedCar ? <TouchableOpacity style={styles.backToCars} onPress={() => setSelectedCarId(null)}><ChevronLeft size={18} color={Colors.white} strokeWidth={2.4} /><Text style={styles.backToCarsText}>Daftar Mobil</Text></TouchableOpacity> : null}
         <Text style={styles.greeting}>Perawatan Berkala</Text>
-        <Text style={styles.title}>Service Mobil</Text>
+        <Text style={styles.title}>{selectedCar?.name ?? 'Service Mobil'}</Text>
+        {selectedCar?.plate_number ? <Text style={styles.selectedPlate}>{selectedCar.plate_number}</Text> : null}
       </View>
-      <FlatList
-        data={services}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchServices(); }} colors={[Colors.primary]} />}
-        renderItem={({ item }) => {
-          const isScheduledReminder = item.status === 'scheduled' && item.reminder_enabled;
-          const dueDate = item.next_service_date || item.service_date;
-          const reminderStatus = isScheduledReminder ? getReminderStatus(dueDate) : null;
-          const confirmationWindowEnd = addDaysToISO(todayISO(), 7);
-          return (
-          <View style={styles.card}>
-            <TouchableOpacity style={styles.cardMain} onPress={() => router.push(`/car/${item.car_id}`)} activeOpacity={0.85}>
-            <View style={styles.serviceIcon}><Wrench size={18} color={Colors.primary} strokeWidth={2.2} /></View>
-            <View style={styles.cardBody}>
-              <Text style={styles.serviceType} numberOfLines={1}>{item.service_type}</Text>
-              <Text style={styles.carName} numberOfLines={1}>{item.car_name || 'Mobil tidak diketahui'}</Text>
-              <View style={styles.metaRow}>
-                <Text style={styles.metaText}>{formatDate(item.service_date)}</Text>
-                {item.workshop ? <Text style={styles.metaText}>{item.workshop}</Text> : null}
+      {selectedCar ? (
+        <FlatList
+          data={selectedCarServices}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.list}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchServices(); }} colors={[Colors.primary]} />}
+          renderItem={({ item }) => {
+            const isScheduledReminder = item.status === 'scheduled' && item.reminder_enabled;
+            const dueDate = item.next_service_date || item.service_date;
+            const reminderStatus = isScheduledReminder ? getReminderStatus(dueDate) : null;
+            const confirmationWindowEnd = addDaysToISO(todayISO(), 7);
+            return (
+              <View style={styles.card}>
+                <TouchableOpacity style={styles.cardMain} onPress={() => router.push(`/car/${item.car_id}`)} activeOpacity={0.85}>
+                  <View style={styles.serviceIcon}><Wrench size={18} color={Colors.primary} strokeWidth={2.2} /></View>
+                  <View style={styles.cardBody}>
+                    <Text style={styles.serviceType} numberOfLines={1}>{item.service_type}</Text>
+                    <Text style={styles.metaText}>{formatDate(item.service_date)}{item.workshop ? ` · ${item.workshop}` : ''}</Text>
+                    <Text style={[styles.statusText, item.status === 'scheduled' && styles.scheduledText]}>{item.status === 'scheduled' ? 'Terjadwal' : 'Sudah dilakukan'}</Text>
+                    {isScheduledReminder ? <Text style={styles.reminderText}>Reminder: {formatDate(dueDate)}</Text> : null}
+                    {reminderStatus ? <Text style={[styles.reminderStatus, reminderStatus === 'Jatuh tempo' ? styles.overdueReminder : styles.soonReminder]}>{reminderStatus}</Text> : null}
+                    {item.cost !== null ? <Text style={styles.costText}>{formatCurrency(item.cost)}</Text> : null}
+                    {item.description ? <Text style={styles.description} numberOfLines={2}>{item.description}</Text> : null}
+                  </View>
+                  <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2.2} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.deleteButton} onPress={() => deleteService(item)} hitSlop={10} accessibilityLabel={`Hapus service ${item.service_type}`}>
+                  <Trash2 size={18} color={Colors.error} strokeWidth={2.2} />
+                </TouchableOpacity>
+                {isScheduledReminder && dueDate <= confirmationWindowEnd ? (
+                  <TouchableOpacity style={[styles.confirmServiceButton, confirmingServiceId === item.id && styles.actionDisabled]} onPress={() => { void confirmServiceDone(item); }} disabled={confirmingServiceId === item.id}>
+                    <Text style={styles.confirmServiceButtonText}>{confirmingServiceId === item.id ? 'Memproses...' : 'Konfirmasi sudah melakukan'}</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
-              <Text style={[styles.statusText, item.status === 'scheduled' && styles.scheduledText]}>
-                {item.status === 'scheduled' ? 'Terjadwal' : 'Sudah dilakukan'}
-              </Text>
-              {isScheduledReminder ? <Text style={styles.reminderText}>Reminder: {formatDate(dueDate)}</Text> : null}
-              {reminderStatus ? <Text style={[styles.reminderStatus, reminderStatus === 'Jatuh tempo' ? styles.overdueReminder : styles.soonReminder]}>{reminderStatus}</Text> : null}
-              {item.cost !== null ? <Text style={styles.costText}>{formatCurrency(item.cost)}</Text> : null}
-              {item.description ? <Text style={styles.description} numberOfLines={2}>{item.description}</Text> : null}
-            </View>
-            <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2.2} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.deleteButton} onPress={() => deleteService(item)} hitSlop={10} accessibilityLabel={`Hapus service ${item.service_type}`}>
-              <Trash2 size={18} color={Colors.error} strokeWidth={2.2} />
-            </TouchableOpacity>
-            {isScheduledReminder && dueDate <= confirmationWindowEnd ? (
-              <TouchableOpacity style={[styles.confirmServiceButton, confirmingServiceId === item.id && styles.actionDisabled]} onPress={() => { void confirmServiceDone(item); }} disabled={confirmingServiceId === item.id}>
-                <Text style={styles.confirmServiceButtonText}>{confirmingServiceId === item.id ? 'Memproses...' : 'Konfirmasi sudah melakukan'}</Text>
+            );
+          }}
+          ListEmptyComponent={<EmptyState icon={<Wrench size={32} color={Colors.primary} strokeWidth={2} />} title="Belum ada service" subtitle={`Belum ada catatan service untuk ${selectedCar.name}.`} />}
+        />
+      ) : (
+        <FlatList
+          data={cars}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.list}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchServices(); }} colors={[Colors.primary]} />}
+          renderItem={({ item }) => {
+            const carServices = services.filter((service) => service.car_id === item.id);
+            const latestService = carServices[0];
+            return (
+              <TouchableOpacity style={styles.carCard} onPress={() => setSelectedCarId(item.id)} activeOpacity={0.85}>
+                <View style={styles.serviceIcon}><Wrench size={18} color={Colors.primary} strokeWidth={2.2} /></View>
+                <View style={styles.cardBody}>
+                  <Text style={styles.serviceType}>{item.name}</Text>
+                  <Text style={styles.carName}>{item.plate_number}</Text>
+                  <Text style={styles.metaText}>{carServices.length} catatan service</Text>
+                  {latestService ? <Text style={styles.metaText}>Terakhir: {latestService.service_type} · {formatDate(latestService.service_date)}</Text> : <Text style={styles.metaText}>Belum ada riwayat service</Text>}
+                </View>
+                <ChevronRight size={20} color={Colors.textTertiary} strokeWidth={2.2} />
               </TouchableOpacity>
-            ) : null}
-          </View>
-          );
-        }}
-        ListEmptyComponent={<EmptyState icon={<Wrench size={32} color={Colors.primary} strokeWidth={2} />} title="Belum ada service" subtitle="Tambahkan riwayat service berkala setiap mobil." />}
-      />
-      <TouchableOpacity style={styles.fab} onPress={() => setSheet(true)} activeOpacity={0.85}><Plus size={26} color={Colors.white} strokeWidth={2.6} /></TouchableOpacity>
+            );
+          }}
+          ListEmptyComponent={<EmptyState icon={<Wrench size={32} color={Colors.primary} strokeWidth={2} />} title="Belum ada mobil" subtitle="Tambahkan mobil terlebih dahulu untuk melihat service per unit." />}
+        />
+      )}
+      <TouchableOpacity style={styles.fab} onPress={() => { setForm({ ...emptyForm, car_id: selectedCarId ?? '' }); setSheet(true); }} activeOpacity={0.85}><Plus size={26} color={Colors.white} strokeWidth={2.6} /></TouchableOpacity>
       {serviceToDelete ? (
         <View style={styles.modalOverlay}>
           <View style={styles.confirmModal}>
@@ -258,10 +284,12 @@ export default function ServiceScreen() {
         </View>
       ) : null}
       <Sheet visible={sheet} onClose={() => setSheet(false)} title="Tambah Service">
-        <Text style={styles.label}>Pilih Mobil</Text>
-        <View style={styles.carPicker}>
-          {cars.map((car) => <TouchableOpacity key={car.id} onPress={() => setForm({ ...form, car_id: car.id })} style={[styles.carChip, form.car_id === car.id && styles.carChipActive]}><Text style={[styles.carChipText, form.car_id === car.id && styles.carChipTextActive]}>{car.name}</Text></TouchableOpacity>)}
-        </View>
+        {selectedCar ? <Text style={styles.selectedCarLabel}>{selectedCar.name} · {selectedCar.plate_number}</Text> : <>
+          <Text style={styles.label}>Pilih Mobil</Text>
+          <View style={styles.carPicker}>
+            {cars.map((car) => <TouchableOpacity key={car.id} onPress={() => setForm({ ...form, car_id: car.id })} style={[styles.carChip, form.car_id === car.id && styles.carChipActive]}><Text style={[styles.carChipText, form.car_id === car.id && styles.carChipTextActive]}>{car.name}</Text></TouchableOpacity>)}
+          </View>
+        </>}
         <Field label="Jenis Service*" value={form.service_type} onChangeText={(value) => setForm({ ...form, service_type: value })} placeholder="Contoh: Ganti oli" />
         <Text style={styles.label}>Status Service</Text>
         <View style={styles.carPicker}>
@@ -290,6 +318,11 @@ const styles = StyleSheet.create({
   greeting: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.primarySoft, marginBottom: 2 },
   title: { fontSize: Typography.xxxl, fontFamily: Typography.fontBold, color: Colors.white },
   list: { padding: Spacing.lg, paddingBottom: 110 },
+  backToCars: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginBottom: Spacing.sm },
+  backToCarsText: { color: Colors.white, fontSize: Typography.sm, fontFamily: Typography.fontSemiBold },
+  selectedPlate: { color: Colors.primarySoft, fontSize: Typography.sm, fontFamily: Typography.fontMedium, marginTop: 2 },
+  carCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight },
+  selectedCarLabel: { fontSize: Typography.base, fontFamily: Typography.fontSemiBold, color: Colors.primary, marginBottom: Spacing.md },
   card: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight },
   cardMain: { flex: 1, flexDirection: 'row', alignItems: 'flex-start' },
   deleteButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', marginLeft: Spacing.xs },
