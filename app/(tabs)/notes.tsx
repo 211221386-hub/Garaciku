@@ -290,7 +290,7 @@ export default function ServiceScreen() {
           </View>
         </>}
         <Field label="Jenis Service*" value={form.service_type} onChangeText={(value) => setForm({ ...form, service_type: value })} placeholder="Contoh: Ganti oli" />
-        <Text style={styles.reminderText}>Pengingat harian mulai H-2 (H-2, H-1, dan hari-H) sampai dikonfirmasi.</Text>
+        {form.status === 'scheduled' ? <Text style={styles.reminderText}>Pengingat harian mulai H-2 (H-2, H-1, dan hari-H) sampai dikonfirmasi.</Text> : null}
         <Text style={styles.label}>Status Service</Text>
         <View style={styles.carPicker}>
           <TouchableOpacity onPress={() => setForm({ ...form, status: 'completed' })} style={[styles.carChip, form.status === 'completed' && styles.carChipActive]}><Text style={[styles.carChipText, form.status === 'completed' && styles.carChipTextActive]}>Sudah dilakukan</Text></TouchableOpacity>
