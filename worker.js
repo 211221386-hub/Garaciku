@@ -135,8 +135,7 @@ function userCanWrite(table, operation, role) {
     if (operation === 'update') return role === 1;
     if (operation === 'delete') return [1, 2].includes(role);
   }
-  if (table === 'vehicle_inspections') return operation === 'insert' && role === 2;
-  if (table === 'vehicle_inspection_items') return operation === 'insert' && role === 2;
+  if (table === 'vehicle_inspections' || table === 'vehicle_inspection_items') return operation === 'insert' && [1, 2].includes(role);
   return false;
 }
 
@@ -242,7 +241,7 @@ async function proxyMutation(env, user, body) {
     ? (Array.isArray(body.values) ? body.values.map((value) => ({ ...value })) : { ...body.values })
     : body.values;
   if (table === 'vehicle_inspections' && operation === 'insert') {
-    if (user.role !== 2 || Array.isArray(values)) return { status: 403, error: 'Role 2 yang dapat membuat pengecekan.' };
+    if (![1, 2].includes(user.role) || Array.isArray(values)) return { status: 403, error: 'Hanya Role 1 dan 2 yang dapat membuat pengecekan.' };
     if (typeof user.full_name !== 'string' || !user.full_name.trim()) return { status: 400, error: 'Nama Inspector belum tersedia pada profil akun.' };
     if (typeof values.car_id !== 'string' || !Number.isInteger(values.mileage) || values.mileage < 0 || !/^\d{4}-\d{2}-\d{2}$/.test(values.inspection_date ?? '')) {
       return { status: 400, error: 'Tanggal dan kilometer pengecekan tidak valid.' };
@@ -257,28 +256,35 @@ async function proxyMutation(env, user, body) {
     values.plate_snapshot = car.plate_number ?? '';
     values.inspector_user_id = user.id;
     values.inspector_name = user.full_name;
-    values.status = 'pending_approval';
+    values.status = user.role === 1 ? 'approved' : 'pending_approval';
     values.checked_prepared_by = user.id;
     values.checked_prepared_name = user.full_name;
     values.checked_prepared_at = new Date().toISOString();
-    values.approved_by = null;
-    values.approved_name = null;
-    values.approved_at = null;
+    values.approved_by = user.role === 1 ? user.id : null;
+    values.approved_name = user.role === 1 ? user.full_name : null;
+    values.approved_at = user.role === 1 ? new Date().toISOString() : null;
   }
   if (table === 'vehicle_inspection_items' && operation === 'insert') {
-    if (user.role !== 2 || !Array.isArray(values) || values.length < 1 || values.length > 100) {
-      return { status: 403, error: 'Hanya Role 2 yang dapat mengisi butir pengecekan.' };
+    if (![1, 2].includes(user.role) || !Array.isArray(values) || values.length < 1 || values.length > 100) {
+      return { status: 403, error: 'Hanya Role 1 dan 2 yang dapat mengisi butir pengecekan.' };
     }
     const inspectionIds = [...new Set(values.map((value) => value.inspection_id))];
     if (inspectionIds.length !== 1 || typeof inspectionIds[0] !== 'string') return { status: 400, error: 'Butir harus terkait ke satu pengecekan.' };
     const inspectionUrl = new URL(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/vehicle_inspections`);
     inspectionUrl.searchParams.set('id', `eq.${inspectionIds[0]}`);
-    inspectionUrl.searchParams.set('select', 'id,inspector_user_id,status');
+    inspectionUrl.searchParams.set('select', 'id,inspector_user_id,status,created_at');
     const inspectionResponse = await fetch(inspectionUrl, { headers: serviceHeaders(env) });
     const [inspection] = await inspectionResponse.json().catch(() => []);
-    if (!inspectionResponse.ok || !inspection || inspection.inspector_user_id !== user.id || inspection.status !== 'pending_approval') {
+    const allowedInitialStatus = user.role === 1 ? 'approved' : 'pending_approval';
+    if (!inspectionResponse.ok || !inspection || inspection.inspector_user_id !== user.id || inspection.status !== allowedInitialStatus) {
       return { status: 403, error: 'Pengecekan tidak ditemukan atau sudah dikirim untuk approval.' };
     }
+    const existingItemsUrl = new URL(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/vehicle_inspection_items`);
+    existingItemsUrl.searchParams.set('inspection_id', `eq.${inspectionIds[0]}`);
+    existingItemsUrl.searchParams.set('select', 'id');
+    const existingItemsResponse = await fetch(existingItemsUrl, { headers: serviceHeaders(env) });
+    const existingItems = await existingItemsResponse.json().catch(() => []);
+    if (!existingItemsResponse.ok || existingItems.length > 0) return { status: 409, error: 'Butir pengecekan sudah pernah disimpan.' };
     if (values.some((value) => !value || value.category?.length > 80 || value.item_name?.length > 160 || !Number.isInteger(value.sort_order)
       || !['ok', 'ng'].includes(value.result) || typeof value.remark !== 'string' || (value.result === 'ng' && !value.remark.trim()))) {
       return { status: 400, error: 'Data butir pengecekan tidak valid.' };
@@ -634,7 +640,7 @@ async function handleInspectionPhoto(request, env, user) {
   const bucket = 'vehicle-inspection-photos';
 
   if (body?.action === 'upload') {
-    if (user.role !== 2) return { status: 403, error: 'Upload foto hanya dapat dilakukan Role 2.' };
+    if (![1, 2].includes(user.role)) return { status: 403, error: 'Hanya Role 1 dan 2 yang dapat mengunggah foto pengecekan.' };
     if (!uuidPattern.test(body.inspection_id ?? '') || !uuidPattern.test(body.item_id ?? '')
       || typeof body.base64 !== 'string' || body.content_type !== 'image/jpeg') {
       return { status: 400, error: 'Data foto pengecekan tidak valid.' };
@@ -651,10 +657,13 @@ async function handleInspectionPhoto(request, env, user) {
     if (!item) return { status: 404, error: 'Butir pengecekan tidak ditemukan.' };
     const inspectionUrl = new URL(`${baseUrl}/rest/v1/vehicle_inspections`);
     inspectionUrl.searchParams.set('id', `eq.${body.inspection_id}`);
-    inspectionUrl.searchParams.set('select', 'id,inspector_user_id,status');
+    inspectionUrl.searchParams.set('select', 'id,inspector_user_id,status,created_at');
     const inspectionResponse = await fetch(inspectionUrl, { headers: serviceHeaders(env) });
     const [inspection] = await inspectionResponse.json().catch(() => []);
-    if (!inspection || inspection.inspector_user_id !== user.id || inspection.status !== 'pending_approval') {
+    const canUploadAsRole = user.role === 2
+      ? inspection?.status === 'pending_approval'
+      : inspection?.status === 'approved' && (Date.now() - Date.parse(inspection.created_at ?? '')) < 10 * 60 * 1000;
+    if (!inspection || inspection.inspector_user_id !== user.id || !canUploadAsRole) {
       return { status: 403, error: 'Pengecekan ini tidak dapat diubah oleh akun Anda.' };
     }
     const photoCountUrl = new URL(`${baseUrl}/rest/v1/vehicle_inspection_photos`);

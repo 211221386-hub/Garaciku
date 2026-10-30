@@ -215,8 +215,8 @@ export default function CarDetailScreen() {
 
   const addInspection = async () => {
     if (submitting) return;
-    if (sessionRole !== 2) {
-      Alert.alert('Akses ditolak', 'Role 2 yang mengisi Checked / Prepared dan mengirim pengecekan ke Role 1.');
+    if (![1, 2].includes(sessionRole)) {
+      Alert.alert('Akses ditolak', 'Hanya Role 1 dan 2 yang dapat membuat pengecekan.');
       return;
     }
     const mileage = Number(inspectionMileage);
@@ -269,7 +269,9 @@ export default function CarDetailScreen() {
       setInspectionMileage('');
       setInspectionDate(todayISO());
       await fetchAll();
-      Alert.alert('Pengecekan dikirim', `Pengecekan tersimpan dengan ${uploadedCount} foto dan menunggu Approved dari Role 1.`);
+      Alert.alert(sessionRole === 1 ? 'Pengecekan langsung disetujui' : 'Pengecekan dikirim', sessionRole === 1
+        ? `Pengecekan tersimpan dengan ${uploadedCount} foto dan langsung berstatus Approved.`
+        : `Pengecekan tersimpan dengan ${uploadedCount} foto dan menunggu Approved dari Role 1.`);
     } catch (error) {
       await fetchAll();
       Alert.alert('Gagal menyimpan pengecekan', error instanceof Error ? error.message : 'Terjadi kesalahan. Pastikan migration dan bucket Supabase sudah tersedia.');
@@ -680,7 +682,9 @@ export default function CarDetailScreen() {
                 <Text style={styles.metaText}>No Pol: {car?.plate_number || '-'}</Text>
                 <DateField label="Hari / Tanggal*" value={inspectionDate} onChange={setInspectionDate} />
                 <Field label="KM*" value={inspectionMileage} onChangeText={setInspectionMileage} placeholder="Masukkan kilometer" keyboardType="numeric" />
-                <Text style={styles.inspectionWorkflowHint}>Checked / Prepared akan dicatat dari akun Role 2. Setelah dikirim, Role 1 mengisi Approved.</Text>
+                <Text style={styles.inspectionWorkflowHint}>{sessionRole === 1
+                  ? 'Checked / Prepared dan Approved akan dicatat otomatis atas nama Anda.'
+                  : 'Checked / Prepared akan dicatat dari akun Anda. Setelah dikirim, Role 1 mengisi Approved.'}</Text>
                 {inspectionDraft.map((item, index) => (
                   <View key={item.id} style={styles.inspectionItemCard}>
                     {index === 0 || inspectionDraft[index - 1].category !== item.category ? <Text style={styles.inspectionCategory}>{item.category}</Text> : null}
@@ -717,12 +721,12 @@ export default function CarDetailScreen() {
                     ))}</View> : null}
                   </View>
                 ))}
-                <Button label="Kirim Checked / Prepared ke Role 1" onPress={addInspection} loading={submitting} />
+                <Button label={sessionRole === 1 ? 'Simpan & Auto Approve' : 'Kirim Checked / Prepared ke Role 1'} onPress={addInspection} loading={submitting} />
                 <TouchableOpacity style={styles.inspectionCancelButton} onPress={() => setCreatingInspection(false)}><Text style={styles.inspectionCancelText}>Batal</Text></TouchableOpacity>
               </View>
             ) : (
               <>
-                {sessionRole === 2 ? <Button label="Buat Pengecekan" onPress={() => { setInspectionDate(todayISO()); setInspectionMileage(''); setInspectionDraft(makeInspectionDraft()); setCreatingInspection(true); setSelectedInspection(null); }} /> : null}
+                {[1, 2].includes(sessionRole) ? <Button label="Buat Pengecekan" onPress={() => { setInspectionDate(todayISO()); setInspectionMileage(''); setInspectionDraft(makeInspectionDraft()); setCreatingInspection(true); setSelectedInspection(null); }} /> : null}
                 {inspections.length === 0 ? <Text style={styles.emptyText}>Belum ada riwayat pengecekan untuk mobil ini.</Text> : inspections.map((inspection) => (
                   <TouchableOpacity key={inspection.id} style={styles.card} onPress={() => { void openInspection(inspection); }}>
                     <View style={styles.cardHeader}>
