@@ -8,6 +8,21 @@ import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
 import { Field } from '@/components/Field';
 import { Button } from '@/components/Button';
 
+function wasProfileEditorDismissed(userId: string | undefined) {
+  if (!userId || typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem('garaciku.profile-editor-dismissed:' + userId) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function rememberProfileEditorDismissed(userId: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem('garaciku.profile-editor-dismissed:' + userId, '1');
+  } catch {}
+}
 export default function SettingsScreen() {
   const [stats, setStats] = useState({ cars: 0, notes: 0, damages: 0, rentals: 0, completeness: 0 });
   const [profileFullName, setProfileFullName] = useState(getSession()?.user.full_name ?? '');
@@ -15,7 +30,10 @@ export default function SettingsScreen() {
   const [profilePhone, setProfilePhone] = useState(getSession()?.user.phone ?? '');
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSaveMessage, setProfileSaveMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
-  const [profileEditing, setProfileEditing] = useState(() => [1, 2].includes(getSession()?.user.role ?? 0));
+  const [profileEditing, setProfileEditing] = useState(() => {
+    const currentUser = getSession()?.user;
+    return [1, 2].includes(currentUser?.role ?? 0) && !wasProfileEditorDismissed(currentUser?.id);
+  });
   const session = getSession();
   const role = session?.user.role ?? 4;
   const canSeeFullSettings = role === 1 || role === 2;
@@ -81,6 +99,7 @@ export default function SettingsScreen() {
       setProfileFullName(updatedUser.full_name);
       setProfileEmail(updatedUser.email);
       setProfilePhone(updatedUser.phone);
+      if ([1, 2].includes(updatedUser.role)) rememberProfileEditorDismissed(updatedUser.id);
       setProfileEditing(false);
       setProfileSaveMessage({ tone: 'success', text: 'Profil berhasil disimpan.' });
     } catch (error) {
