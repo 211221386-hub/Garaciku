@@ -19,6 +19,7 @@ import {
   KeyRound,
   Plus,
   Check,
+  ListChecks,
 } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
@@ -30,7 +31,7 @@ import { DateField } from '@/components/DateField';
 import { Button } from '@/components/Button';
 import { getSession } from '@/lib/auth';
 
-type Tab = 'notes' | 'completeness' | 'damages' | 'rental';
+type Tab = 'notes' | 'completeness' | 'damages' | 'rental' | 'checking';
 
 export default function CarDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -385,6 +386,7 @@ export default function CarDetailScreen() {
     { key: 'completeness', label: 'Kelengkapan', icon: ClipboardCheck },
     { key: 'damages', label: 'Kerusakan', icon: AlertTriangle },
     { key: 'rental', label: 'Transportation', icon: KeyRound },
+    ...(canManageCar ? [{ key: 'checking' as const, label: 'Pengecekan', icon: ListChecks }] : []),
   ];
 
   const reminderTypeLabels: Record<CompletenessReminderType, string> = {
@@ -488,6 +490,12 @@ export default function CarDetailScreen() {
             )}
           </View>
         )}
+
+        {activeTab === 'checking' && canManageCar ? (
+          <View style={styles.section}>
+            <Text style={styles.emptyText}>Belum ada data pengecekan untuk mobil ini.</Text>
+          </View>
+        ) : null}
 
         {/* COMPLETENESS */}
         {activeTab === 'completeness' && (
