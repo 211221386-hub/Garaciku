@@ -15,7 +15,7 @@ export default function SettingsScreen() {
   const [profilePhone, setProfilePhone] = useState(getSession()?.user.phone ?? '');
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSaveMessage, setProfileSaveMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
-  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileEditing, setProfileEditing] = useState(() => [1, 2].includes(getSession()?.user.role ?? 0));
   const session = getSession();
   const role = session?.user.role ?? 4;
   const canSeeFullSettings = role === 1 || role === 2;
@@ -81,6 +81,7 @@ export default function SettingsScreen() {
       setProfileFullName(updatedUser.full_name);
       setProfileEmail(updatedUser.email);
       setProfilePhone(updatedUser.phone);
+      setProfileEditing(false);
       setProfileSaveMessage({ tone: 'success', text: 'Profil berhasil disimpan.' });
     } catch (error) {
       setProfileSaveMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Terjadi kesalahan.' });
@@ -129,16 +130,23 @@ export default function SettingsScreen() {
             </View>
 
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Profil Transportation</Text>
-              <View style={styles.aboutCard}>
-                <Field label="Nama lengkap*" value={profileFullName} onChangeText={setProfileFullName} placeholder="Nama lengkap" />
-                <Field label="Email*" value={profileEmail} onChangeText={setProfileEmail} placeholder="nama@email.com" keyboardType="email-address" />
-                <Field label="Nomor telepon*" value={profilePhone} onChangeText={setProfilePhone} placeholder="Contoh: 08123456789" keyboardType="phone-pad" />
-                <Button label="Simpan profil" onPress={() => { void handleSaveProfile(); }} loading={profileSaving} />
-                {profileSaveMessage ? <Text style={profileSaveMessage.tone === 'success' ? styles.profileSuccess : styles.profileError}>{profileSaveMessage.text}</Text> : null}
-              </View>
+              {profileEditing ? (
+                <>
+                  <Text style={styles.sectionTitle}>Profil Transportation</Text>
+                  <View style={styles.aboutCard}>
+                    <Field label="Nama lengkap*" value={profileFullName} onChangeText={setProfileFullName} placeholder="Nama lengkap" />
+                    <Field label="Email*" value={profileEmail} onChangeText={setProfileEmail} placeholder="nama@email.com" keyboardType="email-address" />
+                    <Field label="Nomor telepon*" value={profilePhone} onChangeText={setProfilePhone} placeholder="Contoh: 08123456789" keyboardType="phone-pad" />
+                    <Button label="Simpan profil" onPress={() => { void handleSaveProfile(); }} loading={profileSaving} />
+                  </View>
+                </>
+              ) : (
+                <TouchableOpacity style={styles.editAccountButton} onPress={() => setProfileEditing(true)}>
+                  <Text style={styles.editAccountButtonText}>Edit profil Transportation</Text>
+                </TouchableOpacity>
+              )}
+              {profileSaveMessage ? <Text style={profileSaveMessage.tone === 'success' ? styles.profileSuccess : styles.profileError}>{profileSaveMessage.text}</Text> : null}
             </View>
-
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Tentang</Text>
               <View style={styles.aboutCard}>
@@ -197,9 +205,9 @@ export default function SettingsScreen() {
                   <Field label="Email*" value={profileEmail} onChangeText={setProfileEmail} placeholder="nama@email.com" keyboardType="email-address" />
                   <Field label="Nomor telepon*" value={profilePhone} onChangeText={setProfilePhone} placeholder="Contoh: 08123456789" keyboardType="phone-pad" />
                   <Button label="Simpan profil" onPress={() => { void handleSaveProfile(); }} loading={profileSaving} />
-                {profileSaveMessage ? <Text style={profileSaveMessage.tone === 'success' ? styles.profileSuccess : styles.profileError}>{profileSaveMessage.text}</Text> : null}
                 </View>
               ) : null}
+              {profileSaveMessage ? <Text style={profileSaveMessage.tone === 'success' ? styles.profileSuccess : styles.profileError}>{profileSaveMessage.text}</Text> : null}
             </View>
           </View>
         )}
