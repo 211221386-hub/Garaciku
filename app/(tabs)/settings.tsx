@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useFocusEffect, router } from 'expo-router';
 import { Car, KeyRound, AlertTriangle, ClipboardCheck, Info, LogOut, UserRound, ShieldCheck } from 'lucide-react-native';
@@ -19,6 +19,12 @@ export default function SettingsScreen() {
   const session = getSession();
   const role = session?.user.role ?? 4;
   const canSeeFullSettings = role === 1 || role === 2;
+
+  useEffect(() => {
+    if (!profileSaveMessage) return;
+    const timeout = setTimeout(() => setProfileSaveMessage(null), profileSaveMessage.tone === 'success' ? 3000 : 6000);
+    return () => clearTimeout(timeout);
+  }, [profileSaveMessage]);
 
   useFocusEffect(
     useCallback(() => {
