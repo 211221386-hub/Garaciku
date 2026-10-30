@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Alert, View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useFocusEffect, router } from 'expo-router';
 import { Car, KeyRound, AlertTriangle, ClipboardCheck, Info, LogOut, UserRound, ShieldCheck } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
@@ -14,6 +14,7 @@ export default function SettingsScreen() {
   const [profileEmail, setProfileEmail] = useState(getSession()?.user.email ?? '');
   const [profilePhone, setProfilePhone] = useState(getSession()?.user.phone ?? '');
   const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSaveMessage, setProfileSaveMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const [profileEditing, setProfileEditing] = useState(false);
   const session = getSession();
   const role = session?.user.role ?? 4;
@@ -58,8 +59,12 @@ export default function SettingsScreen() {
 
   const handleSaveProfile = async () => {
     const currentSession = getSession();
-    if (!currentSession) return;
+    if (!currentSession) {
+      setProfileSaveMessage({ tone: 'error', text: 'Sesi login sudah berakhir. Silakan login ulang sebelum menyimpan profil.' });
+      return;
+    }
     setProfileSaving(true);
+    setProfileSaveMessage(null);
     try {
       const updatedUser = await apiClient.users.updateProfile({
         full_name: profileFullName,
@@ -67,10 +72,12 @@ export default function SettingsScreen() {
         phone: profilePhone,
       });
       createSession(updatedUser, currentSession.token, currentSession.expiresAt);
-      setProfileEditing(false);
-      Alert.alert('Profil tersimpan', 'Nama, email, dan nomor telepon berhasil diperbarui.');
+      setProfileFullName(updatedUser.full_name);
+      setProfileEmail(updatedUser.email);
+      setProfilePhone(updatedUser.phone);
+      setProfileSaveMessage({ tone: 'success', text: 'Profil berhasil disimpan.' });
     } catch (error) {
-      Alert.alert('Gagal menyimpan profil', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+      setProfileSaveMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Terjadi kesalahan.' });
     } finally {
       setProfileSaving(false);
     }
@@ -122,6 +129,7 @@ export default function SettingsScreen() {
                 <Field label="Email*" value={profileEmail} onChangeText={setProfileEmail} placeholder="nama@email.com" keyboardType="email-address" />
                 <Field label="Nomor telepon*" value={profilePhone} onChangeText={setProfilePhone} placeholder="Contoh: 08123456789" keyboardType="phone-pad" />
                 <Button label="Simpan profil" onPress={() => { void handleSaveProfile(); }} loading={profileSaving} />
+                {profileSaveMessage ? <Text style={profileSaveMessage.tone === 'success' ? styles.profileSuccess : styles.profileError}>{profileSaveMessage.text}</Text> : null}
               </View>
             </View>
 
@@ -183,6 +191,7 @@ export default function SettingsScreen() {
                   <Field label="Email*" value={profileEmail} onChangeText={setProfileEmail} placeholder="nama@email.com" keyboardType="email-address" />
                   <Field label="Nomor telepon*" value={profilePhone} onChangeText={setProfilePhone} placeholder="Contoh: 08123456789" keyboardType="phone-pad" />
                   <Button label="Simpan profil" onPress={() => { void handleSaveProfile(); }} loading={profileSaving} />
+                {profileSaveMessage ? <Text style={profileSaveMessage.tone === 'success' ? styles.profileSuccess : styles.profileError}>{profileSaveMessage.text}</Text> : null}
                 </View>
               ) : null}
             </View>
@@ -373,6 +382,18 @@ const styles = StyleSheet.create({
     fontFamily: Typography.fontRegular,
     color: Colors.textPrimary,
     marginBottom: 4,
+  },
+  profileSuccess: {
+    marginTop: Spacing.sm,
+    color: Colors.success,
+    fontSize: Typography.sm,
+    fontFamily: Typography.fontMedium,
+  },
+  profileError: {
+    marginTop: Spacing.sm,
+    color: Colors.error,
+    fontSize: Typography.sm,
+    fontFamily: Typography.fontMedium,
   },
   editAccountButton: {
     alignSelf: 'flex-start',

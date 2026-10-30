@@ -354,7 +354,7 @@ async function updateUserProfile(request, env, user) {
 
   const url = new URL(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/users`);
   url.searchParams.set('id', `eq.${user.id}`);
-  url.searchParams.set('select', 'id,username,full_name,email,phone,role,is_active,created_at');
+  url.searchParams.set('select', 'id,username,full_name,email,phone,role,is_active,must_reset_password,created_at');
   const response = await fetch(url, {
     method: 'PATCH',
     headers: serviceHeaders(env, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
