@@ -112,3 +112,41 @@ export type RentalRecord = {
   notes: string;
   created_at: string;
 };
+
+export type VehicleInspection = {
+  id: string;
+  car_id: string;
+  inspector_user_id: string;
+  inspector_name: string;
+  inspection_date: string;
+  mileage: number;
+  model_snapshot: string;
+  plate_snapshot: string;
+  status: 'pending_approval' | 'approved';
+  checked_prepared_by: string | null;
+  checked_prepared_name: string | null;
+  checked_prepared_at: string | null;
+  approved_by: string | null;
+  approved_name: string | null;
+  approved_at: string | null;
+  created_at: string;
+};
+
+export type VehicleInspectionItem = {
+  id: string;
+  inspection_id: string;
+  category: string;
+  item_name: string;
+  result: 'ok' | 'ng' | null;
+  remark: string;
+  responsible: string;
+  sort_order: number;
+  created_at: string;
+};
+
+export type VehicleInspectionPhoto = {
+  id: string;
+  item_id: string;
+  object_path: string;
+  created_at: string;
+};

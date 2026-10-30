@@ -1,5 +1,5 @@
 import { supabase, workerApiUrl } from '@/lib/supabase';
-import type { AppUser, Car, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStatus, ServiceRecord } from '@/lib/types';
+import type { AppUser, Car, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStatus, ServiceRecord, VehicleInspection, VehicleInspectionItem, VehicleInspectionPhoto } from '@/lib/types';
 import { getRentalStatus, todayISO } from '@/lib/format';
 import { getSession } from '@/lib/auth';
 
@@ -323,6 +323,53 @@ class ApiClient {
       }
       await unwrap(supabase.from('daily_notes').delete().eq('id', id));
       return { success: true };
+    },
+  };
+
+  inspections = {
+    getByCar: (carId: string) => unwrap<VehicleInspection[]>(supabase.from('vehicle_inspections').select('*').eq('car_id', carId).order('inspection_date', { ascending: false })),
+    getItems: (inspectionId: string) => unwrap<VehicleInspectionItem[]>(supabase.from('vehicle_inspection_items').select('*').eq('inspection_id', inspectionId).order('sort_order', { ascending: true })),
+    getPhotos: (itemIds: string[]) => itemIds.length
+      ? unwrap<VehicleInspectionPhoto[]>(supabase.from('vehicle_inspection_photos').select('*').in('item_id', itemIds))
+      : Promise.resolve([] as VehicleInspectionPhoto[]),
+    create: (data: Record<string, unknown>) => unwrap<VehicleInspection>(supabase.from('vehicle_inspections').insert(data).select().single()),
+    createItems: (data: Record<string, unknown>[]) => unwrap<VehicleInspectionItem[]>(supabase.from('vehicle_inspection_items').insert(data).select()),
+    approve: async (inspectionId: string) => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/inspections/approve'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ inspection_id: inspectionId }),
+      });
+      const result = await response.json().catch(() => null) as { data?: VehicleInspection; error?: string } | null;
+      if (!response.ok || !result?.data) throw new Error(result?.error ?? 'Gagal menyetujui pengecekan.');
+      return result.data;
+    },
+    uploadPhoto: async (data: { inspectionId: string; itemId: string; base64: string; contentType: string }) => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/inspections/photo'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ action: 'upload', inspection_id: data.inspectionId, item_id: data.itemId, base64: data.base64, content_type: data.contentType }),
+      });
+      const result = await response.json().catch(() => null) as { data?: { object_path: string }; error?: string } | null;
+      if (!response.ok || !result?.data?.object_path) throw new Error(result?.error ?? 'Gagal mengunggah foto pengecekan.');
+      return result.data;
+    },
+    getSignedPhotos: async (objectPaths: string[]) => {
+      if (!objectPaths.length) return [] as { object_path: string; url: string }[];
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/inspections/photo'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ action: 'sign', object_paths: objectPaths }),
+      });
+      const result = await response.json().catch(() => null) as { data?: { object_path: string; url: string }[]; error?: string } | null;
+      if (!response.ok || !Array.isArray(result?.data)) throw new Error(result?.error ?? 'Gagal memuat foto pengecekan.');
+      return result.data;
     },
   };
 

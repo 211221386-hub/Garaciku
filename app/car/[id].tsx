@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Image,
+  TextInput,
 } from 'react-native';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import {
@@ -20,10 +22,12 @@ import {
   Plus,
   Check,
   ListChecks,
+  ImagePlus,
+  X,
 } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
-import type { Car, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStatus, DamageSeverity, DamageStatus, CompletenessReminderType } from '@/lib/types';
+import type { Car, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStatus, DamageSeverity, DamageStatus, CompletenessReminderType, VehicleInspection, VehicleInspectionItem } from '@/lib/types';
 import { differenceInCalendarDays, formatDate, formatShortDate, formatCurrency, todayISO } from '@/lib/format';
 import { Sheet } from '@/components/Sheet';
 import { Field } from '@/components/Field';
@@ -32,6 +36,66 @@ import { Button } from '@/components/Button';
 import { getSession } from '@/lib/auth';
 
 type Tab = 'notes' | 'completeness' | 'damages' | 'rental' | 'checking';
+type InspectionPhotoDraft = { base64: string; preview: string; contentType: string; localId: string };
+type InspectionItemDraft = Pick<VehicleInspectionItem, 'id' | 'category' | 'item_name' | 'sort_order' | 'result' | 'remark' | 'responsible'> & { photos: InspectionPhotoDraft[] };
+
+const inspectionChecklist = [
+  { category: 'Engine Room', items: ['Hose & Wire', 'Master Brake', 'Washer Tank', 'Cover Engine', 'Oil Engine', 'Air Radiator', 'Air Cleaner', 'Battery'] },
+  { category: 'Body & Tire', items: ['Fr Side', 'Rh Side', 'Outer Mirror Rh', 'Tire Fr Rh & Fr Rr', 'Spare Wheel Carrier', 'Lh Side', 'Tire Lh Fr & Rr', 'Outer Mirror Lh'] },
+  { category: 'Cabin', items: ['Headlining & Assis Grip', 'Seat', 'Seat Belt', 'Tool Set'] },
+  { category: 'Electrical', items: ['Electrical'] },
+  { category: 'Others', items: ['Others'] },
+];
+
+function makeInspectionDraft(): InspectionItemDraft[] {
+  let sortOrder = 0;
+  return inspectionChecklist.flatMap(({ category, items }) => items.map((item_name) => ({
+    id: crypto.randomUUID(), category, item_name, result: null, remark: '', responsible: '', sort_order: sortOrder++, photos: [],
+  })));
+}
+
+function pickCompressedInspectionPhoto(): Promise<InspectionPhotoDraft | null> {
+  if (typeof document === 'undefined') return Promise.reject(new Error('Pilih foto hanya tersedia melalui browser.'));
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return resolve(null);
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Gagal membaca gambar.'));
+      reader.onload = () => {
+        const image = new window.Image();
+        image.onerror = () => reject(new Error('File yang dipilih bukan gambar yang valid.'));
+        image.onload = () => {
+          const maxDimension = 1440;
+          const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(image.width * scale));
+          canvas.height = Math.max(1, Math.round(image.height * scale));
+          const context = canvas.getContext('2d');
+          if (!context) return reject(new Error('Browser tidak dapat memproses gambar.'));
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob((blob) => {
+            if (!blob) return reject(new Error('Gagal mengompres gambar.'));
+            if (blob.size > 2 * 1024 * 1024) return reject(new Error('Ukuran gambar setelah kompresi masih lebih dari 2 MB.'));
+            const compressedReader = new FileReader();
+            compressedReader.onerror = () => reject(new Error('Gagal menyiapkan gambar.'));
+            compressedReader.onload = () => {
+              const preview = String(compressedReader.result ?? '');
+              resolve({ base64: preview.split(',')[1] ?? '', preview, contentType: 'image/jpeg', localId: crypto.randomUUID() });
+            };
+            compressedReader.readAsDataURL(blob);
+          }, 'image/jpeg', 0.78);
+        };
+        image.src = String(reader.result ?? '');
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  });
+}
 
 export default function CarDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -59,6 +123,14 @@ export default function CarDetailScreen() {
   const [completeness, setCompleteness] = useState<CompletenessItem[]>([]);
   const [damages, setDamages] = useState<Damage[]>([]);
   const [rentals, setRentals] = useState<RentalRecord[]>([]);
+  const [inspections, setInspections] = useState<VehicleInspection[]>([]);
+  const [inspectionDraft, setInspectionDraft] = useState<InspectionItemDraft[]>([]);
+  const [inspectionDate, setInspectionDate] = useState(todayISO());
+  const [inspectionMileage, setInspectionMileage] = useState('');
+  const [creatingInspection, setCreatingInspection] = useState(false);
+  const [selectedInspection, setSelectedInspection] = useState<VehicleInspection | null>(null);
+  const [selectedInspectionItems, setSelectedInspectionItems] = useState<VehicleInspectionItem[]>([]);
+  const [inspectionPhotos, setInspectionPhotos] = useState<Record<string, { path: string; url?: string; preview?: string }[]>>({});
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('notes');
 
@@ -90,18 +162,20 @@ export default function CarDetailScreen() {
         router.replace('/(tabs)');
         return;
       }
-      const [carData, notesData, compData, dmgData, rentalData] = await Promise.all([
+      const [carData, notesData, compData, dmgData, rentalData, inspectionData] = await Promise.all([
         apiClient.cars.getById(id),
         apiClient.notes.getByCar(id),
         apiClient.completeness.getByCar(id),
         apiClient.damages.getByCar(id),
         apiClient.rentals.getByCar(id),
+        [1, 2].includes(getSession()?.user.role ?? 0) ? apiClient.inspections.getByCar(id) : Promise.resolve([] as VehicleInspection[]),
       ]);
       setCar(carData);
       setNotes(notesData);
       setCompleteness(compData);
       setDamages(dmgData);
       setRentals(rentalData);
+      setInspections(inspectionData);
     } catch (error) {
       console.error('Error fetching car details:', error);
     }
@@ -113,6 +187,111 @@ export default function CarDetailScreen() {
       fetchAll();
     }, [fetchAll])
   );
+
+  const openInspection = async (inspection: VehicleInspection) => {
+    if (selectedInspection?.id === inspection.id) {
+      setSelectedInspection(null);
+      setSelectedInspectionItems([]);
+      setInspectionPhotos({});
+      return;
+    }
+    try {
+      const items = await apiClient.inspections.getItems(inspection.id);
+      const photos = await apiClient.inspections.getPhotos(items.map((item) => item.id));
+      const signedPhotos = await apiClient.inspections.getSignedPhotos(photos.map((photo) => photo.object_path));
+      const signedByPath = new Map(signedPhotos.map((photo) => [photo.object_path, photo.url]));
+      const photosByItem = photos.reduce<Record<string, { path: string; url?: string }[]>>((result, photo) => {
+        result[photo.item_id] ??= [];
+        result[photo.item_id].push({ path: photo.object_path, url: signedByPath.get(photo.object_path) });
+        return result;
+      }, {});
+      setSelectedInspection(inspection);
+      setSelectedInspectionItems(items);
+      setInspectionPhotos(photosByItem);
+    } catch (error) {
+      Alert.alert('Gagal membuka riwayat pengecekan', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+    }
+  };
+
+  const addInspection = async () => {
+    if (submitting) return;
+    if (sessionRole !== 2) {
+      Alert.alert('Akses ditolak', 'Role 2 yang mengisi Checked / Prepared dan mengirim pengecekan ke Role 1.');
+      return;
+    }
+    const mileage = Number(inspectionMileage);
+    if (!inspectionDate || !inspectionMileage || !Number.isInteger(mileage) || mileage < 0) {
+      Alert.alert('Data belum lengkap', 'Isi tanggal pengecekan dan kilometer dengan angka nol atau lebih.');
+      return;
+    }
+    const incomplete = inspectionDraft.find((item) => !item.result || (item.result === 'ng' && !item.remark.trim()));
+    if (incomplete) {
+      Alert.alert('Butir belum lengkap', incomplete.result === 'ng'
+        ? `Isi catatan masalah untuk “${incomplete.item_name}”.`
+        : `Pilih OK atau NG untuk “${incomplete.item_name}”.`);
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const inspection = await apiClient.inspections.create({
+        car_id: id,
+        inspection_date: inspectionDate,
+        mileage,
+      });
+      const items = inspectionDraft.map((item) => ({
+        id: item.id,
+        inspection_id: inspection.id,
+        category: item.category,
+        item_name: item.item_name,
+        result: item.result,
+        remark: item.remark.trim(),
+        responsible: item.responsible.trim(),
+        sort_order: item.sort_order,
+      }));
+      await apiClient.inspections.createItems(items);
+
+      let uploadedCount = 0;
+      for (const item of inspectionDraft) {
+        for (const photo of item.photos) {
+          await apiClient.inspections.uploadPhoto({
+            inspectionId: inspection.id,
+            itemId: item.id,
+            base64: photo.base64,
+            contentType: photo.contentType,
+          });
+          uploadedCount += 1;
+        }
+      }
+
+      setCreatingInspection(false);
+      setInspectionDraft([]);
+      setInspectionMileage('');
+      setInspectionDate(todayISO());
+      await fetchAll();
+      Alert.alert('Pengecekan dikirim', `Pengecekan tersimpan dengan ${uploadedCount} foto dan menunggu Approved dari Role 1.`);
+    } catch (error) {
+      await fetchAll();
+      Alert.alert('Gagal menyimpan pengecekan', error instanceof Error ? error.message : 'Terjadi kesalahan. Pastikan migration dan bucket Supabase sudah tersedia.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const approveInspection = async (inspection: VehicleInspection) => {
+    if (sessionRole !== 1 || submitting) return;
+    setSubmitting(true);
+    try {
+      const approved = await apiClient.inspections.approve(inspection.id);
+      setSelectedInspection(approved);
+      await fetchAll();
+      Alert.alert('Pengecekan disetujui', 'Tahap Approved sudah dicatat.');
+    } catch (error) {
+      Alert.alert('Gagal menyetujui pengecekan', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const deleteCar = () => {
     Alert.alert('Hapus Mobil', `Hapus "${car?.name}"? Semua catatan akan terhapus.`, [
@@ -493,7 +672,86 @@ export default function CarDetailScreen() {
 
         {activeTab === 'checking' && canManageCar ? (
           <View style={styles.section}>
-            <Text style={styles.emptyText}>Belum ada data pengecekan untuk mobil ini.</Text>
+            {creatingInspection ? (
+              <View style={styles.card}>
+                <Text style={styles.sectionHeading}>Form Pengecekan</Text>
+                <Text style={styles.metaText}>Inspector: {sessionUser?.full_name || 'Nama akun belum tersedia'}</Text>
+                <Text style={styles.metaText}>Model: {car?.model || '-'}</Text>
+                <Text style={styles.metaText}>No Pol: {car?.plate_number || '-'}</Text>
+                <DateField label="Hari / Tanggal*" value={inspectionDate} onChange={setInspectionDate} />
+                <Field label="KM*" value={inspectionMileage} onChangeText={setInspectionMileage} placeholder="Masukkan kilometer" keyboardType="numeric" />
+                <Text style={styles.inspectionWorkflowHint}>Checked / Prepared akan dicatat dari akun Role 2. Setelah dikirim, Role 1 mengisi Approved.</Text>
+                {inspectionDraft.map((item, index) => (
+                  <View key={item.id} style={styles.inspectionItemCard}>
+                    {index === 0 || inspectionDraft[index - 1].category !== item.category ? <Text style={styles.inspectionCategory}>{item.category}</Text> : null}
+                    <Text style={styles.inspectionItemName}>{index + 1}. {item.item_name}</Text>
+                    <View style={styles.inspectionResultRow}>
+                      {(['ok', 'ng'] as const).map((result) => (
+                        <TouchableOpacity key={result} onPress={() => setInspectionDraft((current) => current.map((draft) => draft.id === item.id ? { ...draft, result } : draft))} style={[styles.inspectionResultButton, item.result === result && (result === 'ok' ? styles.inspectionOkSelected : styles.inspectionNgSelected)]}>
+                          <Text style={[styles.inspectionResultText, item.result === result && styles.inspectionResultTextSelected]}>{result.toUpperCase()}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <TextInput value={item.remark} onChangeText={(remark) => setInspectionDraft((current) => current.map((draft) => draft.id === item.id ? { ...draft, remark } : draft))} placeholder={item.result === 'ng' ? 'Catatan masalah wajib diisi' : 'Remark (opsional)'} multiline style={styles.inspectionTextInput} />
+                    <TextInput value={item.responsible} onChangeText={(responsible) => setInspectionDraft((current) => current.map((draft) => draft.id === item.id ? { ...draft, responsible } : draft))} placeholder="Penanggung jawab (opsional)" style={styles.inspectionTextInput} />
+                    <TouchableOpacity style={styles.inspectionPhotoButton} onPress={async () => {
+                      if (item.photos.length >= 5) {
+                        Alert.alert('Batas foto tercapai', 'Maksimal 5 foto untuk setiap butir pengecekan.');
+                        return;
+                      }
+                      try {
+                        const photo = await pickCompressedInspectionPhoto();
+                        if (photo) setInspectionDraft((current) => current.map((draft) => draft.id === item.id ? { ...draft, photos: [...draft.photos, photo] } : draft));
+                      } catch (error) {
+                        Alert.alert('Gagal memilih foto', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+                      }
+                    }}>
+                      <ImagePlus size={16} color={Colors.primary} />
+                      <Text style={styles.inspectionPhotoButtonText}>Tambah foto ({item.photos.length}/5)</Text>
+                    </TouchableOpacity>
+                    {item.photos.length ? <View style={styles.inspectionPhotoRow}>{item.photos.map((photo) => (
+                      <View key={photo.localId} style={styles.inspectionPhotoThumbWrap}>
+                        <Image source={{ uri: photo.preview }} style={styles.inspectionPhotoThumb} />
+                        <TouchableOpacity style={styles.inspectionPhotoRemove} onPress={() => setInspectionDraft((current) => current.map((draft) => draft.id === item.id ? { ...draft, photos: draft.photos.filter((entry) => entry.localId !== photo.localId) } : draft))}><X size={13} color={Colors.white} /></TouchableOpacity>
+                      </View>
+                    ))}</View> : null}
+                  </View>
+                ))}
+                <Button label="Kirim Checked / Prepared ke Role 1" onPress={addInspection} loading={submitting} />
+                <TouchableOpacity style={styles.inspectionCancelButton} onPress={() => setCreatingInspection(false)}><Text style={styles.inspectionCancelText}>Batal</Text></TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                {sessionRole === 2 ? <Button label="Buat Pengecekan" onPress={() => { setInspectionDate(todayISO()); setInspectionMileage(''); setInspectionDraft(makeInspectionDraft()); setCreatingInspection(true); setSelectedInspection(null); }} /> : null}
+                {inspections.length === 0 ? <Text style={styles.emptyText}>Belum ada riwayat pengecekan untuk mobil ini.</Text> : inspections.map((inspection) => (
+                  <TouchableOpacity key={inspection.id} style={styles.card} onPress={() => { void openInspection(inspection); }}>
+                    <View style={styles.cardHeader}>
+                      <Text style={styles.cardTitle}>{formatDate(inspection.inspection_date)} · {inspection.mileage.toLocaleString('id-ID')} KM</Text>
+                      <View style={[styles.inspectionStatusPill, inspection.status === 'approved' ? styles.inspectionApprovedPill : styles.inspectionPendingPill]}><Text style={styles.inspectionStatusText}>{inspection.status === 'approved' ? 'Approved' : 'Menunggu Role 1'}</Text></View>
+                    </View>
+                    <Text style={styles.metaText}>Inspector: {inspection.inspector_name}</Text>
+                    <Text style={styles.metaText}>{inspection.model_snapshot} · {inspection.plate_snapshot}</Text>
+                  </TouchableOpacity>
+                ))}
+                {selectedInspection ? (
+                  <View style={styles.card}>
+                    <View style={styles.cardHeader}><Text style={styles.sectionHeading}>Rincian Pengecekan</Text><TouchableOpacity onPress={() => { setSelectedInspection(null); setSelectedInspectionItems([]); setInspectionPhotos({}); }}><X size={18} color={Colors.textSecondary} /></TouchableOpacity></View>
+                    <Text style={styles.metaText}>Checked / Prepared: {selectedInspection.checked_prepared_name || '-'}</Text>
+                    <Text style={styles.metaText}>Approved: {selectedInspection.approved_name || 'Menunggu Role 1'}</Text>
+                    {selectedInspectionItems.map((item) => (
+                      <View key={item.id} style={styles.inspectionReadOnlyItem}>
+                        <Text style={styles.inspectionCategory}>{item.category}</Text>
+                        <Text style={styles.inspectionItemName}>{item.item_name} · {item.result?.toUpperCase() || '-'}</Text>
+                        {item.remark ? <Text style={styles.metaText}>Remark: {item.remark}</Text> : null}
+                        {item.responsible ? <Text style={styles.metaText}>Penanggung jawab: {item.responsible}</Text> : null}
+                        {(inspectionPhotos[item.id] ?? []).length ? <View style={styles.inspectionPhotoRow}>{inspectionPhotos[item.id].map((photo) => photo.url ? <Image key={photo.path} source={{ uri: photo.url }} style={styles.inspectionPhotoThumb} /> : null)}</View> : null}
+                      </View>
+                    ))}
+                    {sessionRole === 1 && selectedInspection.status === 'pending_approval' ? <Button label="Approved" onPress={() => { void approveInspection(selectedInspection); }} loading={submitting} /> : null}
+                  </View>
+                ) : null}
+              </>
+            )}
           </View>
         ) : null}
 
@@ -905,6 +1163,107 @@ const styles = StyleSheet.create({
   section: {
     gap: Spacing.sm,
   },
+  sectionHeading: {
+    fontSize: Typography.lg,
+    fontFamily: Typography.fontSemiBold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.sm,
+  },
+  inspectionWorkflowHint: {
+    color: Colors.textSecondary,
+    fontSize: Typography.sm,
+    fontFamily: Typography.fontRegular,
+    lineHeight: 20,
+    marginBottom: Spacing.md,
+  },
+  inspectionItemCard: {
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    borderRadius: Radius.md,
+    padding: Spacing.sm,
+    marginBottom: Spacing.sm,
+    backgroundColor: Colors.surface,
+  },
+  inspectionReadOnlyItem: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderLight,
+    paddingVertical: Spacing.sm,
+  },
+  inspectionCategory: {
+    color: Colors.primary,
+    fontSize: Typography.xs,
+    fontFamily: Typography.fontSemiBold,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  inspectionItemName: {
+    color: Colors.textPrimary,
+    fontSize: Typography.sm,
+    fontFamily: Typography.fontSemiBold,
+    marginBottom: Spacing.xs,
+  },
+  inspectionResultRow: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    marginBottom: Spacing.xs,
+  },
+  inspectionResultButton: {
+    minWidth: 58,
+    paddingVertical: 7,
+    alignItems: 'center',
+    backgroundColor: Colors.surfaceAlt,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  inspectionOkSelected: { backgroundColor: '#DCFCE7', borderColor: Colors.success },
+  inspectionNgSelected: { backgroundColor: '#FEE2E2', borderColor: Colors.error },
+  inspectionResultText: { color: Colors.textSecondary, fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
+  inspectionResultTextSelected: { color: Colors.textPrimary },
+  inspectionTextInput: {
+    minHeight: 42,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 8,
+    color: Colors.textPrimary,
+    fontSize: Typography.sm,
+    marginBottom: Spacing.xs,
+    backgroundColor: Colors.white,
+  },
+  inspectionPhotoButton: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 8,
+    backgroundColor: Colors.primaryLight,
+    borderRadius: Radius.sm,
+    marginTop: 2,
+  },
+  inspectionPhotoButtonText: { color: Colors.primary, fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
+  inspectionPhotoRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginTop: Spacing.xs },
+  inspectionPhotoThumbWrap: { position: 'relative' },
+  inspectionPhotoThumb: { width: 76, height: 76, borderRadius: Radius.sm, backgroundColor: Colors.surfaceAlt },
+  inspectionPhotoRemove: {
+    position: 'absolute',
+    right: 3,
+    top: 3,
+    width: 21,
+    height: 21,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.error,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inspectionStatusPill: { paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: Radius.pill },
+  inspectionPendingPill: { backgroundColor: '#FEF3C7' },
+  inspectionApprovedPill: { backgroundColor: '#DCFCE7' },
+  inspectionStatusText: { color: Colors.textPrimary, fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
+  inspectionCancelButton: { alignItems: 'center', paddingVertical: Spacing.md },
+  inspectionCancelText: { color: Colors.error, fontSize: Typography.sm, fontFamily: Typography.fontSemiBold },
   card: {
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,

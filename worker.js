@@ -6,6 +6,9 @@ const TABLES = new Set([
   'damages',
   'service_records',
   'rental_records',
+  'vehicle_inspections',
+  'vehicle_inspection_items',
+  'vehicle_inspection_photos',
 ]);
 
 const COLUMNS = {
@@ -16,6 +19,9 @@ const COLUMNS = {
   damages: new Set(['id', 'car_id', 'description', 'severity', 'status', 'reported_date', 'resolved_date', 'created_at']),
   service_records: new Set(['id', 'car_id', 'service_date', 'service_type', 'description', 'cost', 'mileage', 'workshop', 'status', 'next_service_date', 'next_service_mileage', 'reminder_enabled', 'is_recurring', 'reminder_interval_months', 'reminder_interval_mileage', 'created_at']),
   rental_records: new Set(['id', 'car_id', 'user_id', 'renter_name', 'renter_email', 'renter_phone', 'start_date', 'start_time', 'end_date', 'end_time', 'total_cost', 'purpose', 'status', 'approved_by', 'approved_at', 'return_confirmed_by', 'return_confirmed_at', 'notes', 'created_at']),
+  vehicle_inspections: new Set(['id', 'car_id', 'inspector_user_id', 'inspector_name', 'inspection_date', 'mileage', 'model_snapshot', 'plate_snapshot', 'status', 'checked_prepared_by', 'checked_prepared_name', 'checked_prepared_at', 'approved_by', 'approved_name', 'approved_at', 'created_at']),
+  vehicle_inspection_items: new Set(['id', 'inspection_id', 'category', 'item_name', 'result', 'remark', 'responsible', 'sort_order', 'created_at']),
+  vehicle_inspection_photos: new Set(['id', 'item_id', 'object_path', 'created_at']),
 };
 
 const CORS_METHODS = 'POST, OPTIONS';
@@ -105,6 +111,7 @@ async function authenticate(request, env) {
 
 function userCanRead(table, role) {
   if (table === 'users' || table === 'service_records') return [1, 2].includes(role);
+  if (table.startsWith('vehicle_inspection')) return [1, 2].includes(role);
   return [1, 2, 3, 4].includes(role);
 }
 
@@ -128,6 +135,8 @@ function userCanWrite(table, operation, role) {
     if (operation === 'update') return role === 1;
     if (operation === 'delete') return [1, 2].includes(role);
   }
+  if (table === 'vehicle_inspections') return operation === 'insert' && role === 2;
+  if (table === 'vehicle_inspection_items') return operation === 'insert' && role === 2;
   return false;
 }
 
@@ -225,11 +234,56 @@ async function proxyMutation(env, user, body) {
   const requiredFilters = operation !== 'insert';
   const filters = validateFilters(table, body.filters ?? [], requiredFilters);
   if (!filters) return { status: 400, error: 'Invalid mutation filters.' };
-  if (operation !== 'delete' && (!body.values || typeof body.values !== 'object' || Array.isArray(body.values))) {
+  if (operation !== 'delete' && (!body.values || typeof body.values !== 'object' || (Array.isArray(body.values) && operation !== 'insert'))) {
     return { status: 400, error: 'Mutation data is invalid.' };
   }
 
-  const values = operation === 'insert' ? { ...body.values } : body.values;
+  const values = operation === 'insert'
+    ? (Array.isArray(body.values) ? body.values.map((value) => ({ ...value })) : { ...body.values })
+    : body.values;
+  if (table === 'vehicle_inspections' && operation === 'insert') {
+    if (user.role !== 2 || Array.isArray(values)) return { status: 403, error: 'Role 2 yang dapat membuat pengecekan.' };
+    if (typeof user.full_name !== 'string' || !user.full_name.trim()) return { status: 400, error: 'Nama Inspector belum tersedia pada profil akun.' };
+    if (typeof values.car_id !== 'string' || !Number.isInteger(values.mileage) || values.mileage < 0 || !/^\d{4}-\d{2}-\d{2}$/.test(values.inspection_date ?? '')) {
+      return { status: 400, error: 'Tanggal dan kilometer pengecekan tidak valid.' };
+    }
+    const carUrl = new URL(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/cars`);
+    carUrl.searchParams.set('id', `eq.${values.car_id}`);
+    carUrl.searchParams.set('select', 'id,model,plate_number');
+    const carResponse = await fetch(carUrl, { headers: serviceHeaders(env) });
+    const [car] = await carResponse.json().catch(() => []);
+    if (!car) return { status: 404, error: 'Mobil tidak ditemukan.' };
+    values.model_snapshot = car.model ?? '';
+    values.plate_snapshot = car.plate_number ?? '';
+    values.inspector_user_id = user.id;
+    values.inspector_name = user.full_name;
+    values.status = 'pending_approval';
+    values.checked_prepared_by = user.id;
+    values.checked_prepared_name = user.full_name;
+    values.checked_prepared_at = new Date().toISOString();
+    values.approved_by = null;
+    values.approved_name = null;
+    values.approved_at = null;
+  }
+  if (table === 'vehicle_inspection_items' && operation === 'insert') {
+    if (user.role !== 2 || !Array.isArray(values) || values.length < 1 || values.length > 100) {
+      return { status: 403, error: 'Hanya Role 2 yang dapat mengisi butir pengecekan.' };
+    }
+    const inspectionIds = [...new Set(values.map((value) => value.inspection_id))];
+    if (inspectionIds.length !== 1 || typeof inspectionIds[0] !== 'string') return { status: 400, error: 'Butir harus terkait ke satu pengecekan.' };
+    const inspectionUrl = new URL(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/vehicle_inspections`);
+    inspectionUrl.searchParams.set('id', `eq.${inspectionIds[0]}`);
+    inspectionUrl.searchParams.set('select', 'id,inspector_user_id,status');
+    const inspectionResponse = await fetch(inspectionUrl, { headers: serviceHeaders(env) });
+    const [inspection] = await inspectionResponse.json().catch(() => []);
+    if (!inspectionResponse.ok || !inspection || inspection.inspector_user_id !== user.id || inspection.status !== 'pending_approval') {
+      return { status: 403, error: 'Pengecekan tidak ditemukan atau sudah dikirim untuk approval.' };
+    }
+    if (values.some((value) => !value || value.category?.length > 80 || value.item_name?.length > 160 || !Number.isInteger(value.sort_order)
+      || !['ok', 'ng'].includes(value.result) || typeof value.remark !== 'string' || (value.result === 'ng' && !value.remark.trim()))) {
+      return { status: 400, error: 'Data butir pengecekan tidak valid.' };
+    }
+  }
   if (table === 'rental_records' && operation === 'insert') {
     delete values.approved_by;
     delete values.approved_at;
@@ -549,6 +603,122 @@ async function approveRentalCycleUnit(request, env, user) {
   return { status: 200, data: result };
 }
 
+async function approveVehicleInspection(request, env, user) {
+  if (user.role !== 1) return { status: 403, error: 'Hanya Role 1 yang dapat memberikan Approved.' };
+  if (typeof user.full_name !== 'string' || !user.full_name.trim()) return { status: 400, error: 'Nama pemberi Approved belum tersedia pada profil akun.' };
+  let body;
+  try { body = await request.json(); } catch { return { status: 400, error: 'Invalid JSON body.' }; }
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!uuidPattern.test(body?.inspection_id ?? '')) return { status: 400, error: 'ID pengecekan tidak valid.' };
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/approve_vehicle_inspection`, {
+    method: 'POST',
+    headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({
+      _inspection_id: body.inspection_id,
+      _approved_by: user.id,
+      _approved_name: user.full_name,
+      _user_role: user.role,
+    }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) return { status: 409, error: typeof result?.message === 'string' ? result.message : 'Approval pengecekan gagal.' };
+  return { status: 200, data: result };
+}
+
+async function handleInspectionPhoto(request, env, user) {
+  if (![1, 2].includes(user.role)) return { status: 403, error: 'Role tidak dapat mengakses foto pengecekan.' };
+  let body;
+  try { body = await request.json(); } catch { return { status: 400, error: 'Invalid JSON body.' }; }
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const baseUrl = env.SUPABASE_URL.replace(/\/$/, '');
+  const bucket = 'vehicle-inspection-photos';
+
+  if (body?.action === 'upload') {
+    if (user.role !== 2) return { status: 403, error: 'Upload foto hanya dapat dilakukan Role 2.' };
+    if (!uuidPattern.test(body.inspection_id ?? '') || !uuidPattern.test(body.item_id ?? '')
+      || typeof body.base64 !== 'string' || body.content_type !== 'image/jpeg') {
+      return { status: 400, error: 'Data foto pengecekan tidak valid.' };
+    }
+    if (body.base64.length > 2800000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(body.base64)) {
+      return { status: 413, error: 'Ukuran foto melebihi batas 2 MB atau formatnya tidak valid.' };
+    }
+    const itemUrl = new URL(`${baseUrl}/rest/v1/vehicle_inspection_items`);
+    itemUrl.searchParams.set('id', `eq.${body.item_id}`);
+    itemUrl.searchParams.set('inspection_id', `eq.${body.inspection_id}`);
+    itemUrl.searchParams.set('select', 'id,inspection_id');
+    const itemResponse = await fetch(itemUrl, { headers: serviceHeaders(env) });
+    const [item] = await itemResponse.json().catch(() => []);
+    if (!item) return { status: 404, error: 'Butir pengecekan tidak ditemukan.' };
+    const inspectionUrl = new URL(`${baseUrl}/rest/v1/vehicle_inspections`);
+    inspectionUrl.searchParams.set('id', `eq.${body.inspection_id}`);
+    inspectionUrl.searchParams.set('select', 'id,inspector_user_id,status');
+    const inspectionResponse = await fetch(inspectionUrl, { headers: serviceHeaders(env) });
+    const [inspection] = await inspectionResponse.json().catch(() => []);
+    if (!inspection || inspection.inspector_user_id !== user.id || inspection.status !== 'pending_approval') {
+      return { status: 403, error: 'Pengecekan ini tidak dapat diubah oleh akun Anda.' };
+    }
+    const photoCountUrl = new URL(`${baseUrl}/rest/v1/vehicle_inspection_photos`);
+    photoCountUrl.searchParams.set('item_id', `eq.${body.item_id}`);
+    photoCountUrl.searchParams.set('select', 'id');
+    const photoCountResponse = await fetch(photoCountUrl, { headers: serviceHeaders(env, { Prefer: 'count=exact' }) });
+    const photoCountRows = await photoCountResponse.json().catch(() => []);
+    if (!photoCountResponse.ok) return { status: 503, error: 'Gagal memeriksa jumlah foto.' };
+    if (photoCountRows.length >= 5) return { status: 409, error: 'Maksimal 5 foto untuk setiap butir pengecekan.' };
+    const bytes = Uint8Array.from(atob(body.base64), (character) => character.charCodeAt(0));
+    if (bytes.byteLength > 2 * 1024 * 1024) return { status: 413, error: 'Ukuran foto melebihi batas 2 MB.' };
+    const objectPath = `${body.inspection_id}/${body.item_id}/${crypto.randomUUID()}.jpg`;
+    const uploadUrl = `${baseUrl}/storage/v1/object/${bucket}/${objectPath}`;
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: serviceHeaders(env, { 'Content-Type': body.content_type, 'x-upsert': 'false' }),
+      body: bytes,
+    });
+    if (!uploadResponse.ok) {
+      const result = await uploadResponse.json().catch(() => null);
+      return { status: uploadResponse.status, error: result?.message ?? 'Gagal mengunggah foto ke Supabase Storage.' };
+    }
+    const photoRecordResponse = await fetch(`${baseUrl}/rest/v1/vehicle_inspection_photos`, {
+      method: 'POST',
+      headers: serviceHeaders(env, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+      body: JSON.stringify({ item_id: body.item_id, object_path: objectPath }),
+    });
+    if (!photoRecordResponse.ok) {
+      await fetch(uploadUrl, { method: 'DELETE', headers: serviceHeaders(env) });
+      return { status: 503, error: 'Gagal menyimpan catatan foto pengecekan.' };
+    }
+    return { status: 201, data: { object_path: objectPath } };
+  }
+
+  if (body?.action === 'sign') {
+    if (!Array.isArray(body.object_paths) || body.object_paths.length > 100) return { status: 400, error: 'Daftar foto tidak valid.' };
+    const signedPhotos = await Promise.all(body.object_paths.map(async (objectPath) => {
+      if (typeof objectPath !== 'string' || !new RegExp(`^[0-9a-f-]+/[0-9a-f-]+/[0-9a-f-]+\\.jpg$`, 'i').test(objectPath)) return null;
+      const photoUrl = new URL(`${baseUrl}/rest/v1/vehicle_inspection_photos`);
+      photoUrl.searchParams.set('object_path', `eq.${objectPath}`);
+      photoUrl.searchParams.set('select', 'object_path,item_id');
+      const photoResponse = await fetch(photoUrl, { headers: serviceHeaders(env) });
+      const [photo] = await photoResponse.json().catch(() => []);
+      if (!photo) return null;
+      const inspectionUrl = new URL(`${baseUrl}/rest/v1/vehicle_inspection_items`);
+      inspectionUrl.searchParams.set('id', `eq.${photo.item_id}`);
+      inspectionUrl.searchParams.set('select', 'id,inspection_id');
+      const inspectionItemResponse = await fetch(inspectionUrl, { headers: serviceHeaders(env) });
+      const [item] = await inspectionItemResponse.json().catch(() => []);
+      if (!item) return null;
+      const signResponse = await fetch(`${baseUrl}/storage/v1/object/sign/${bucket}/${objectPath}`, {
+        method: 'POST',
+        headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ expiresIn: 3600 }),
+      });
+      const signed = await signResponse.json().catch(() => null);
+      if (!signResponse.ok || typeof signed?.signedURL !== 'string') return null;
+      return { object_path: objectPath, url: signed.signedURL.startsWith('http') ? signed.signedURL : `${baseUrl}/storage/v1${signed.signedURL}` };
+    }));
+    return { status: 200, data: signedPhotos.filter(Boolean) };
+  }
+  return { status: 400, error: 'Aksi foto pengecekan tidak valid.' };
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -564,6 +734,8 @@ export default {
       '/api/rentals/create-cycle',
       '/api/rentals/confirm-return',
       '/api/rentals/approve-unit',
+      '/api/inspections/approve',
+      '/api/inspections/photo',
       '/api/rental-created',
       '/api/rental-approved',
     ]);
@@ -653,6 +825,26 @@ export default {
       } catch (error) {
         console.error('Rental approval failed:', error);
         return Response.json({ error: 'Rental approval failed.' }, { status: 503, headers });
+      }
+    }
+
+    if (url.pathname === '/api/inspections/approve') {
+      try {
+        const result = await approveVehicleInspection(request, env, user);
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Inspection approval failed:', error);
+        return Response.json({ error: 'Inspection approval failed.' }, { status: 503, headers });
+      }
+    }
+
+    if (url.pathname === '/api/inspections/photo') {
+      try {
+        const result = await handleInspectionPhoto(request, env, user);
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Inspection photo operation failed:', error);
+        return Response.json({ error: 'Inspection photo operation failed.' }, { status: 503, headers });
       }
     }
 
