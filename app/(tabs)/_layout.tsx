@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Car, KeyRound, Wrench, Settings, ClipboardCheck } from 'lucide-react-native';
+import { Car, KeyRound, Wrench, Settings, ClipboardCheck, ListChecks } from 'lucide-react-native';
 import { Colors } from '@/lib/theme';
 import { getSession } from '@/lib/auth';
 
@@ -65,6 +65,14 @@ export default function TabLayout() {
         options={{
           title: 'Pengaturan',
           tabBarIcon: ({ size, color }) => <Settings size={size} color={color} strokeWidth={2.2} />,
+        }}
+      />
+      <Tabs.Screen
+        name="checking"
+        options={{
+          title: 'Pengecekan',
+          href: canSeeService ? undefined : null,
+          tabBarIcon: ({ size, color }) => <ListChecks size={size} color={color} strokeWidth={2.2} />,
         }}
       />
     </Tabs>
