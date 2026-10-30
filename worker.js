@@ -444,9 +444,16 @@ async function createRentalCycle(request, env, user, headers) {
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
   const timePattern = /^\d{2}:\d{2}(?::\d{2})?$/;
-  const renterName = typeof user.full_name === 'string' ? user.full_name.trim() : '';
-  const renterEmail = typeof user.email === 'string' ? user.email.trim().toLowerCase() : '';
-  const renterPhone = typeof user.phone === 'string' ? user.phone.trim() : '';
+  const maySetRenterContact = [1, 2].includes(user.role);
+  const renterName = maySetRenterContact && typeof body?.renter_name === 'string'
+    ? body.renter_name.trim()
+    : (typeof user.full_name === 'string' ? user.full_name.trim() : '');
+  const renterEmail = maySetRenterContact && typeof body?.renter_email === 'string'
+    ? body.renter_email.trim().toLowerCase()
+    : (typeof user.email === 'string' ? user.email.trim().toLowerCase() : '');
+  const renterPhone = maySetRenterContact && typeof body?.renter_phone === 'string'
+    ? body.renter_phone.trim()
+    : (typeof user.phone === 'string' ? user.phone.trim() : '');
   if (!body || typeof body !== 'object' || Array.isArray(body)
     || !Array.isArray(body.car_ids) || body.car_ids.length === 0 || body.car_ids.length > 25
     || body.car_ids.some((carId) => typeof carId !== 'string' || !uuidPattern.test(carId))

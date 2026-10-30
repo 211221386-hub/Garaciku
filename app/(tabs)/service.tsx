@@ -70,6 +70,11 @@ export default function RentalScreen() {
   const [saving, setSaving] = useState(false);
   const [returningId, setReturningId] = useState<string | null>(null);
   const [form, setForm] = useState({ car_id: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
+  const [renterContact, setRenterContact] = useState(() => ({
+    name: getSession()?.user.full_name ?? '',
+    email: getSession()?.user.email ?? '',
+    phone: getSession()?.user.phone ?? '',
+  }));
   const [duplicateForm, setDuplicateForm] = useState({
     name: '',
     section: '',
@@ -119,6 +124,14 @@ export default function RentalScreen() {
     userProfile?.full_name?.trim()
     && /^\S+@\S+\.\S+$/.test(profileEmail)
     && profilePhone.replace(/\D/g, '').length >= 7
+  );
+  const rentalContact = isAdmin
+    ? { name: renterContact.name.trim(), email: renterContact.email.trim(), phone: renterContact.phone.trim() }
+    : { name: userProfile?.full_name?.trim() ?? '', email: profileEmail, phone: profilePhone };
+  const rentalContactComplete = Boolean(
+    rentalContact.name
+    && /^\S+@\S+\.\S+$/.test(rentalContact.email)
+    && rentalContact.phone.replace(/\D/g, '').length >= 7
   );
   const hasOpenCycle = !isAdmin && rentals.some((rental) => ['pending', 'approved', 'active', 'overdue'].includes(rental.status));
   const rentalRangeValid = Boolean(form.start_date && form.end_date && form.end_date >= form.start_date);
@@ -214,12 +227,10 @@ export default function RentalScreen() {
       return;
     }
 
-    const renterProfile = getSession()?.user;
-    const renterName = renterProfile?.full_name?.trim() ?? '';
-    const renterEmail = renterProfile?.email?.trim() ?? '';
-    const renterPhone = renterProfile?.phone?.trim() ?? '';
-    if (!renterName || !/^\S+@\S+\.\S+$/.test(renterEmail) || renterPhone.replace(/\D/g, '').length < 7) {
-      Alert.alert('Profil belum lengkap', 'Lengkapi nama lengkap, email, dan nomor telepon di Settings sebelum membuat Transportation.');
+    if (!rentalContactComplete) {
+      Alert.alert('Data pemesan belum lengkap', isAdmin
+        ? 'Isi nama, email yang valid, dan nomor telepon pemesan.'
+        : 'Lengkapi nama lengkap, email, dan nomor telepon di Settings sebelum membuat Transportation.');
       return;
     }
     if (!form.start_date || !form.start_time || !form.end_date || !form.end_time) {
@@ -239,6 +250,11 @@ export default function RentalScreen() {
     try {
       const createdRentals = await apiClient.rentals.createCycle({
         car_ids: selectedCarIds,
+        ...(isAdmin ? {
+          renter_name: rentalContact.name,
+          renter_email: rentalContact.email,
+          renter_phone: rentalContact.phone,
+        } : {}),
         start_date: form.start_date || today,
         start_time: form.start_time,
         end_date: form.end_date || null,
@@ -370,7 +386,14 @@ export default function RentalScreen() {
 
         {recordKind === 'rental' ? (
           <>
-            {!profileComplete ? <Text style={styles.profileWarning}>Lengkapi nama, email, dan nomor telepon di Settings sebelum menyimpan Transportation.</Text> : null}
+            {isAdmin ? (
+              <>
+                <Field label="Nama Pemesan*" value={renterContact.name} onChangeText={(value) => setRenterContact((current) => ({ ...current, name: value }))} placeholder="Nama lengkap pemesan" />
+                <Field label="Email Pemesan*" value={renterContact.email} onChangeText={(value) => setRenterContact((current) => ({ ...current, email: value }))} placeholder="nama@email.com" keyboardType="email-address" />
+                <Field label="Nomor Telepon Pemesan*" value={renterContact.phone} onChangeText={(value) => setRenterContact((current) => ({ ...current, phone: value }))} placeholder="08xxxxxxxxxx" keyboardType="phone-pad" />
+                <Text style={styles.availabilityMessage}>Transportation Role 1/2 langsung disetujui setelah disimpan.</Text>
+              </>
+            ) : !profileComplete ? <Text style={styles.profileWarning}>Lengkapi nama, email, dan nomor telepon di Settings sebelum menyimpan Transportation.</Text> : null}
             <TimeField label="Jam Mulai (WIB)" value={form.start_time} onChange={(value) => setForm({ ...form, start_time: value })} />
             <TimeField label="Jam Selesai (WIB)" value={form.end_time} onChange={(value) => setForm({ ...form, end_time: value })} />
             <Field label="Tujuan Transportation" value={form.purpose} onChangeText={(t) => setForm({ ...form, purpose: t })} placeholder="Contoh: Perjalanan dinas, liburan keluarga" />
@@ -390,7 +413,7 @@ export default function RentalScreen() {
         )}
 
         <View style={{ height: Spacing.sm }} />
-        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigation'} onPress={addRecord} loading={saving} disabled={(hasOpenCycle && recordKind === 'rental') || !selectedCarAvailable || (recordKind === 'rental' ? !profileComplete || !form.start_time || !form.end_time : !userProfile?.full_name?.trim() || !duplicateForm.section.trim() || !duplicateForm.start_time || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
+        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigation'} onPress={addRecord} loading={saving} disabled={(hasOpenCycle && recordKind === 'rental') || !selectedCarAvailable || (recordKind === 'rental' ? !rentalContactComplete || !form.start_time || !form.end_time : !userProfile?.full_name?.trim() || !duplicateForm.section.trim() || !duplicateForm.start_time || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
       </Sheet>
     </View>
   );

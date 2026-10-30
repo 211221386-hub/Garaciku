@@ -11,6 +11,9 @@ export type LoginResult = {
 
 export type CreateRentalCycleInput = {
   car_ids: string[];
+  renter_name?: string;
+  renter_email?: string;
+  renter_phone?: string;
   start_date: string;
   start_time: string;
   end_date: string | null;
