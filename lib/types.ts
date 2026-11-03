@@ -139,7 +139,7 @@ export type VehicleInspectionItem = {
   item_name: string;
   result: 'ok' | 'ng' | null;
   remark: string;
-  responsible: string;
+  countermeasure: string;
   sort_order: number;
   created_at: string;
 };

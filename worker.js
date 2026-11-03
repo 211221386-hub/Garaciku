@@ -20,7 +20,7 @@ const COLUMNS = {
   service_records: new Set(['id', 'car_id', 'service_date', 'service_type', 'description', 'cost', 'mileage', 'workshop', 'status', 'next_service_date', 'next_service_mileage', 'reminder_enabled', 'is_recurring', 'reminder_interval_months', 'reminder_interval_mileage', 'created_at']),
   rental_records: new Set(['id', 'car_id', 'user_id', 'renter_name', 'renter_email', 'renter_phone', 'start_date', 'start_time', 'end_date', 'end_time', 'total_cost', 'purpose', 'status', 'approved_by', 'approved_at', 'return_confirmed_by', 'return_confirmed_at', 'notes', 'created_at']),
   vehicle_inspections: new Set(['id', 'car_id', 'inspector_user_id', 'inspector_name', 'inspection_date', 'mileage', 'model_snapshot', 'plate_snapshot', 'status', 'checked_prepared_by', 'checked_prepared_name', 'checked_prepared_at', 'approved_by', 'approved_name', 'approved_at', 'created_at']),
-  vehicle_inspection_items: new Set(['id', 'inspection_id', 'category', 'item_name', 'result', 'remark', 'responsible', 'sort_order', 'created_at']),
+  vehicle_inspection_items: new Set(['id', 'inspection_id', 'category', 'item_name', 'result', 'remark', 'countermeasure', 'sort_order', 'created_at']),
   vehicle_inspection_photos: new Set(['id', 'item_id', 'object_path', 'created_at']),
 };
 

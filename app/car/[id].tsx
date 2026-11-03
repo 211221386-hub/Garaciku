@@ -37,7 +37,7 @@ import { getSession } from '@/lib/auth';
 
 type Tab = 'notes' | 'completeness' | 'damages' | 'rental' | 'checking';
 type InspectionPhotoDraft = { base64: string; preview: string; contentType: string; localId: string };
-type InspectionItemDraft = Pick<VehicleInspectionItem, 'id' | 'category' | 'item_name' | 'sort_order' | 'result' | 'remark' | 'responsible'> & { photos: InspectionPhotoDraft[] };
+type InspectionItemDraft = Pick<VehicleInspectionItem, 'id' | 'category' | 'item_name' | 'sort_order' | 'result' | 'remark' | 'countermeasure'> & { photos: InspectionPhotoDraft[] };
 
 const inspectionChecklist = [
   { category: 'Engine Room', items: ['Hose & Wire', 'Master Brake', 'Washer Tank', 'Cover Engine', 'Oil Engine', 'Air Radiator', 'Air Cleaner', 'Battery'] },
@@ -50,7 +50,7 @@ const inspectionChecklist = [
 function makeInspectionDraft(): InspectionItemDraft[] {
   let sortOrder = 0;
   return inspectionChecklist.flatMap(({ category, items }) => items.map((item_name) => ({
-    id: crypto.randomUUID(), category, item_name, result: null, remark: '', responsible: '', sort_order: sortOrder++, photos: [],
+    id: crypto.randomUUID(), category, item_name, result: null, remark: '', countermeasure: '', sort_order: sortOrder++, photos: [],
   })));
 }
 
@@ -246,7 +246,7 @@ export default function CarDetailScreen() {
         item_name: item.item_name,
         result: item.result,
         remark: item.remark.trim(),
-        responsible: item.responsible.trim(),
+        countermeasure: item.countermeasure.trim(),
         sort_order: item.sort_order,
       }));
       await apiClient.inspections.createItems(items);
@@ -697,7 +697,7 @@ export default function CarDetailScreen() {
                       ))}
                     </View>
                     <TextInput value={item.remark} onChangeText={(remark) => setInspectionDraft((current) => current.map((draft) => draft.id === item.id ? { ...draft, remark } : draft))} placeholder={item.result === 'ng' ? 'Catatan masalah wajib diisi' : 'Remark (opsional)'} multiline style={styles.inspectionTextInput} />
-                    <TextInput value={item.responsible} onChangeText={(responsible) => setInspectionDraft((current) => current.map((draft) => draft.id === item.id ? { ...draft, responsible } : draft))} placeholder="Penanggung jawab (opsional)" style={styles.inspectionTextInput} />
+                    <TextInput value={item.countermeasure} onChangeText={(countermeasure) => setInspectionDraft((current) => current.map((draft) => draft.id === item.id ? { ...draft, countermeasure } : draft))} placeholder="Penanggulangan (opsional)" style={styles.inspectionTextInput} />
                     <TouchableOpacity style={styles.inspectionPhotoButton} onPress={async () => {
                       if (item.photos.length >= 5) {
                         Alert.alert('Batas foto tercapai', 'Maksimal 5 foto untuk setiap butir pengecekan.');
@@ -747,7 +747,7 @@ export default function CarDetailScreen() {
                         <Text style={styles.inspectionCategory}>{item.category}</Text>
                         <Text style={styles.inspectionItemName}>{item.item_name} · {item.result?.toUpperCase() || '-'}</Text>
                         {item.remark ? <Text style={styles.metaText}>Remark: {item.remark}</Text> : null}
-                        {item.responsible ? <Text style={styles.metaText}>Penanggung jawab: {item.responsible}</Text> : null}
+                        {item.countermeasure ? <Text style={styles.metaText}>Penanggulangan: {item.countermeasure}</Text> : null}
                         {(inspectionPhotos[item.id] ?? []).length ? <View style={styles.inspectionPhotoRow}>{inspectionPhotos[item.id].map((photo) => photo.url ? <Image key={photo.path} source={{ uri: photo.url }} style={styles.inspectionPhotoThumb} /> : null)}</View> : null}
                       </View>
                     ))}

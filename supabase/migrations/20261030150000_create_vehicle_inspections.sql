@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS public.vehicle_inspection_items (
   item_name text NOT NULL,
   result text NOT NULL CHECK (result IN ('ok', 'ng')),
   remark text NOT NULL DEFAULT '',
-  responsible text NOT NULL DEFAULT '',
+  countermeasure text NOT NULL DEFAULT '',
   sort_order integer NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (inspection_id, sort_order)
