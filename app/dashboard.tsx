@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, 
 import { BarChart3, CalendarDays, Download, RefreshCw, Search, TriangleAlert, Wrench } from 'lucide-react-native';
 import { Colors, Typography } from '@/lib/theme';
 import { workerApiUrl } from '@/lib/supabase';
+import { DateField } from '@/components/DateField';
 
 type UnitStatus = 'available' | 'rented' | 'service' | 'attention';
 type HistoryType = 'service' | 'rental' | 'inspection' | 'transport' | 'damage';
@@ -96,8 +97,8 @@ export default function DashboardScreen() {
       <View style={styles.filterCard}>
         <View style={styles.filterTitle}><CalendarDays size={18} color={Colors.primary} /><Text style={styles.cardTitle}>Filter riwayat</Text><Text style={styles.filterHint}>Default: semua unit dan semua periode</Text></View>
         <View style={styles.filterControls}>
-          <View style={styles.control}><Text style={styles.label}>Dari tanggal</Text><TextInput value={start} onChangeText={setStart} placeholder="YYYY-MM-DD" placeholderTextColor={Colors.textTertiary} style={styles.input} /></View>
-          <View style={styles.control}><Text style={styles.label}>Sampai tanggal</Text><TextInput value={end} onChangeText={setEnd} placeholder="YYYY-MM-DD" placeholderTextColor={Colors.textTertiary} style={styles.input} /></View>
+          <View style={styles.control}><DateField label="Dari tanggal" value={start} onChange={setStart} placeholder="Pilih tanggal" /></View>
+          <View style={styles.control}><DateField label="Sampai tanggal" value={end} onChange={setEnd} placeholder="Pilih tanggal" /></View>
           <Pressable style={styles.applyButton} onPress={() => loadData()}><Text style={styles.applyText}>Terapkan filter</Text></Pressable>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}><FilterChip active={unit === 'all'} label="Semua unit" onPress={() => { setUnit('all'); loadData('all'); }} />{data.unit_options.map((item) => <FilterChip key={item.id} active={unit === item.id} label={item.name} onPress={() => { setUnit(item.id); loadData(item.id); }} />)}</ScrollView>
