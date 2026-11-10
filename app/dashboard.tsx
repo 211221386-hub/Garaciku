@@ -38,7 +38,7 @@ const demoData: DashboardData = {
   totals: { service: 8, rental: 12, inspection: 6, transport: 9, damage: 2 },
 };
 
-const typeLabels: Record<HistoryType, string> = { service: 'Service', rental: 'Peminjaman', inspection: 'Investigasi', transport: 'Transportasi', damage: 'Kerusakan' };
+const typeLabels: Record<HistoryType, string> = { service: 'Service', rental: 'Transportation', inspection: 'Maintenance Check', transport: 'Investigation', damage: 'Accident' };
 const statusLabels: Record<UnitStatus, string> = { available: 'Siap digunakan', rented: 'Sedang dipakai', service: 'Dalam service', attention: 'Perlu perhatian' };
 const formatDate = (value: string | null) => value ? new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(`${value}T00:00:00`)) : '-';
 const formatUpdated = (value: string) => new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
