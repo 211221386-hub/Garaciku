@@ -32,7 +32,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     const checkSession = () => {
-      const isPublicRoute = pathname === '/' || pathname === '/login';
+      const isPublicRoute = pathname === '/' || pathname === '/login' || pathname === '/dashboard';
       const session = getSession();
       const isFirstLoginRoute = pathname === '/first-login';
       if (!isPublicRoute && !session) {
@@ -59,6 +59,7 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="first-login" options={{ headerShown: false, gestureEnabled: false }} />
+        <Stack.Screen name="dashboard" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="car/[id]" options={{ headerShown: false, animation: 'slide_from_right' }} />
         <Stack.Screen name="car/edit/[id]" options={{ headerShown: false, presentation: 'modal' }} />

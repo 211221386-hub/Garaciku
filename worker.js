@@ -24,7 +24,7 @@ const COLUMNS = {
   vehicle_inspection_photos: new Set(['id', 'item_id', 'object_path', 'created_at']),
 };
 
-const CORS_METHODS = 'POST, OPTIONS';
+const CORS_METHODS = 'GET, POST, OPTIONS';
 const CORS_HEADERS = 'Authorization, Content-Type';
 
 function base64UrlEncode(input) {
@@ -187,6 +187,66 @@ function buildPostgrestUrl(env, table, body) {
     url.searchParams.set('order', `${body.order.column}.${body.order.ascending ? 'asc' : 'desc'}`);
   }
   return url;
+}
+
+async function getDashboard(env) {
+    const baseUrl = env.SUPABASE_URL.replace(/\/$/, '');
+    const tables = [
+      ['cars', 'id,name,brand,model,year,plate_number,created_at'],
+      ['rental_records', 'car_id,status'],
+      ['service_records', 'car_id,service_date,status'],
+      ['damages', 'car_id,severity,status'],
+      ['completeness_items', 'car_id,is_present'],
+    ];
+    const responses = await Promise.all(tables.map(async ([table, select]) => {
+      const url = new URL(`${baseUrl}/rest/v1/${table}`);
+      url.searchParams.set('select', select);
+      const response = await fetch(url, { headers: serviceHeaders(env) });
+      const rows = await response.json().catch(() => null);
+      if (!response.ok || !Array.isArray(rows)) throw new Error(`Dashboard data query failed for ${table}.`);
+      return rows;
+    }));
+    const [cars, rentals, services, damages, completeness] = responses;
+    const activeStatuses = new Set(['active', 'approved', 'overdue']);
+    const units = cars.map((car) => {
+      const unitRentals = rentals.filter((row) => row.car_id === car.id);
+      const unitServices = services.filter((row) => row.car_id === car.id);
+      const unitDamages = damages.filter((row) => row.car_id === car.id && row.status !== 'fixed');
+      const unitCompleteness = completeness.filter((row) => row.car_id === car.id);
+      const completenessScore = unitCompleteness.length
+        ? Math.round((unitCompleteness.filter((row) => row.is_present).length / unitCompleteness.length) * 100)
+        : 100;
+      const inService = unitServices.some((row) => row.status === 'scheduled');
+      const isRented = unitRentals.some((row) => activeStatuses.has(row.status));
+      const status = unitDamages.length > 0 && unitDamages.some((row) => row.severity === 'high')
+        ? 'attention'
+        : inService ? 'service' : isRented ? 'rented' : 'available';
+      const sortedServices = unitServices
+        .map((row) => row.service_date)
+        .filter(Boolean)
+        .sort()
+        .reverse();
+      return {
+        id: car.id,
+        name: car.name,
+        brand: car.brand,
+        model: car.model,
+        year: car.year,
+        plate_number: car.plate_number,
+        status,
+        service_count: unitServices.length,
+        open_damages: unitDamages.length,
+        completeness: completenessScore,
+        last_service: sortedServices[0] ?? null,
+      };
+    });
+    const monthLabels = ['Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov'];
+    const activity = monthLabels.map((label, index) => {
+      const month = String(index + 6).padStart(2, '0');
+      const value = services.filter((row) => typeof row.service_date === 'string' && row.service_date.slice(5, 7) === month).length;
+      return { label, value };
+    });
+    return { updated_at: new Date().toISOString(), units, activity };
 }
 
 async function proxyQuery(env, user, body) {
@@ -734,6 +794,7 @@ export default {
     const routes = new Set([
       '/api/auth/login',
       '/api/auth/register',
+      '/api/dashboard',
       '/api/auth/complete-profile',
       '/api/profile/update',
       '/api/data/query',
@@ -760,6 +821,14 @@ export default {
     };
     if (origin && (!env.APP_ORIGIN || origin !== env.APP_ORIGIN)) return Response.json({ error: 'Origin not allowed.' }, { status: 403, headers });
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
+    if (url.pathname === '/api/dashboard' && request.method === 'GET') {
+      try {
+        return Response.json(await getDashboard(env), { status: 200, headers });
+      } catch (error) {
+        console.error('Dashboard data query failed:', error);
+        return Response.json({ error: 'Dashboard data is temporarily unavailable.' }, { status: 503, headers });
+      }
+    }
     if (request.method !== 'POST') return Response.json({ error: 'Method not allowed.' }, { status: 405, headers });
 
     if (url.pathname === '/api/auth/login' || url.pathname === '/api/auth/register') {
