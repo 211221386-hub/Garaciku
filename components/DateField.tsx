@@ -1,5 +1,5 @@
 import { createElement, useState, type ChangeEvent } from 'react';
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, View, type ViewStyle } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Calendar } from 'lucide-react-native';
 import { Colors, Radius, Spacing, Typography } from '@/lib/theme';
@@ -23,9 +23,10 @@ type Props = {
   onChange: (value: string) => void;
   placeholder?: string;
   minimumDate?: Date;
+  containerStyle?: ViewStyle;
 };
 
-export function DateField({ label, value, onChange, placeholder = 'Pilih tanggal', minimumDate }: Props) {
+export function DateField({ label, value, onChange, placeholder = 'Pilih tanggal', minimumDate, containerStyle }: Props) {
   const [open, setOpen] = useState(false);
 
   const handleChange = (event: DateTimePickerEvent, date?: Date) => {
@@ -35,7 +36,7 @@ export function DateField({ label, value, onChange, placeholder = 'Pilih tanggal
 
   if (Platform.OS === 'web') {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, containerStyle]}>
         <Text style={styles.label}>{label}</Text>
         {createElement('input', {
           type: 'date',
@@ -50,7 +51,7 @@ export function DateField({ label, value, onChange, placeholder = 'Pilih tanggal
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, containerStyle]}>
       <Text style={styles.label}>{label}</Text>
       <TouchableOpacity style={styles.input} onPress={() => setOpen(true)} activeOpacity={0.8}>
         <Text style={[styles.value, !value && styles.placeholder]}>{value || placeholder}</Text>
