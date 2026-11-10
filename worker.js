@@ -189,64 +189,80 @@ function buildPostgrestUrl(env, table, body) {
   return url;
 }
 
-async function getDashboard(env) {
-    const baseUrl = env.SUPABASE_URL.replace(/\/$/, '');
-    const tables = [
-      ['cars', 'id,name,brand,model,year,plate_number,created_at'],
-      ['rental_records', 'car_id,status'],
-      ['service_records', 'car_id,service_date,status'],
-      ['damages', 'car_id,severity,status'],
-      ['completeness_items', 'car_id,is_present'],
-    ];
-    const responses = await Promise.all(tables.map(async ([table, select]) => {
-      const url = new URL(`${baseUrl}/rest/v1/${table}`);
-      url.searchParams.set('select', select);
-      const response = await fetch(url, { headers: serviceHeaders(env) });
-      const rows = await response.json().catch(() => null);
-      if (!response.ok || !Array.isArray(rows)) throw new Error(`Dashboard data query failed for ${table}.`);
-      return rows;
-    }));
-    const [cars, rentals, services, damages, completeness] = responses;
-    const activeStatuses = new Set(['active', 'approved', 'overdue']);
-    const units = cars.map((car) => {
-      const unitRentals = rentals.filter((row) => row.car_id === car.id);
-      const unitServices = services.filter((row) => row.car_id === car.id);
-      const unitDamages = damages.filter((row) => row.car_id === car.id && row.status !== 'fixed');
-      const unitCompleteness = completeness.filter((row) => row.car_id === car.id);
-      const completenessScore = unitCompleteness.length
-        ? Math.round((unitCompleteness.filter((row) => row.is_present).length / unitCompleteness.length) * 100)
-        : 100;
-      const inService = unitServices.some((row) => row.status === 'scheduled');
-      const isRented = unitRentals.some((row) => activeStatuses.has(row.status));
-      const status = unitDamages.length > 0 && unitDamages.some((row) => row.severity === 'high')
-        ? 'attention'
-        : inService ? 'service' : isRented ? 'rented' : 'available';
-      const sortedServices = unitServices
-        .map((row) => row.service_date)
-        .filter(Boolean)
-        .sort()
-        .reverse();
-      return {
-        id: car.id,
-        name: car.name,
-        brand: car.brand,
-        model: car.model,
-        year: car.year,
-        plate_number: car.plate_number,
-        status,
-        service_count: unitServices.length,
-        open_damages: unitDamages.length,
-        completeness: completenessScore,
-        last_service: sortedServices[0] ?? null,
-      };
-    });
-    const monthLabels = ['Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov'];
-    const activity = monthLabels.map((label, index) => {
-      const month = String(index + 6).padStart(2, '0');
-      const value = services.filter((row) => typeof row.service_date === 'string' && row.service_date.slice(5, 7) === month).length;
-      return { label, value };
-    });
-    return { updated_at: new Date().toISOString(), units, activity };
+async function getDashboard(env, request) {
+  const requestUrl = new URL(request.url);
+  const startDate = /^\d{4}-\d{2}-\d{2}$/.test(requestUrl.searchParams.get('start') ?? '') ? requestUrl.searchParams.get('start') : null;
+  const endDate = /^\d{4}-\d{2}-\d{2}$/.test(requestUrl.searchParams.get('end') ?? '') ? requestUrl.searchParams.get('end') : null;
+  const selectedUnit = requestUrl.searchParams.get('unit') || null;
+  const baseUrl = env.SUPABASE_URL.replace(/\/$/, '');
+  const tables = [
+    ['cars', 'id,name,brand,model,year,plate_number,created_at'],
+    ['rental_records', 'id,car_id,renter_name,start_date,end_date,purpose,status,total_cost,created_at'],
+    ['service_records', 'id,car_id,service_date,service_type,description,cost,status,created_at'],
+    ['daily_notes', 'id,car_id,note_date,name,section,content,start_date,end_date,created_at'],
+    ['vehicle_inspections', 'id,car_id,inspection_date,status,mileage,inspector_name,created_at'],
+    ['damages', 'id,car_id,reported_date,description,severity,status,created_at'],
+    ['completeness_items', 'car_id,is_present'],
+  ];
+  const responses = await Promise.all(tables.map(async ([table, select]) => {
+    const url = new URL(`${baseUrl}/rest/v1/${table}`);
+    url.searchParams.set('select', select);
+    const response = await fetch(url, { headers: serviceHeaders(env) });
+    const rows = await response.json().catch(() => null);
+    if (!response.ok || !Array.isArray(rows)) throw new Error(`Dashboard data query failed for ${table}.`);
+    return rows;
+  }));
+  const [cars, rentals, services, notes, inspections, damages, completeness] = responses;
+  const inRange = (value) => (!startDate || value >= startDate) && (!endDate || value <= endDate);
+  const visibleCars = cars.filter((car) => !selectedUnit || car.id === selectedUnit);
+  const visibleIds = new Set(visibleCars.map((car) => car.id));
+  const filtered = (rows, field) => rows.filter((row) => visibleIds.has(row.car_id) && inRange(row[field]));
+  const filteredRentals = filtered(rentals, 'start_date');
+  const filteredServices = filtered(services, 'service_date');
+  const filteredNotes = filtered(notes, 'note_date');
+  const filteredInspections = filtered(inspections, 'inspection_date');
+  const filteredDamages = filtered(damages, 'reported_date');
+  const activeStatuses = new Set(['active', 'approved', 'overdue']);
+  const units = visibleCars.map((car) => {
+    const unitServices = filteredServices.filter((row) => row.car_id === car.id);
+    const unitRentals = filteredRentals.filter((row) => row.car_id === car.id);
+    const unitDamages = filteredDamages.filter((row) => row.car_id === car.id && row.status !== 'fixed');
+    const unitCompleteness = completeness.filter((row) => row.car_id === car.id);
+    const completenessScore = unitCompleteness.length
+      ? Math.round((unitCompleteness.filter((row) => row.is_present).length / unitCompleteness.length) * 100) : 100;
+    const inService = unitServices.some((row) => row.status === 'scheduled');
+    const isRented = unitRentals.some((row) => activeStatuses.has(row.status));
+    const status = unitDamages.some((row) => row.severity === 'high') ? 'attention' : inService ? 'service' : isRented ? 'rented' : 'available';
+    return {
+      id: car.id, name: car.name, brand: car.brand, model: car.model, year: car.year, plate_number: car.plate_number, status,
+      service_count: unitServices.length, open_damages: unitDamages.length, completeness: completenessScore,
+      last_service: unitServices.map((row) => row.service_date).filter(Boolean).sort().reverse()[0] ?? null,
+    };
+  });
+  const histories = [
+    ...filteredServices.map((row) => ({ id: row.id, type: 'service', date: row.service_date, unit_id: row.car_id, title: row.service_type || 'Service unit', detail: row.description || row.status, amount: row.cost ?? null })),
+    ...filteredRentals.map((row) => ({ id: row.id, type: 'rental', date: row.start_date, unit_id: row.car_id, title: `Peminjaman oleh ${row.renter_name || '-'}`, detail: row.purpose || row.status, amount: row.total_cost ?? null })),
+    ...filteredInspections.map((row) => ({ id: row.id, type: 'inspection', date: row.inspection_date, unit_id: row.car_id, title: 'Investigasi / inspeksi unit', detail: `${row.status} · ${row.inspector_name || '-'}`, amount: null })),
+    ...filteredNotes.map((row) => ({ id: row.id, type: 'transport', date: row.note_date, unit_id: row.car_id, title: row.name || 'Catatan transportasi', detail: row.section || row.content || '-', amount: null })),
+    ...filteredDamages.map((row) => ({ id: row.id, type: 'damage', date: row.reported_date, unit_id: row.car_id, title: 'Laporan kerusakan', detail: `${row.severity} · ${row.status}`, amount: null })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+  const dateKeys = [...new Set(histories.map((item) => item.date.slice(0, 7)))].sort().slice(-6);
+  const activity = dateKeys.map((key) => ({
+    label: key.slice(5) + '/' + key.slice(2, 4),
+    service: histories.filter((item) => item.type === 'service' && item.date.startsWith(key)).length,
+    rental: histories.filter((item) => item.type === 'rental' && item.date.startsWith(key)).length,
+    inspection: histories.filter((item) => item.type === 'inspection' && item.date.startsWith(key)).length,
+    transport: histories.filter((item) => item.type === 'transport' && item.date.startsWith(key)).length,
+    damage: histories.filter((item) => item.type === 'damage' && item.date.startsWith(key)).length,
+  }));
+  return {
+    updated_at: new Date().toISOString(),
+    units,
+    unit_options: cars.map((car) => ({ id: car.id, name: car.name, brand: car.brand, model: car.model, year: car.year, plate_number: car.plate_number })),
+    histories,
+    activity,
+    totals: { service: filteredServices.length, rental: filteredRentals.length, inspection: filteredInspections.length, transport: filteredNotes.length, damage: filteredDamages.length },
+  };
 }
 
 async function proxyQuery(env, user, body) {
@@ -823,7 +839,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     if (url.pathname === '/api/dashboard' && request.method === 'GET') {
       try {
-        return Response.json(await getDashboard(env), { status: 200, headers });
+        return Response.json(await getDashboard(env, request), { status: 200, headers });
       } catch (error) {
         console.error('Dashboard data query failed:', error);
         return Response.json({ error: 'Dashboard data is temporarily unavailable.' }, { status: 503, headers });
