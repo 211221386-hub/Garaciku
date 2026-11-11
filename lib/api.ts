@@ -143,8 +143,20 @@ class ApiClient {
     },
     getStatuses: async (carIds: string[]) => {
       if (!carIds.length) return {};
-      const [cars, rentals, services] = await Promise.all([
-        unwrap<Pick<Car, 'id' | 'operational_status'>[]>(supabase.from('cars').select('id, operational_status').in('id', carIds)),
+      let cars: Pick<Car, 'id' | 'operational_status'>[];
+      try {
+        cars = await unwrap<Pick<Car, 'id' | 'operational_status'>[]>(
+          supabase.from('cars').select('id, operational_status').in('id', carIds)
+        );
+      } catch (error) {
+        console.warn('Kolom operational_status belum tersedia; unit dianggap Ready sampai migration dijalankan.', error);
+        const legacyCars = await unwrap<{ id: string }[]>(
+          supabase.from('cars').select('id').in('id', carIds)
+        );
+        cars = legacyCars.map((car) => ({ ...car, operational_status: 'ready' as const }));
+      }
+
+      const [rentals, services] = await Promise.all([
         unwrap<Pick<RentalRecord, 'car_id' | 'status' | 'renter_name' | 'end_date' | 'end_time'>[]>(
           supabase.from('rental_records').select('car_id,status,renter_name,end_date,end_time').in('status', ['active', 'approved', 'overdue']).in('car_id', carIds)
         ),
