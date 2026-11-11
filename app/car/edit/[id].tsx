@@ -17,6 +17,7 @@ export default function EditCarScreen() {
   const [plate, setPlate] = useState('');
   const [color, setColor] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
+  const [underMaintenance, setUnderMaintenance] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -35,6 +36,7 @@ export default function EditCarScreen() {
         setPlate(data.plate_number);
         setColor(data.color);
         setPhotoUrl(data.photo_url ?? '');
+        setUnderMaintenance(data.operational_status === 'under_maintenance');
       }
       setLoading(false);
     })();
@@ -56,6 +58,7 @@ export default function EditCarScreen() {
         color: color.trim(),
         photo_url: photoUrl.trim() || null,
       });
+      await apiClient.cars.setMaintenanceStatus(id, underMaintenance);
       router.back();
     } catch (error) {
       Alert.alert('Gagal menyimpan', error instanceof Error ? error.message : 'Terjadi kesalahan.');
@@ -89,6 +92,15 @@ export default function EditCarScreen() {
         <Field label="Plat Nomor" value={plate} onChangeText={setPlate} placeholder="B 1234 ABC" />
         <Field label="Warna" value={color} onChangeText={setColor} placeholder="Hitam" />
         <Field label="URL Gambar Mobil" value={photoUrl} onChangeText={setPhotoUrl} placeholder="https://contoh.com/mobil.jpg" />
+        <Text style={styles.sectionLabel}>Status Unit</Text>
+        <View style={styles.statusOptions}>
+          <TouchableOpacity style={[styles.statusOption, !underMaintenance && styles.statusOptionActive]} onPress={() => setUnderMaintenance(false)}>
+            <Text style={[styles.statusOptionText, !underMaintenance && styles.statusOptionTextActive]}>Ready</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.statusOption, underMaintenance && styles.statusOptionActive]} onPress={() => setUnderMaintenance(true)}>
+            <Text style={[styles.statusOptionText, underMaintenance && styles.statusOptionTextActive]}>Under Maintenance</Text>
+          </TouchableOpacity>
+        </View>
         <View style={{ height: Spacing.md }} />
         <Button label="Simpan Perubahan" onPress={save} loading={saving} />
       </ScrollView>
@@ -133,4 +145,22 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     paddingBottom: Spacing.xxl,
   },
+  sectionLabel: {
+    fontSize: Typography.sm,
+    fontFamily: Typography.fontMedium,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  statusOptions: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md },
+  statusOption: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    paddingVertical: Spacing.sm,
+    alignItems: 'center',
+  },
+  statusOptionActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  statusOptionText: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary },
+  statusOptionTextActive: { color: Colors.white },
 });

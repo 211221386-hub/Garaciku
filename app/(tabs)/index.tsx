@@ -4,26 +4,24 @@ import { router, useFocusEffect } from 'expo-router';
 import { Car as CarIcon, Plus, RefreshCw } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
-import type { Car } from '@/lib/types';
+import type { Car, CarStatusInfo } from '@/lib/types';
 import { CarCard } from '@/components/CarCard';
 import { EmptyState } from '@/components/EmptyState';
 import { getSession } from '@/lib/auth';
 
 export default function CarsScreen() {
   const [cars, setCars] = useState<Car[]>([]);
-  const [currentlyRentedCarIds, setCurrentlyRentedCarIds] = useState<string[]>([]);
+  const [carStatuses, setCarStatuses] = useState<Record<string, CarStatusInfo>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const isRestrictedRole = ![1, 2].includes(getSession()?.user.role ?? 4);
 
   const fetchCars = useCallback(async () => {
     try {
-      const [data, rentedIds] = await Promise.all([
-        apiClient.cars.getAll(),
-        apiClient.rentals.getCurrentlyRentedCarIds(),
-      ]);
+      const data = await apiClient.cars.getAll();
+      const statuses = await apiClient.cars.getStatuses(data.map((car) => car.id));
       setCars(data);
-      setCurrentlyRentedCarIds(rentedIds);
+      setCarStatuses(statuses);
     } catch (error) {
       console.error('Error fetching cars:', error);
     }
@@ -63,14 +61,15 @@ export default function CarsScreen() {
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} />}
         renderItem={({ item }) => {
-          const isCurrentlyRented = currentlyRentedCarIds.includes(item.id);
-          const unavailableToUser = isCurrentlyRented;
+          const carStatus = carStatuses[item.id] ?? { status: 'Ready' as const, renter_name: null };
+          const unavailableToUser = ['Booked', 'Delay', 'Under Maintenance'].includes(carStatus.status);
           return (
             <CarCard
               car={item}
               onPress={() => router.push(`/car/${item.id}`)}
               disabled={unavailableToUser}
-              statusLabel={isCurrentlyRented ? 'Booked' : 'Ready'}
+              statusLabel={carStatus.status}
+              statusDetail={carStatus.renter_name ? `Peminjam: ${carStatus.renter_name}` : null}
             />
           );
         }}

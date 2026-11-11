@@ -22,7 +22,15 @@ export type Car = {
   plate_number: string;
   color: string;
   photo_url: string | null;
+  operational_status: 'ready' | 'under_maintenance';
   created_at: string;
+};
+
+export type CarDisplayStatus = 'Ready' | 'Booked' | 'Under Maintenance' | 'Time to Service' | 'Delay';
+
+export type CarStatusInfo = {
+  status: CarDisplayStatus;
+  renter_name: string | null;
 };
 
 export type DailyNote = {

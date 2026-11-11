@@ -1,6 +1,6 @@
 import { supabase, workerApiUrl } from '@/lib/supabase';
 import type { AppUser, Car, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStatus, ServiceRecord, VehicleInspection, VehicleInspectionItem, VehicleInspectionPhoto } from '@/lib/types';
-import { getRentalStatus, todayISO } from '@/lib/format';
+import { addDaysToISO, getRentalStatus, todayISO } from '@/lib/format';
 import { getSession } from '@/lib/auth';
 
 export type LoginResult = {
@@ -131,6 +131,52 @@ class ApiClient {
       const session = getSession();
       if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya role 1 atau 2 yang dapat mengubah data mobil.');
       return unwrap<Car>(supabase.from('cars').update(data).eq('id', id).select().single());
+    },
+    setMaintenanceStatus: (id: string, underMaintenance: boolean) => {
+      const session = getSession();
+      if (!session || ![1, 2].includes(session.user.role)) {
+        throw new Error('Hanya role 1 atau 2 yang dapat mengubah status perawatan unit.');
+      }
+      return unwrap<Car>(supabase.from('cars').update({
+        operational_status: underMaintenance ? 'under_maintenance' : 'ready',
+      }).eq('id', id).select().single());
+    },
+    getStatuses: async (carIds: string[]) => {
+      if (!carIds.length) return {};
+      const [cars, rentals, services] = await Promise.all([
+        unwrap<Pick<Car, 'id' | 'operational_status'>[]>(supabase.from('cars').select('id, operational_status').in('id', carIds)),
+        unwrap<Pick<RentalRecord, 'car_id' | 'status' | 'renter_name' | 'end_date' | 'end_time'>[]>(
+          supabase.from('rental_records').select('car_id,status,renter_name,end_date,end_time').in('status', ['active', 'approved', 'overdue']).in('car_id', carIds)
+        ),
+        unwrap<Pick<ServiceRecord, 'car_id' | 'next_service_date' | 'reminder_enabled' | 'status' | 'is_recurring'>[]>(
+          supabase.from('service_records').select('car_id,next_service_date,reminder_enabled,status,is_recurring').eq('status', 'scheduled').eq('reminder_enabled', true).in('car_id', carIds)
+        ),
+      ]);
+      const today = todayISO();
+      const result: Record<string, { status: 'Ready' | 'Booked' | 'Under Maintenance' | 'Time to Service' | 'Delay'; renter_name: string | null }> = {};
+
+      for (const car of cars) {
+        const carRentals = rentals.filter((rental) => rental.car_id === car.id)
+          .map((rental) => ({ ...rental, status: getRentalStatus(rental.status, rental.end_date, rental.end_time) }));
+        const delayedRental = carRentals.find((rental) => rental.status === 'overdue');
+        const bookedRental = carRentals.find((rental) => rental.status === 'active' || rental.status === 'approved');
+        const hasServiceDue = services.some((service) => service.car_id === car.id
+          && service.next_service_date !== null
+          && today >= addDaysToISO(service.next_service_date, service.is_recurring ? -7 : -2));
+
+        if (car.operational_status === 'under_maintenance') {
+          result[car.id] = { status: 'Under Maintenance', renter_name: null };
+        } else if (delayedRental) {
+          result[car.id] = { status: 'Delay', renter_name: delayedRental.renter_name };
+        } else if (bookedRental) {
+          result[car.id] = { status: 'Booked', renter_name: null };
+        } else if (hasServiceDue) {
+          result[car.id] = { status: 'Time to Service', renter_name: null };
+        } else {
+          result[car.id] = { status: 'Ready', renter_name: null };
+        }
+      }
+      return result;
     },
     delete: async (id: string) => {
       const session = getSession();

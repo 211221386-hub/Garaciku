@@ -8,9 +8,18 @@ type Props = {
   onPress: () => void;
   disabled?: boolean;
   statusLabel?: string;
+  statusDetail?: string | null;
 };
 
-export function CarCard({ car, onPress, disabled = false, statusLabel }: Props) {
+function getStatusStyle(statusLabel?: string) {
+  if (statusLabel === 'Booked') return styles.bookedBadge;
+  if (statusLabel === 'Under Maintenance') return styles.maintenanceBadge;
+  if (statusLabel === 'Time to Service') return styles.serviceBadge;
+  if (statusLabel === 'Delay') return styles.delayBadge;
+  return styles.readyBadge;
+}
+
+export function CarCard({ car, onPress, disabled = false, statusLabel, statusDetail }: Props) {
   return (
     <TouchableOpacity onPress={onPress} style={[styles.card, disabled && styles.disabledCard]} activeOpacity={0.9} disabled={disabled}>
       <View style={styles.imageWrap}>
@@ -30,11 +39,14 @@ export function CarCard({ car, onPress, disabled = false, statusLabel }: Props) 
           <View style={[styles.plate, disabled && styles.disabledPlate]}>
             <Text style={[styles.plateText, disabled && styles.disabledText]}>{car.plate_number}</Text>
           </View>
-          {statusLabel ? (
-            <View style={[styles.statusBadge, statusLabel === 'Booked' ? styles.bookedBadge : styles.readyBadge]}>
-              <Text style={styles.statusText}>{statusLabel}</Text>
+          {statusLabel && (
+            <View style={styles.statusGroup}>
+              <View style={[styles.statusBadge, getStatusStyle(statusLabel)]}>
+                <Text style={styles.statusText}>{statusLabel}</Text>
+              </View>
+              {statusDetail ? <Text style={styles.statusDetail} numberOfLines={1}>{statusDetail}</Text> : null}
             </View>
-          ) : null}
+          )}
           </View>
         ) : null}
       </View>
@@ -64,9 +76,14 @@ const styles = StyleSheet.create({
   favorite: { position: 'absolute', right: 8, top: 8, width: 28, height: 28, borderRadius: Radius.pill, backgroundColor: 'rgba(255,255,255,0.9)', alignItems: 'center', justifyContent: 'center' },
   favoriteText: { fontSize: 20, color: Colors.textSecondary, lineHeight: 22 },
   statusBadge: { borderRadius: Radius.sm, paddingHorizontal: 7, paddingVertical: 2, alignItems: 'center' },
+  statusGroup: { flexShrink: 1, gap: 1 },
   bookedBadge: { backgroundColor: 'rgba(45, 55, 60, 0.88)' },
   readyBadge: { backgroundColor: 'rgba(22, 163, 74, 0.9)' },
+  maintenanceBadge: { backgroundColor: 'rgba(107, 114, 128, 0.95)' },
+  serviceBadge: { backgroundColor: 'rgba(245, 158, 11, 0.95)' },
+  delayBadge: { backgroundColor: 'rgba(220, 38, 38, 0.92)' },
   statusText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.white, textAlign: 'center' },
+  statusDetail: { maxWidth: 105, fontSize: Typography.xs, fontFamily: Typography.fontMedium, color: Colors.textSecondary },
   plateRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
   info: { padding: Spacing.sm },
   name: {
