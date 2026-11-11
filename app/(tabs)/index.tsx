@@ -19,14 +19,23 @@ export default function CarsScreen() {
   const fetchCars = useCallback(async () => {
     try {
       const data = await apiClient.cars.getAll();
-      const statuses = await apiClient.cars.getStatuses(data.map((car) => car.id));
       setCars(data);
-      setCarStatuses(statuses);
+      setLoading(false);
+
+      try {
+        const statuses = await apiClient.cars.getStatuses(data.map((car) => car.id));
+        setCarStatuses(statuses);
+      } catch (statusError) {
+        console.warn('Gagal memuat status mobil; unit ditampilkan sebagai Ready.', statusError);
+        setCarStatuses({});
+      }
     } catch (error) {
       console.error('Error fetching cars:', error);
+      setCars([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-    setLoading(false);
-    setRefreshing(false);
   }, []);
 
   useFocusEffect(
