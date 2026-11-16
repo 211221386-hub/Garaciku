@@ -4,7 +4,7 @@
     "slug": "Garaciku",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/icon-investigasi-mobil-hijau@4x.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -14,7 +14,7 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/images/icon-investigasi-mobil-hijau@4x.png"
+      "favicon": "./assets/images/Car Inspection Shield Icon.png"
     },
     "plugins": [
       "expo-router",
