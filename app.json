@@ -14,7 +14,7 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/images/icon-investigasi-mobil.png"
+      "favicon": "./assets/images/icon-investigasi-mobil-hijau@4x.png"
     },
     "plugins": [
       "expo-router",
