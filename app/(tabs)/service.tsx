@@ -76,7 +76,6 @@ export default function RentalScreen() {
     phone: getSession()?.user.phone ?? '',
   }));
   const [duplicateForm, setDuplicateForm] = useState({
-    name: '',
     section: '',
     start_date: '',
     start_time: '',
@@ -150,7 +149,7 @@ export default function RentalScreen() {
   const resetFormState = () => {
     setForm({ car_id: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
     setSelectedCarIds([]);
-    setDuplicateForm({ name: '', section: '', start_date: '', start_time: '', end_date: '', end_time: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '' });
+    setDuplicateForm({ section: '', start_date: '', start_time: '', end_date: '', end_time: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '' });
     setRecordKind('rental');
   };
 
@@ -205,7 +204,6 @@ export default function RentalScreen() {
         }
         await apiClient.notes.create({
           car_id: form.car_id,
-          name: recorderName,
           section: duplicateForm.section.trim(),
           note_date: duplicateForm.start_date,
           start_date: duplicateForm.start_date,

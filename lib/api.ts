@@ -341,7 +341,7 @@ class ApiClient {
 
       const payload = {
         ...data,
-        name: typeof data.name === 'string' ? data.name.trim() : '',
+        created_name: typeof session?.user.full_name === 'string' ? session.user.full_name.trim() : '',
         section: typeof data.section === 'string' ? data.section.trim() : '',
         content: typeof data.content === 'string' ? data.content.trim() : '',
         detail: typeof data.detail === 'string' ? data.detail.trim() : '',
@@ -355,7 +355,7 @@ class ApiClient {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         if (message.includes('column') && message.includes('does not exist')) {
-          throw new Error('Skema tabel daily_notes belum diperbarui. Jalankan migration daily_notes supaya kolom name, section, start_date, start_time, end_date, end_time, start_km, end_km, start_fuel, end_fuel, dan detail tersedia.');
+          throw new Error('Skema tabel daily_notes belum diperbarui. Jalankan migration daily_notes supaya kolom created_name, section, start_date, start_time, end_date, end_time, start_km, end_km, start_fuel, end_fuel, detail, dan status tersedia.');
         }
         throw error;
       }
@@ -370,10 +370,23 @@ class ApiClient {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         if (message.includes('column') && message.includes('does not exist')) {
-          throw new Error('Skema tabel daily_notes belum diperbarui. Jalankan migration daily_notes supaya kolom name, section, start_date, start_time, end_date, end_time, start_km, end_km, start_fuel, end_fuel, dan detail tersedia.');
+          throw new Error('Skema tabel daily_notes belum diperbarui. Jalankan migration daily_notes supaya kolom created_name, section, start_date, start_time, end_date, end_time, start_km, end_km, start_fuel, end_fuel, detail, dan status tersedia.');
         }
         throw error;
       }
+    },
+    confirmReturn: async (id: string) => {
+      const session = getSession();
+      if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya Role 1 atau 2 yang dapat mengonfirmasi pengembalian unit.');
+      const response = await fetch(workerApiUrl('/api/daily-notes/confirm-return'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ note_id: id }),
+      });
+      const result = await response.json().catch(() => null) as { data?: DailyNote; error?: string } | null;
+      if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
+      if (!result?.data) throw new Error('Worker mengembalikan data catatan yang tidak valid.');
+      return result.data;
     },
     delete: async (id: string) => {
       const session = getSession();

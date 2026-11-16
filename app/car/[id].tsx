@@ -137,7 +137,7 @@ export default function CarDetailScreen() {
   // Sheet state
   const [noteSheet, setNoteSheet] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
-  const [newNote, setNewNote] = useState({ name: '', section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '' });
+  const [newNote, setNewNote] = useState({ section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '' });
   const [completenessSheet, setCompletenessSheet] = useState(false);
   const [newItem, setNewItem] = useState('');
   const [newReminderType, setNewReminderType] = useState<CompletenessReminderType>('general');
@@ -147,6 +147,7 @@ export default function CarDetailScreen() {
   const [newDamage, setNewDamage] = useState({ description: '', severity: 'low' as DamageSeverity });
   const [rentalSheet, setRentalSheet] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [returningNoteId, setReturningNoteId] = useState<string | null>(null);
   const [newRental, setNewRental] = useState({
     start_date: '',
     end_date: '',
@@ -316,7 +317,7 @@ export default function CarDetailScreen() {
   // --- Notes CRUD ---
   const addNote = async () => {
     if (submitting) return;
-    if (!newNote.name.trim() || !newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.start_km || !newNote.end_km || !newNote.start_fuel || !newNote.end_fuel || !newNote.content.trim()) {
+    if (!newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.start_km || !newNote.end_km || !newNote.start_fuel || !newNote.end_fuel || !newNote.content.trim()) {
       Alert.alert('Data belum lengkap', 'Isi semua field catatan sebelum menyimpan.');
       return;
     }
@@ -346,7 +347,6 @@ export default function CarDetailScreen() {
     try {
       const noteData = {
         car_id: id,
-        name: newNote.name.trim(),
         section: newNote.section.trim(),
         note_date: newNote.start_date,
         start_date: newNote.start_date,
@@ -361,7 +361,7 @@ export default function CarDetailScreen() {
       if (editingNoteId) await apiClient.notes.update(editingNoteId, noteData);
       else await apiClient.notes.create(noteData);
       setEditingNoteId(null);
-      setNewNote({ name: '', section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '' });
+      setNewNote({ section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '' });
       setNoteSheet(false);
       await fetchAll();
     } catch (error) { Alert.alert('Gagal menyimpan catatan', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
@@ -373,10 +373,22 @@ export default function CarDetailScreen() {
     catch (error) { Alert.alert('Gagal menghapus catatan', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
   };
 
+  const confirmNoteReturn = async (note: DailyNote) => {
+    if (returningNoteId || note.status !== 'active') return;
+    setReturningNoteId(note.id);
+    try {
+      await apiClient.notes.confirmReturn(note.id);
+      await fetchAll();
+    } catch (error) {
+      Alert.alert('Gagal mengonfirmasi pengembalian', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+    } finally {
+      setReturningNoteId(null);
+    }
+  };
+
   const editNote = (note: DailyNote) => {
     setEditingNoteId(note.id);
     setNewNote({
-      name: note.name ?? '',
       section: note.section ?? '',
       start_date: note.start_date || note.note_date,
       end_date: note.end_date || note.note_date,
@@ -660,15 +672,23 @@ export default function CarDetailScreen() {
                       ) : null}
                     </View>
                   </View>
-                  <Text style={styles.cardTitle}>{note.name || 'Catatan lama'}</Text>
+                  <Text style={styles.cardTitle}>{note.content || 'Catatan Investigation'}</Text>
+                  <Text style={styles.metaText}>Dibuat oleh: {note.created_name || 'Catatan lama'}</Text>
                   {note.section ? <Text style={styles.metaText}>Section: {note.section}</Text> : null}
+                  <View style={[styles.statusPill, { backgroundColor: note.status === 'completed' ? Colors.primaryLight : '#FEF3C7', alignSelf: 'flex-start', marginTop: Spacing.xs }]}>
+                    <Text style={[styles.statusText, { color: note.status === 'completed' ? Colors.primary : '#92400E' }]}>{note.status === 'completed' ? 'Dikembalikan' : 'Menunggu konfirmasi pengembalian'}</Text>
+                  </View>
                   <View style={styles.serviceMeta}>
                     <Text style={styles.metaText}>Tanggal: {formatDate(note.start_date || note.note_date)} {note.start_time?.slice(0, 5) || ''} - {formatDate(note.end_date || note.note_date)} {note.end_time?.slice(0, 5) || ''}</Text>
                   </View>
                   {note.start_km !== null && note.end_km !== null ? <Text style={styles.metaText}>KM: {note.start_km.toLocaleString('id-ID')} - {note.end_km.toLocaleString('id-ID')}</Text> : null}
                   {note.start_fuel !== null && note.end_fuel !== null ? <Text style={styles.metaText}>Fuel: {note.start_fuel}% - {note.end_fuel}%</Text> : null}
                   {note.detail ? <Text style={styles.metaText}>Detail: {note.detail}</Text> : null}
-                  <Text style={styles.cardBody}>{note.content}</Text>
+                  {note.status === 'active' && [1, 2].includes(sessionRole) ? (
+                    <TouchableOpacity style={[styles.returnButton, returningNoteId === note.id && styles.actionDisabled]} onPress={() => { void confirmNoteReturn(note); }} disabled={returningNoteId === note.id}>
+                      <Text style={styles.returnButtonText}>{returningNoteId === note.id ? 'Memproses...' : 'Unit sudah diterima'}</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               ))
             )}
@@ -928,7 +948,6 @@ export default function CarDetailScreen() {
 
       {/* Note Sheet */}
       <Sheet visible={noteSheet} onClose={() => { setNoteSheet(false); setEditingNoteId(null); }} title={editingNoteId ? 'Ubah Investigation' : 'Investigation Baru'}>
-        <Field label="Nama*" value={newNote.name} onChangeText={(value) => setNewNote({ ...newNote, name: value })} placeholder="Nama petugas atau pencatat" />
         <Field label="Section*" value={newNote.section} onChangeText={(value) => setNewNote({ ...newNote, section: value })} placeholder="Section" />
         <DateField label="Tanggal Mulai*" value={newNote.start_date} onChange={(value) => setNewNote({ ...newNote, start_date: value })} />
         <DateField label="Tanggal Selesai*" value={newNote.end_date} onChange={(value) => setNewNote({ ...newNote, end_date: value })} minimumDate={newNote.start_date ? new Date(`${newNote.start_date}T00:00:00`) : undefined} />
@@ -944,7 +963,7 @@ export default function CarDetailScreen() {
           multiline
         />
         <Field label="Detail" value={newNote.detail} onChangeText={(value) => setNewNote({ ...newNote, detail: value })} placeholder="Detail atau keterangan tambahan..." multiline />
-        <Button label={editingNoteId ? 'Simpan Perubahan' : 'Simpan Catatan'} onPress={addNote} loading={submitting} disabled={!newNote.name.trim() || !newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.start_km || !newNote.end_km || !newNote.start_fuel || !newNote.end_fuel || !newNote.content.trim()} />
+        <Button label={editingNoteId ? 'Simpan Perubahan' : 'Simpan Catatan'} onPress={addNote} loading={submitting} disabled={!newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.start_km || !newNote.end_km || !newNote.start_fuel || !newNote.end_fuel || !newNote.content.trim()} />
       </Sheet>
 
       {/* Completeness Sheet */}
@@ -1416,6 +1435,9 @@ const styles = StyleSheet.create({
     fontSize: Typography.xs,
     fontFamily: Typography.fontSemiBold,
   },
+  returnButton: { alignSelf: 'flex-start', marginTop: Spacing.sm, backgroundColor: Colors.primary, borderRadius: Radius.md, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.sm },
+  returnButtonText: { color: Colors.white, fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
+  actionDisabled: { opacity: 0.6 },
   statusAction: {
     alignSelf: 'flex-start',
     marginTop: Spacing.xs,

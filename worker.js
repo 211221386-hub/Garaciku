@@ -14,7 +14,7 @@ const TABLES = new Set([
 const COLUMNS = {
   users: new Set(['id', 'username', 'full_name', 'email', 'phone', 'role', 'is_active', 'must_reset_password', 'created_at']),
   cars: new Set(['id', 'name', 'brand', 'model', 'year', 'plate_number', 'color', 'photo_url', 'periodic_service_start_date', 'created_at']),
-  daily_notes: new Set(['id', 'car_id', 'name', 'section', 'note_date', 'start_date', 'end_date', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'detail', 'created_at']),
+  daily_notes: new Set(['id', 'car_id', 'created_name', 'section', 'note_date', 'start_date', 'end_date', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'detail', 'status', 'return_confirmed_by', 'return_confirmed_at', 'created_at']),
   completeness_items: new Set(['id', 'car_id', 'name', 'is_present', 'reminder_type', 'next_due_date', 'created_at']),
   damages: new Set(['id', 'car_id', 'description', 'severity', 'status', 'reported_date', 'resolved_date', 'created_at']),
   service_records: new Set(['id', 'car_id', 'service_date', 'service_type', 'description', 'cost', 'mileage', 'workshop', 'status', 'next_service_date', 'next_service_mileage', 'reminder_enabled', 'is_recurring', 'reminder_interval_months', 'reminder_interval_mileage', 'created_name', 'created_at']),
@@ -199,7 +199,7 @@ async function getDashboard(env, request) {
     ['cars', 'id,name,brand,model,year,plate_number,created_at'],
     ['rental_records', 'id,car_id,renter_name,start_date,end_date,purpose,status,total_cost,created_at'],
     ['service_records', 'id,car_id,service_date,service_type,description,cost,status,created_name,created_at'],
-    ['daily_notes', 'id,car_id,note_date,name,section,content,detail,start_date,end_date,created_at'],
+    ['daily_notes', 'id,car_id,note_date,created_name,section,content,detail,status,start_date,end_date,created_at'],
     ['vehicle_inspections', 'id,car_id,inspection_date,status,mileage,inspector_name,created_at'],
     ['damages', 'id,car_id,reported_date,description,severity,status,created_at'],
     ['completeness_items', 'car_id,is_present'],
@@ -243,7 +243,7 @@ async function getDashboard(env, request) {
     ...filteredServices.map((row) => ({ id: row.id, type: 'service', date: row.service_date, unit_id: row.car_id, title: row.service_type || 'Service unit', detail: row.description || row.status, created_name: row.created_name || '', amount: row.cost ?? null })),
     ...filteredRentals.map((row) => ({ id: row.id, type: 'rental', date: row.start_date, unit_id: row.car_id, title: `Peminjaman oleh ${row.renter_name || '-'}`, detail: row.purpose || row.status, created_name: '', amount: row.total_cost ?? null })),
     ...filteredInspections.map((row) => ({ id: row.id, type: 'inspection', date: row.inspection_date, unit_id: row.car_id, title: 'Investigasi / inspeksi unit', detail: `${row.status} · ${row.inspector_name || '-'}`, created_name: '', amount: null })),
-    ...filteredNotes.map((row) => ({ id: row.id, type: 'transport', date: row.note_date, unit_id: row.car_id, title: row.name || 'Catatan transportasi', detail: row.detail || row.content || row.section || '-', created_name: '', amount: null })),
+    ...filteredNotes.map((row) => ({ id: row.id, type: 'transport', date: row.note_date, unit_id: row.car_id, title: row.content || 'Catatan transportasi', detail: row.detail || row.section || row.status || '-', created_name: row.created_name || '', amount: null })),
     ...filteredDamages.map((row) => ({ id: row.id, type: 'damage', date: row.reported_date, unit_id: row.car_id, title: 'Laporan kerusakan', detail: `${row.severity} · ${row.status}`, created_name: '', amount: null })),
   ].sort((a, b) => b.date.localeCompare(a.date));
   const dateKeys = [...new Set(histories.map((item) => item.date.slice(0, 7)))].sort().slice(-6);
@@ -323,6 +323,26 @@ async function proxyMutation(env, user, body) {
     for (const record of records) {
       if (operation === 'insert' || record.status === 'completed') record.created_name = createdName;
       else delete record.created_name;
+    }
+  }
+  if (table === 'daily_notes' && operation !== 'delete') {
+    const records = Array.isArray(values) ? values : [values];
+    if (operation === 'insert') {
+      const createdName = typeof user.full_name === 'string' ? user.full_name.trim() : '';
+      if (!createdName) return { status: 400, error: 'Nama user belum tersedia pada profil akun.' };
+      for (const record of records) {
+        record.created_name = createdName;
+        record.status = 'active';
+        delete record.return_confirmed_by;
+        delete record.return_confirmed_at;
+      }
+    } else {
+      for (const record of records) {
+        delete record.created_name;
+        delete record.status;
+        delete record.return_confirmed_by;
+        delete record.return_confirmed_at;
+      }
     }
   }
   if (table === 'vehicle_inspections' && operation === 'insert') {
@@ -668,6 +688,31 @@ async function confirmRentalReturn(request, env, user) {
   return { status: 200, data: result };
 }
 
+async function confirmDailyNoteReturn(request, env, user) {
+  if (![1, 2].includes(user.role)) return { status: 403, error: 'Hanya Role 1 atau 2 yang dapat mengonfirmasi pengembalian unit.' };
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return { status: 400, error: 'Invalid JSON body.' };
+  }
+
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!body || typeof body.note_id !== 'string' || !uuidPattern.test(body.note_id)) {
+    return { status: 400, error: 'ID catatan tidak valid.' };
+  }
+
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/confirm_daily_note_return`, {
+    method: 'POST',
+    headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ _note_id: body.note_id, _confirmed_by: user.id, _user_role: user.role }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) return { status: 409, error: typeof result?.message === 'string' ? result.message : 'Konfirmasi pengembalian gagal.' };
+  return { status: 200, data: result };
+}
+
 async function approveRentalCycleUnit(request, env, user) {
   if (user.role !== 1) return { status: 403, error: 'Hanya Super Admin (Role 1) yang dapat menyetujui rental.' };
 
@@ -828,6 +873,7 @@ export default {
       '/api/data/delete',
       '/api/rentals/create-cycle',
       '/api/rentals/confirm-return',
+      '/api/daily-notes/confirm-return',
       '/api/rentals/approve-unit',
       '/api/inspections/approve',
       '/api/inspections/photo',
@@ -918,6 +964,16 @@ export default {
       } catch (error) {
         console.error('Rental return confirmation failed:', error);
         return Response.json({ error: 'Rental return confirmation failed.' }, { status: 503, headers });
+      }
+    }
+
+    if (url.pathname === '/api/daily-notes/confirm-return') {
+      try {
+        const result = await confirmDailyNoteReturn(request, env, user);
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Daily note return confirmation failed:', error);
+        return Response.json({ error: 'Daily note return confirmation failed.' }, { status: 503, headers });
       }
     }
 

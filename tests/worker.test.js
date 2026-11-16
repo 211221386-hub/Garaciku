@@ -410,6 +410,71 @@ test('service record names come from the authenticated creator or confirmer', as
   }
 });
 
+test('daily note creator and return status are controlled by the Worker', async () => {
+  const mock = mockFetch(1, [{ id: 'note-1' }]);
+  try {
+    const token = await login(envFor(1), mock.calls);
+    const createResponse = await worker.fetch(makeRequest('/api/data/insert', {
+      table: 'daily_notes',
+      values: {
+        car_id: 'car-1',
+        created_name: 'Spoofed Name',
+        status: 'completed',
+        return_confirmed_by: 'spoofed-user',
+        return_confirmed_at: '2026-01-01T00:00:00Z',
+      },
+      single: true,
+    }, token), envFor(1));
+    assert.equal(createResponse.status, 200);
+
+    const updateResponse = await worker.fetch(makeRequest('/api/data/update', {
+      table: 'daily_notes',
+      filters: [{ column: 'id', operator: 'eq', value: 'note-1' }],
+      values: {
+        content: 'Updated activity',
+        created_name: 'Spoofed Name',
+        status: 'completed',
+        return_confirmed_by: 'spoofed-user',
+        return_confirmed_at: '2026-01-01T00:00:00Z',
+      },
+      single: true,
+    }, token), envFor(1));
+    assert.equal(updateResponse.status, 200);
+
+    const insertCall = mock.calls.find((call) => call.url.pathname === '/rest/v1/daily_notes' && call.options.method === 'POST');
+    const updateCall = mock.calls.find((call) => call.url.pathname === '/rest/v1/daily_notes' && call.options.method === 'PATCH');
+    assert.deepEqual(JSON.parse(insertCall.options.body), {
+      car_id: 'car-1',
+      created_name: 'Test User',
+      status: 'active',
+    });
+    assert.deepEqual(JSON.parse(updateCall.options.body), { content: 'Updated activity' });
+  } finally {
+    mock.restore();
+  }
+});
+
+test('daily note return confirmation uses the authenticated admin identity', async () => {
+  const mock = mockFetch(2, [{ id: 'note-1', status: 'completed' }]);
+  try {
+    const token = await login(envFor(2), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/daily-notes/confirm-return', {
+      note_id: '11111111-1111-4111-8111-111111111111',
+      user_role: 1,
+      confirmed_by: 'spoofed-user',
+    }, token), envFor(2));
+    const rpc = mock.calls.find((call) => call.url.pathname === '/rest/v1/rpc/confirm_daily_note_return');
+    assert.equal(response.status, 200);
+    assert.deepEqual(JSON.parse(rpc.options.body), {
+      _note_id: '11111111-1111-4111-8111-111111111111',
+      _confirmed_by: profile.id,
+      _user_role: 2,
+    });
+  } finally {
+    mock.restore();
+  }
+});
+
 test('rental cycle creation uses the authenticated role and user for all selected cars', async () => {
   const rentalRows = [{ id: 'rental-1', cycle_id: 'cycle-1' }, { id: 'rental-2', cycle_id: 'cycle-1' }];
   const mock = mockFetch(3, rentalRows);

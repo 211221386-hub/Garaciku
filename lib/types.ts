@@ -36,7 +36,7 @@ export type CarStatusInfo = {
 export type DailyNote = {
   id: string;
   car_id: string;
-  name: string;
+  created_name: string;
   section: string;
   note_date: string;
   start_date: string;
@@ -49,6 +49,9 @@ export type DailyNote = {
   end_fuel: number | null;
   content: string;
   detail: string;
+  status: 'active' | 'completed';
+  return_confirmed_by: string | null;
+  return_confirmed_at: string | null;
   created_at: string;
 };
 
