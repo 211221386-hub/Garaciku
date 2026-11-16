@@ -376,6 +376,40 @@ test('rental records cannot be inserted through the generic data endpoint', asyn
   }
 });
 
+test('service record names come from the authenticated creator or confirmer', async () => {
+  const mock = mockFetch(2, [{ id: 'service-1', created_name: 'Test User' }]);
+  try {
+    const token = await login(envFor(2), mock.calls);
+    const createResponse = await worker.fetch(makeRequest('/api/data/insert', {
+      table: 'service_records',
+      values: { car_id: 'car-1', status: 'completed', created_name: 'Spoofed Name' },
+      single: true,
+    }, token), envFor(2));
+    assert.equal(createResponse.status, 200);
+
+    const confirmResponse = await worker.fetch(makeRequest('/api/data/update', {
+      table: 'service_records',
+      filters: [{ column: 'id', operator: 'eq', value: 'service-1' }],
+      values: { status: 'completed', created_name: 'Spoofed Name' },
+      single: true,
+    }, token), envFor(2));
+    assert.equal(confirmResponse.status, 200);
+
+    const mutations = mock.calls.filter((call) => call.url.pathname === '/rest/v1/service_records');
+    assert.deepEqual(JSON.parse(mutations[0].options.body), {
+      car_id: 'car-1',
+      status: 'completed',
+      created_name: 'Test User',
+    });
+    assert.deepEqual(JSON.parse(mutations[1].options.body), {
+      status: 'completed',
+      created_name: 'Test User',
+    });
+  } finally {
+    mock.restore();
+  }
+});
+
 test('rental cycle creation uses the authenticated role and user for all selected cars', async () => {
   const rentalRows = [{ id: 'rental-1', cycle_id: 'cycle-1' }, { id: 'rental-2', cycle_id: 'cycle-1' }];
   const mock = mockFetch(3, rentalRows);

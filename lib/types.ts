@@ -67,6 +67,7 @@ export type ServiceRecord = {
   is_recurring: boolean;
   reminder_interval_months: number | null;
   reminder_interval_mileage: number | null;
+  created_name: string;
   created_at: string;
 };
 
