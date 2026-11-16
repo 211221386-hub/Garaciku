@@ -344,6 +344,7 @@ class ApiClient {
         name: typeof data.name === 'string' ? data.name.trim() : '',
         section: typeof data.section === 'string' ? data.section.trim() : '',
         content: typeof data.content === 'string' ? data.content.trim() : '',
+        detail: typeof data.detail === 'string' ? data.detail.trim() : '',
         note_date: data.note_date ?? data.start_date ?? todayISO(),
         start_date: data.start_date ?? data.note_date ?? todayISO(),
         end_date: data.end_date ?? data.start_date ?? data.note_date ?? todayISO(),
@@ -354,7 +355,7 @@ class ApiClient {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         if (message.includes('column') && message.includes('does not exist')) {
-          throw new Error('Skema tabel daily_notes belum diperbarui. Jalankan migration daily_notes supaya kolom name, section, start_date, start_time, end_date, end_time, start_km, end_km, start_fuel, dan end_fuel tersedia.');
+          throw new Error('Skema tabel daily_notes belum diperbarui. Jalankan migration daily_notes supaya kolom name, section, start_date, start_time, end_date, end_time, start_km, end_km, start_fuel, end_fuel, dan detail tersedia.');
         }
         throw error;
       }
@@ -369,7 +370,7 @@ class ApiClient {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         if (message.includes('column') && message.includes('does not exist')) {
-          throw new Error('Skema tabel daily_notes belum diperbarui. Jalankan migration daily_notes supaya kolom name, section, start_date, start_time, end_date, end_time, start_km, end_km, start_fuel, dan end_fuel tersedia.');
+          throw new Error('Skema tabel daily_notes belum diperbarui. Jalankan migration daily_notes supaya kolom name, section, start_date, start_time, end_date, end_time, start_km, end_km, start_fuel, end_fuel, dan detail tersedia.');
         }
         throw error;
       }

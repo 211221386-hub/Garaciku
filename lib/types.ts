@@ -48,6 +48,7 @@ export type DailyNote = {
   start_fuel: number | null;
   end_fuel: number | null;
   content: string;
+  detail: string;
   created_at: string;
 };
 

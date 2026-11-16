@@ -14,7 +14,7 @@ const TABLES = new Set([
 const COLUMNS = {
   users: new Set(['id', 'username', 'full_name', 'email', 'phone', 'role', 'is_active', 'must_reset_password', 'created_at']),
   cars: new Set(['id', 'name', 'brand', 'model', 'year', 'plate_number', 'color', 'photo_url', 'periodic_service_start_date', 'created_at']),
-  daily_notes: new Set(['id', 'car_id', 'name', 'section', 'note_date', 'start_date', 'end_date', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'created_at']),
+  daily_notes: new Set(['id', 'car_id', 'name', 'section', 'note_date', 'start_date', 'end_date', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'detail', 'created_at']),
   completeness_items: new Set(['id', 'car_id', 'name', 'is_present', 'reminder_type', 'next_due_date', 'created_at']),
   damages: new Set(['id', 'car_id', 'description', 'severity', 'status', 'reported_date', 'resolved_date', 'created_at']),
   service_records: new Set(['id', 'car_id', 'service_date', 'service_type', 'description', 'cost', 'mileage', 'workshop', 'status', 'next_service_date', 'next_service_mileage', 'reminder_enabled', 'is_recurring', 'reminder_interval_months', 'reminder_interval_mileage', 'created_name', 'created_at']),
@@ -199,7 +199,7 @@ async function getDashboard(env, request) {
     ['cars', 'id,name,brand,model,year,plate_number,created_at'],
     ['rental_records', 'id,car_id,renter_name,start_date,end_date,purpose,status,total_cost,created_at'],
     ['service_records', 'id,car_id,service_date,service_type,description,cost,status,created_name,created_at'],
-    ['daily_notes', 'id,car_id,note_date,name,section,content,start_date,end_date,created_at'],
+    ['daily_notes', 'id,car_id,note_date,name,section,content,detail,start_date,end_date,created_at'],
     ['vehicle_inspections', 'id,car_id,inspection_date,status,mileage,inspector_name,created_at'],
     ['damages', 'id,car_id,reported_date,description,severity,status,created_at'],
     ['completeness_items', 'car_id,is_present'],
@@ -243,7 +243,7 @@ async function getDashboard(env, request) {
     ...filteredServices.map((row) => ({ id: row.id, type: 'service', date: row.service_date, unit_id: row.car_id, title: row.service_type || 'Service unit', detail: row.description || row.status, created_name: row.created_name || '', amount: row.cost ?? null })),
     ...filteredRentals.map((row) => ({ id: row.id, type: 'rental', date: row.start_date, unit_id: row.car_id, title: `Peminjaman oleh ${row.renter_name || '-'}`, detail: row.purpose || row.status, created_name: '', amount: row.total_cost ?? null })),
     ...filteredInspections.map((row) => ({ id: row.id, type: 'inspection', date: row.inspection_date, unit_id: row.car_id, title: 'Investigasi / inspeksi unit', detail: `${row.status} · ${row.inspector_name || '-'}`, created_name: '', amount: null })),
-    ...filteredNotes.map((row) => ({ id: row.id, type: 'transport', date: row.note_date, unit_id: row.car_id, title: row.name || 'Catatan transportasi', detail: row.section || row.content || '-', created_name: '', amount: null })),
+    ...filteredNotes.map((row) => ({ id: row.id, type: 'transport', date: row.note_date, unit_id: row.car_id, title: row.name || 'Catatan transportasi', detail: row.detail || row.content || row.section || '-', created_name: '', amount: null })),
     ...filteredDamages.map((row) => ({ id: row.id, type: 'damage', date: row.reported_date, unit_id: row.car_id, title: 'Laporan kerusakan', detail: `${row.severity} · ${row.status}`, created_name: '', amount: null })),
   ].sort((a, b) => b.date.localeCompare(a.date));
   const dateKeys = [...new Set(histories.map((item) => item.date.slice(0, 7)))].sort().slice(-6);

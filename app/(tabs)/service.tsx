@@ -87,6 +87,7 @@ export default function RentalScreen() {
     start_fuel: '',
     end_fuel: '',
     content: '',
+    detail: '',
   });
 
   const fetchRentals = useCallback(async () => {
@@ -149,7 +150,7 @@ export default function RentalScreen() {
   const resetFormState = () => {
     setForm({ car_id: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
     setSelectedCarIds([]);
-    setDuplicateForm({ name: '', section: '', start_date: '', start_time: '', end_date: '', end_time: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '' });
+    setDuplicateForm({ name: '', section: '', start_date: '', start_time: '', end_date: '', end_time: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '' });
     setRecordKind('rental');
   };
 
@@ -216,6 +217,7 @@ export default function RentalScreen() {
           start_fuel: startFuel,
           end_fuel: endFuel,
           content: duplicateForm.content.trim(),
+          detail: duplicateForm.detail.trim(),
         });
         resetFormState();
         setSheet(false);
@@ -408,7 +410,8 @@ export default function RentalScreen() {
             <Field label="KM Akhir*" value={duplicateForm.end_km} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, end_km: t })} placeholder="Contoh: 12150" keyboardType="numeric" />
             <Field label="Fuel Awal*" value={duplicateForm.start_fuel} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, start_fuel: t })} placeholder="0-100" keyboardType="numeric" />
             <Field label="Fuel Akhir*" value={duplicateForm.end_fuel} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, end_fuel: t })} placeholder="0-100" keyboardType="numeric" />
-            <Field label="Detail*" value={duplicateForm.content} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, content: t })} placeholder="Rincian aktivitas yang dilakukan..." multiline />
+            <Field label="Aktivitas*" value={duplicateForm.content} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, content: t })} placeholder="Aktivitas yang dilakukan..." multiline />
+            <Field label="Detail" value={duplicateForm.detail} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, detail: t })} placeholder="Detail atau keterangan tambahan..." multiline />
           </>
         )}
 

@@ -137,7 +137,7 @@ export default function CarDetailScreen() {
   // Sheet state
   const [noteSheet, setNoteSheet] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
-  const [newNote, setNewNote] = useState({ name: '', section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '' });
+  const [newNote, setNewNote] = useState({ name: '', section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '' });
   const [completenessSheet, setCompletenessSheet] = useState(false);
   const [newItem, setNewItem] = useState('');
   const [newReminderType, setNewReminderType] = useState<CompletenessReminderType>('general');
@@ -356,11 +356,12 @@ export default function CarDetailScreen() {
         start_fuel: startFuel,
         end_fuel: endFuel,
         content: newNote.content.trim(),
+        detail: newNote.detail.trim(),
       };
       if (editingNoteId) await apiClient.notes.update(editingNoteId, noteData);
       else await apiClient.notes.create(noteData);
       setEditingNoteId(null);
-      setNewNote({ name: '', section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '' });
+      setNewNote({ name: '', section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '' });
       setNoteSheet(false);
       await fetchAll();
     } catch (error) { Alert.alert('Gagal menyimpan catatan', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
@@ -384,6 +385,7 @@ export default function CarDetailScreen() {
       start_fuel: note.start_fuel === null ? '' : String(note.start_fuel),
       end_fuel: note.end_fuel === null ? '' : String(note.end_fuel),
       content: note.content ?? '',
+      detail: note.detail ?? '',
     });
     setNoteSheet(true);
   };
@@ -665,6 +667,7 @@ export default function CarDetailScreen() {
                   </View>
                   {note.start_km !== null && note.end_km !== null ? <Text style={styles.metaText}>KM: {note.start_km.toLocaleString('id-ID')} - {note.end_km.toLocaleString('id-ID')}</Text> : null}
                   {note.start_fuel !== null && note.end_fuel !== null ? <Text style={styles.metaText}>Fuel: {note.start_fuel}% - {note.end_fuel}%</Text> : null}
+                  {note.detail ? <Text style={styles.metaText}>Detail: {note.detail}</Text> : null}
                   <Text style={styles.cardBody}>{note.content}</Text>
                 </View>
               ))
@@ -934,12 +937,13 @@ export default function CarDetailScreen() {
         <Field label="Fuel Awal (%)*" value={newNote.start_fuel} onChangeText={(value) => updateFuelPercentage('start_fuel', value)} placeholder="0-100" keyboardType="numeric" />
         <Field label="Fuel Akhir (%)*" value={newNote.end_fuel} onChangeText={(value) => updateFuelPercentage('end_fuel', value)} placeholder="0-100" keyboardType="numeric" />
         <Field
-          label="Note / Rincian Aktivitas*"
+          label="Aktivitas*"
           value={newNote.content}
           onChangeText={(value) => setNewNote({ ...newNote, content: value })}
-          placeholder="Rincian aktivitas yang dilakukan..."
+          placeholder="Aktivitas yang dilakukan..."
           multiline
         />
+        <Field label="Detail" value={newNote.detail} onChangeText={(value) => setNewNote({ ...newNote, detail: value })} placeholder="Detail atau keterangan tambahan..." multiline />
         <Button label={editingNoteId ? 'Simpan Perubahan' : 'Simpan Catatan'} onPress={addNote} loading={submitting} disabled={!newNote.name.trim() || !newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.start_km || !newNote.end_km || !newNote.start_fuel || !newNote.end_fuel || !newNote.content.trim()} />
       </Sheet>
 
