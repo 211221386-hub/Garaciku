@@ -197,12 +197,13 @@ async function getDashboard(env, request) {
   const baseUrl = env.SUPABASE_URL.replace(/\/$/, '');
   const tables = [
     ['cars', 'id,name,brand,model,year,plate_number,created_at'],
-    ['rental_records', 'id,car_id,renter_name,start_date,end_date,purpose,status,total_cost,created_at'],
+    ['rental_records', 'id,car_id,user_id,renter_name,start_date,end_date,purpose,status,notes,total_cost,created_at'],
     ['service_records', 'id,car_id,service_date,service_type,description,cost,status,created_name,created_at'],
     ['daily_notes', 'id,car_id,note_date,created_name,section,content,detail,status,start_date,end_date,created_at'],
     ['vehicle_inspections', 'id,car_id,inspection_date,status,mileage,inspector_name,created_at'],
     ['damages', 'id,car_id,reported_date,description,severity,status,created_at'],
     ['completeness_items', 'car_id,is_present'],
+    ['users', 'id,full_name'],
   ];
   const responses = await Promise.all(tables.map(async ([table, select]) => {
     const url = new URL(`${baseUrl}/rest/v1/${table}`);
@@ -212,14 +213,15 @@ async function getDashboard(env, request) {
     if (!response.ok || !Array.isArray(rows)) throw new Error(`Dashboard data query failed for ${table}.`);
     return rows;
   }));
-  const [cars, rentals, services, notes, inspections, damages, completeness] = responses;
+  const [cars, rentals, services, notes, inspections, damages, completeness, users] = responses;
+  const userNames = new Map(users.map((row) => [row.id, row.full_name]));
   const inRange = (value) => (!startDate || value >= startDate) && (!endDate || value <= endDate);
   const visibleCars = cars.filter((car) => !selectedUnit || car.id === selectedUnit);
   const visibleIds = new Set(visibleCars.map((car) => car.id));
   const filtered = (rows, field) => rows.filter((row) => visibleIds.has(row.car_id) && inRange(row[field]));
   const filteredRentals = filtered(rentals, 'start_date');
   const filteredServices = filtered(services, 'service_date');
-  const filteredNotes = filtered(notes, 'note_date');
+  const filteredNotes = filtered(notes, 'start_date');
   const filteredInspections = filtered(inspections, 'inspection_date');
   const filteredDamages = filtered(damages, 'reported_date');
   const activeStatuses = new Set(['active', 'approved', 'overdue']);
@@ -240,11 +242,11 @@ async function getDashboard(env, request) {
     };
   });
   const histories = [
-    ...filteredServices.map((row) => ({ id: row.id, type: 'service', date: row.service_date, unit_id: row.car_id, title: row.service_type || 'Service unit', detail: row.description || row.status, created_name: row.created_name || '', amount: row.cost ?? null })),
-    ...filteredRentals.map((row) => ({ id: row.id, type: 'rental', date: row.start_date, unit_id: row.car_id, title: `Peminjaman oleh ${row.renter_name || '-'}`, detail: row.purpose || row.status, created_name: '', amount: row.total_cost ?? null })),
-    ...filteredInspections.map((row) => ({ id: row.id, type: 'inspection', date: row.inspection_date, unit_id: row.car_id, title: 'Investigasi / inspeksi unit', detail: `${row.status} · ${row.inspector_name || '-'}`, created_name: '', amount: null })),
-    ...filteredNotes.map((row) => ({ id: row.id, type: 'transport', date: row.note_date, unit_id: row.car_id, title: row.content || 'Catatan transportasi', detail: row.detail || row.section || row.status || '-', created_name: row.created_name || '', amount: null })),
-    ...filteredDamages.map((row) => ({ id: row.id, type: 'damage', date: row.reported_date, unit_id: row.car_id, title: 'Laporan kerusakan', detail: `${row.severity} · ${row.status}`, created_name: '', amount: null })),
+    ...filteredServices.map((row) => ({ id: row.id, type: 'service', date: row.service_date, unit_id: row.car_id, activity: row.service_type || '', detail: row.description || '', user: row.created_name || '', status: row.status || '' })),
+    ...filteredRentals.map((row) => ({ id: row.id, type: 'rental', date: row.start_date, unit_id: row.car_id, activity: row.purpose || '', detail: row.notes || '', user: userNames.get(row.user_id) || '', status: row.status || '' })),
+    ...filteredInspections.map((row) => ({ id: row.id, type: 'inspection', date: row.inspection_date, unit_id: row.car_id, activity: 'Investigasi / inspeksi unit', detail: '', user: row.inspector_name || '', status: row.status || '' })),
+    ...filteredNotes.map((row) => ({ id: row.id, type: 'transport', date: row.start_date, unit_id: row.car_id, activity: row.content || '', detail: row.detail || '', user: row.created_name || '', status: row.status || '' })),
+    ...filteredDamages.map((row) => ({ id: row.id, type: 'damage', date: row.reported_date, unit_id: row.car_id, activity: row.description || '', detail: '', user: '', status: row.status || '' })),
   ].sort((a, b) => b.date.localeCompare(a.date));
   const dateKeys = [...new Set(histories.map((item) => item.date.slice(0, 7)))].sort().slice(-6);
   const activity = dateKeys.map((key) => ({

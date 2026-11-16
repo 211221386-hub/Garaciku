@@ -62,11 +62,12 @@ function mockFetch(role, databaseRows = [], userOverrides = {}) {
     }
     if (url.pathname === '/rest/v1/users') {
       if (options.method === 'PATCH') return Response.json([{ ...currentUser, ...JSON.parse(options.body) }]);
-      return Response.json([currentUser]);
+      return Response.json(Array.isArray(databaseRows) ? [currentUser] : databaseRows.users ?? [currentUser]);
     }
     if (url.pathname.startsWith('/rest/v1/')) {
       if (options.method === 'PATCH' && role === 3) return Response.json({ message: 'must not reach this route' }, { status: 403 });
-      return Response.json(databaseRows, { status: 200 });
+      const rows = Array.isArray(databaseRows) ? databaseRows : databaseRows[url.pathname.split('/').at(-1)] ?? [];
+      return Response.json(rows, { status: 200 });
     }
     if (url.href.startsWith('https://automation.example.test/')) return new Response(null, { status: 202 });
     throw new Error(`Unexpected fetch ${url.href}`);
@@ -470,6 +471,33 @@ test('daily note return confirmation uses the authenticated admin identity', asy
       _confirmed_by: profile.id,
       _user_role: 2,
     });
+  } finally {
+    mock.restore();
+  }
+});
+
+test('dashboard history maps service, rental, and daily note fields into table rows', async () => {
+  const rows = {
+    cars: [{ id: 'car-1', name: 'Unit A', brand: 'Brand', model: 'Model', year: 2022, plate_number: 'B 1234' }],
+    rental_records: [{ id: 'rental-1', car_id: 'car-1', user_id: profile.id, start_date: '2026-10-22', end_date: '2026-10-23', purpose: 'Business trip', status: 'completed', notes: 'Returned safely', total_cost: 100 }],
+    service_records: [{ id: 'service-1', car_id: 'car-1', service_date: '2026-10-21', service_type: 'Oil change', description: 'Completed at shop', status: 'completed', created_name: 'Service User', cost: 50 }],
+    daily_notes: [{ id: 'note-1', car_id: 'car-1', note_date: '2026-10-20', start_date: '2026-10-20', end_date: '2026-10-20', content: 'Fuel inspection', detail: 'Fuel gauge check', status: 'completed', created_name: 'Investigation User' }],
+    vehicle_inspections: [],
+    damages: [],
+    completeness_items: [],
+    users: [{ id: profile.id, full_name: 'Rental User' }],
+  };
+  const mock = mockFetch(1, rows);
+  try {
+    const response = await worker.fetch(new Request('https://garaciku.example.test/api/dashboard'), envFor(1));
+    const result = await response.json();
+    assert.equal(response.status, 200);
+    assert.deepEqual(result.histories.filter((history) => ['service-1', 'rental-1', 'note-1'].includes(history.id)), [
+      { id: 'rental-1', type: 'rental', date: '2026-10-22', unit_id: 'car-1', activity: 'Business trip', detail: 'Returned safely', user: 'Rental User', status: 'completed' },
+      { id: 'service-1', type: 'service', date: '2026-10-21', unit_id: 'car-1', activity: 'Oil change', detail: 'Completed at shop', user: 'Service User', status: 'completed' },
+      { id: 'note-1', type: 'transport', date: '2026-10-20', unit_id: 'car-1', activity: 'Fuel inspection', detail: 'Fuel gauge check', user: 'Investigation User', status: 'completed' },
+    ]);
+    assert.equal(mock.calls.find((call) => call.url.pathname === '/rest/v1/rental_records').url.searchParams.get('select'), 'id,car_id,user_id,renter_name,start_date,end_date,purpose,status,notes,total_cost,created_at');
   } finally {
     mock.restore();
   }
