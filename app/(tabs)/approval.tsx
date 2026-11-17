@@ -10,6 +10,9 @@ import type { DailyNote, RentalRecord, RentalStatus } from '@/lib/types';
 
 type ApprovalRental = RentalRecord & { car_name: string };
 type ApprovalInvestigation = DailyNote & { car_name: string };
+type ApprovalQueueItem =
+  | { kind: 'transportation'; item: ApprovalRental }
+  | { kind: 'investigation'; item: ApprovalInvestigation };
 
 const isSuperAdmin = () => getSession()?.user.role === 1;
 
@@ -121,6 +124,13 @@ export default function ApprovalScreen() {
     }
   };
 
+  const approvalItems: ApprovalQueueItem[] = [
+    ...rentals.map((item) => ({ kind: 'transportation' as const, item })),
+    ...investigations.map((item) => ({ kind: 'investigation' as const, item })),
+  ].sort((first, second) => {
+    return second.item.start_date.localeCompare(first.item.start_date);
+  });
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -136,96 +146,83 @@ export default function ApprovalScreen() {
         </View>
       ) : null}
       <FlatList
-        data={rentals}
-        keyExtractor={(item) => item.id}
+        data={approvalItems}
+        keyExtractor={(entry) => `${entry.kind}-${entry.item.id}`}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchApprovals(); }} colors={[Colors.primary]} />}
         ListHeaderComponent={(
           <Text style={styles.sectionTitle}>
-            {isSuperAdmin() ? 'Transportation menunggu persetujuan' : 'Riwayat Transportation'}
-            <Text style={styles.sectionCount}> ({rentals.length})</Text>
+            {isSuperAdmin() ? 'Permintaan menunggu persetujuan' : 'Riwayat Transportation'}
+            {isSuperAdmin() ? <Text style={styles.sectionCount}> ({approvalItems.length})</Text> : null}
           </Text>
         )}
-        renderItem={({ item }) => (
+        renderItem={({ item: entry }) => entry.kind === 'transportation' ? (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <View style={styles.icon}><ClipboardCheck size={18} color={Colors.primary} strokeWidth={2.2} /></View>
               <View style={styles.cardBody}>
-                <Text style={styles.name}>{item.renter_name}</Text>
-                <Text style={styles.email}>{item.renter_email}</Text>
+                <Text style={styles.name}>{entry.item.renter_name}</Text>
+                <Text style={styles.email}>{entry.item.renter_email}</Text>
               </View>
-              <View style={[styles.pending, { backgroundColor: statusConfig[item.status].backgroundColor }]}><Text style={[styles.pendingText, { color: statusConfig[item.status].color }]}>{statusConfig[item.status].label}</Text></View>
+              <View style={styles.typeBadge}><Text style={styles.typeBadgeText}>Transportation</Text></View>
+              <View style={[styles.pending, { backgroundColor: statusConfig[entry.item.status].backgroundColor }]}><Text style={[styles.pendingText, { color: statusConfig[entry.item.status].color }]}>{statusConfig[entry.item.status].label}</Text></View>
             </View>
-            <Text style={styles.meta}>{formatDate(item.start_date)}{item.end_date ? ` - ${formatDate(item.end_date)}` : ''}</Text>
-            <Text style={styles.purpose}>{item.purpose || 'Tanpa tujuan Transportation'}</Text>
+            <Text style={styles.meta}>{formatDate(entry.item.start_date)}{entry.item.end_date ? ` - ${formatDate(entry.item.end_date)}` : ''}</Text>
+            <Text style={styles.purpose}>{entry.item.purpose || 'Tanpa tujuan Transportation'}</Text>
             {isSuperAdmin() ? (
               <>
                 <Text style={styles.label}>Mobil yang disetujui</Text>
                 <View style={styles.carPicker}>
                   {cars.map((car) => {
-                    const active = (selectedCars[item.id] ?? item.car_id) === car.id;
-                    return <TouchableOpacity key={car.id} onPress={() => setSelectedCars((current) => ({ ...current, [item.id]: car.id }))} style={[styles.carChip, active && styles.carChipActive]}><Text style={[styles.carChipText, active && styles.carChipTextActive]}>{car.name}</Text></TouchableOpacity>;
+                    const active = (selectedCars[entry.item.id] ?? entry.item.car_id) === car.id;
+                    return <TouchableOpacity key={car.id} onPress={() => setSelectedCars((current) => ({ ...current, [entry.item.id]: car.id }))} style={[styles.carChip, active && styles.carChipActive]}><Text style={[styles.carChipText, active && styles.carChipTextActive]}>{car.name}</Text></TouchableOpacity>;
                   })}
                 </View>
                 <View style={styles.actions}>
-                  <TouchableOpacity style={[styles.action, styles.reject]} onPress={() => confirmDecision(item, 'rejected')}><X size={17} color={Colors.error} /><Text style={[styles.actionText, { color: Colors.error }]}>Tolak</Text></TouchableOpacity>
-                  <TouchableOpacity style={[styles.action, styles.approve, processingId === item.id && styles.actionDisabled]} onPress={() => confirmDecision(item, 'approved')} disabled={processingId === item.id}><Check size={17} color={Colors.white} /><Text style={[styles.actionText, { color: Colors.white }]}>{processingId === item.id ? 'Memproses...' : 'Approve'}</Text></TouchableOpacity>
+                  <TouchableOpacity style={[styles.action, styles.reject]} onPress={() => confirmDecision(entry.item, 'rejected')}><X size={17} color={Colors.error} /><Text style={[styles.actionText, { color: Colors.error }]}>Tolak</Text></TouchableOpacity>
+                  <TouchableOpacity style={[styles.action, styles.approve, processingId === entry.item.id && styles.actionDisabled]} onPress={() => confirmDecision(entry.item, 'approved')} disabled={processingId === entry.item.id}><Check size={17} color={Colors.white} /><Text style={[styles.actionText, { color: Colors.white }]}>{processingId === entry.item.id ? 'Memproses...' : 'Approve'}</Text></TouchableOpacity>
                 </View>
               </>
-            ) : <Text style={styles.waiting}>{item.status === 'pending' ? 'Menunggu Super Admin memilih dan menyetujui mobil.' : item.status === 'approved' || item.status === 'completed' ? 'Permintaan Anda sudah disetujui.' : 'Permintaan Anda ditolak.'}</Text>}
+            ) : <Text style={styles.waiting}>{entry.item.status === 'pending' ? 'Menunggu Super Admin memilih dan menyetujui mobil.' : entry.item.status === 'approved' || entry.item.status === 'completed' ? 'Permintaan Anda sudah disetujui.' : 'Permintaan Anda ditolak.'}</Text>}
+          </View>
+        ) : (
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View style={styles.icon}><ClipboardCheck size={18} color={Colors.primary} strokeWidth={2.2} /></View>
+              <View style={styles.cardBody}>
+                <Text style={styles.name}>{entry.item.created_name || 'Pengguna'}</Text>
+                <Text style={styles.email}>{entry.item.car_name}</Text>
+              </View>
+              <View style={styles.typeBadge}><Text style={styles.typeBadgeText}>Investigation</Text></View>
+              <View style={styles.pending}><Text style={styles.pendingText}>Menunggu</Text></View>
+            </View>
+            <Text style={styles.meta}>{formatDate(entry.item.start_date)}{entry.item.end_date ? ` - ${formatDate(entry.item.end_date)}` : ''}</Text>
+            <Text style={styles.purpose}>{entry.item.content || entry.item.section || 'Investigation'}</Text>
+            {entry.item.detail ? <Text style={styles.waiting}>{entry.item.detail}</Text> : null}
+            <View style={styles.actions}>
+              <TouchableOpacity
+                style={[styles.action, styles.reject]}
+                onPress={() => setInvestigationDecision({ note: entry.item, status: 'rejected' })}
+              >
+                <X size={17} color={Colors.error} />
+                <Text style={[styles.actionText, { color: Colors.error }]}>Tolak</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.action, styles.approve, processingInvestigationId === entry.item.id && styles.actionDisabled]}
+                onPress={() => setInvestigationDecision({ note: entry.item, status: 'approved' })}
+                disabled={processingInvestigationId === entry.item.id}
+              >
+                <Check size={17} color={Colors.white} />
+                <Text style={[styles.actionText, { color: Colors.white }]}>{processingInvestigationId === entry.item.id ? 'Memproses...' : 'Approve'}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
-        ListFooterComponent={isSuperAdmin() ? (
-          <View style={styles.investigationsSection}>
-            <Text style={styles.sectionTitle}>
-              Investigation menunggu persetujuan
-              <Text style={styles.sectionCount}> ({investigations.length})</Text>
-            </Text>
-            {investigations.length === 0 ? (
-              <View style={styles.emptyList}>
-                <ClipboardCheck size={22} color={Colors.primary} strokeWidth={2} />
-                <Text style={styles.emptyTitle}>Tidak ada Investigation yang menunggu persetujuan.</Text>
-                <Text style={styles.emptySubtitle}>Investigation baru dari role 3 dan 4 akan muncul di sini.</Text>
-              </View>
-            ) : investigations.map((item) => (
-              <View key={item.id} style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <View style={styles.icon}><ClipboardCheck size={18} color={Colors.primary} strokeWidth={2.2} /></View>
-                  <View style={styles.cardBody}>
-                    <Text style={styles.name}>{item.created_name || 'Pengguna'}</Text>
-                    <Text style={styles.email}>{item.car_name}</Text>
-                  </View>
-                  <View style={styles.pending}><Text style={styles.pendingText}>Menunggu</Text></View>
-                </View>
-                <Text style={styles.meta}>{formatDate(item.start_date)}{item.end_date ? ` - ${formatDate(item.end_date)}` : ''}</Text>
-                <Text style={styles.purpose}>{item.content || item.section || 'Investigation'}</Text>
-                {item.detail ? <Text style={styles.waiting}>{item.detail}</Text> : null}
-                <View style={styles.actions}>
-                  <TouchableOpacity
-                    style={[styles.action, styles.reject]}
-                    onPress={() => setInvestigationDecision({ note: item, status: 'rejected' })}
-                  >
-                    <X size={17} color={Colors.error} />
-                    <Text style={[styles.actionText, { color: Colors.error }]}>Tolak</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.action, styles.approve, processingInvestigationId === item.id && styles.actionDisabled]}
-                    onPress={() => setInvestigationDecision({ note: item, status: 'approved' })}
-                    disabled={processingInvestigationId === item.id}
-                  >
-                    <Check size={17} color={Colors.white} />
-                    <Text style={[styles.actionText, { color: Colors.white }]}>Approve</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
-          </View>
-        ) : null}
         ListEmptyComponent={(
           <View style={styles.emptyList}>
             <ClipboardCheck size={22} color={Colors.primary} strokeWidth={2} />
-            <Text style={styles.emptyTitle}>{isSuperAdmin() ? 'Tidak ada Transportation yang menunggu persetujuan.' : 'Belum ada riwayat Transportation.'}</Text>
-            {isSuperAdmin() ? <Text style={styles.emptySubtitle}>Transportation baru dari role 3 dan 4 akan muncul di sini.</Text> : null}
+            <Text style={styles.emptyTitle}>{isSuperAdmin() ? 'Tidak ada permintaan yang menunggu persetujuan.' : 'Belum ada riwayat Transportation.'}</Text>
+            {isSuperAdmin() ? <Text style={styles.emptySubtitle}>Permintaan Transportation dan Investigation dari role 3 dan 4 akan muncul di sini.</Text> : null}
           </View>
         )}
       />
@@ -289,7 +286,6 @@ const styles = StyleSheet.create({
   emptyList: { alignItems: 'center', paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md, gap: Spacing.xs },
   emptyTitle: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textPrimary, textAlign: 'center' },
   emptySubtitle: { fontSize: Typography.xs, fontFamily: Typography.fontRegular, color: Colors.textSecondary, textAlign: 'center' },
-  investigationsSection: { marginTop: Spacing.md },
   sectionTitle: { fontSize: Typography.lg, fontFamily: Typography.fontSemiBold, color: Colors.textPrimary, marginBottom: Spacing.md },
   sectionCount: { fontFamily: Typography.fontMedium, color: Colors.textSecondary },
   card: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight },
@@ -300,6 +296,8 @@ const styles = StyleSheet.create({
   email: { fontSize: Typography.xs, fontFamily: Typography.fontRegular, color: Colors.textSecondary, marginTop: 2 },
   pending: { backgroundColor: '#FEF3C7', borderRadius: Radius.pill, paddingHorizontal: Spacing.sm, paddingVertical: 4 },
   pendingText: { color: '#92400E', fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
+  typeBadge: { backgroundColor: Colors.primaryLight, borderRadius: Radius.pill, paddingHorizontal: Spacing.sm, paddingVertical: 4, marginRight: Spacing.xs },
+  typeBadgeText: { color: Colors.primary, fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
   meta: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textTertiary, marginTop: Spacing.md },
   purpose: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textPrimary, marginTop: Spacing.xs },
   label: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary, marginTop: Spacing.md, marginBottom: Spacing.xs },
