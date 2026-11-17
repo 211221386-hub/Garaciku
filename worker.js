@@ -151,6 +151,10 @@ function validateFilters(table, filters, required = false) {
   return filters;
 }
 
+function isUnitScheduleConflict(message) {
+  return /Siklus peminjaman|Unit sudah terbooking|Investigation.*rentang tanggal|jadwal Service.*rentang tanggal|sedang dalam perawatan/i.test(message);
+}
+
 function encodeFilter(filter) {
   if (filter.operator === 'eq') return `eq.${String(filter.value)}`;
   const values = filter.value.map((value) => {
@@ -443,7 +447,10 @@ async function proxyMutation(env, user, body) {
     ...(operation === 'delete' ? {} : { body: JSON.stringify(values) }),
   });
   const result = await response.json().catch(() => null);
-  if (!response.ok) return { status: response.status, error: result?.message ?? 'Database mutation failed.' };
+  if (!response.ok) {
+    const error = result?.message ?? 'Database mutation failed.';
+    return { status: isUnitScheduleConflict(error) ? 409 : response.status, error };
+  }
   if (body.single) {
     if (!Array.isArray(result) || result.length === 0) return { status: 404, error: 'Record not found.' };
     return { status: 200, data: result[0] };
@@ -683,8 +690,7 @@ async function createRentalCycle(request, env, user, headers) {
   const result = await rpcResponse.json().catch(() => null);
   if (!rpcResponse.ok) {
     const error = typeof result?.message === 'string' ? result.message : 'Rental cycle creation failed.';
-    const isConflict = /Siklus peminjaman|Unit sudah terbooking/i.test(error);
-    return { status: isConflict ? 409 : 400, error };
+    return { status: isUnitScheduleConflict(error) ? 409 : 400, error };
   }
   return { status: 201, data: result };
 }

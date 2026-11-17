@@ -44,7 +44,7 @@ function hasRentalConflict(reservations: RentalAvailability[], carId: string, st
     reservation.car_id === carId
     && (reservation.status === 'under_maintenance'
       || (blockingStatuses.includes(reservation.status)
-        && dateRangesOverlap(startDate, endDate, reservation.start_date, reservation.end_date ?? reservation.start_date)))
+        && dateRangesOverlap(startDate, endDate, reservation.start_date, reservation.end_date ?? '9999-12-31')))
   );
 }
 

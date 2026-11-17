@@ -46,13 +46,15 @@ function makeRequest(path, body, token) {
   });
 }
 
-function mockFetch(role, databaseRows = [], userOverrides = {}) {
+function mockFetch(role, databaseRows = [], userOverrides = {}, responseOverrides = {}) {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const currentUser = { ...profile, ...userOverrides, role };
   globalThis.fetch = async (input, options = {}) => {
     const url = new URL(input);
     calls.push({ url, options });
+    const responseOverride = responseOverrides[url.pathname];
+    if (responseOverride) return Response.json(responseOverride.body, { status: responseOverride.status });
     if (url.pathname === '/rest/v1/rpc/auth_login') {
       return Response.json([currentUser]);
     }
@@ -673,6 +675,59 @@ test('rental cycle creation allows role 2 to create an independent cycle', async
     assert.equal(response.status, 201);
     assert.equal(JSON.parse(rpc.options.body)._user_role, 2);
     assert.equal(JSON.parse(rpc.options.body)._end_date, null);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('rental cycle cross-table conflicts return conflict status', async () => {
+  const mock = mockFetch(2, [], {}, {
+    '/rest/v1/rpc/create_rental_cycle': {
+      status: 400,
+      body: { message: 'Unit memiliki jadwal Service pada rentang tanggal tersebut.' },
+    },
+  });
+  try {
+    const token = await login(envFor(2), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/rentals/create-cycle', {
+      car_ids: ['11111111-1111-4111-8111-111111111111'],
+      start_date: '2026-10-22',
+      start_time: '09:00',
+      end_date: '2026-10-23',
+      end_time: '17:00',
+      purpose: 'Business trip',
+      notes: '',
+    }, token), envFor(2));
+    const result = await response.json();
+    assert.equal(response.status, 409);
+    assert.match(result.error, /jadwal Service/);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('Investigation schedule conflicts return conflict status', async () => {
+  const mock = mockFetch(1, [], {}, {
+    '/rest/v1/daily_notes': {
+      status: 400,
+      body: { message: 'Unit sedang digunakan untuk Investigation pada rentang tanggal tersebut.' },
+    },
+  });
+  try {
+    const token = await login(envFor(1), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/data/insert', {
+      table: 'daily_notes',
+      values: {
+        car_id: '11111111-1111-4111-8111-111111111111',
+        start_date: '2026-10-22',
+        end_date: '2026-10-23',
+        content: 'Investigation',
+      },
+      single: true,
+    }, token), envFor(1));
+    const result = await response.json();
+    assert.equal(response.status, 409);
+    assert.match(result.error, /Investigation/);
   } finally {
     mock.restore();
   }
