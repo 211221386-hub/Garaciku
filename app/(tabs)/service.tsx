@@ -265,9 +265,12 @@ export default function RentalScreen() {
         notes: form.notes.trim(),
       });
       const firstRental = createdRentals[0];
+      resetFormState();
+      setSheet(false);
+      setSaving(false);
+      void fetchRentals();
       if (getSession()?.user.role !== 2) {
-        try {
-          await apiClient.rentals.notifyCreated({
+        void apiClient.rentals.notifyCreated({
             namaPemesan: firstRental.renter_name,
             emailPemesan: firstRental.renter_email,
             nomorTelepon: firstRental.renter_phone,
@@ -276,14 +279,10 @@ export default function RentalScreen() {
             tanggalMulaiSewa: firstRental.start_date,
             tanggalSelesaiSewa: firstRental.end_date ?? '',
             jumlahHariSewa: firstRental.end_date ? differenceInCalendarDays(firstRental.start_date, firstRental.end_date) : '',
+          }).catch((error: unknown) => {
+            Alert.alert('Transportation tersimpan', `Notifikasi otomatis gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
           });
-        } catch (error) {
-          Alert.alert('Transportation tersimpan', `Notifikasi otomatis gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
-        }
       }
-      resetFormState();
-      setSheet(false);
-      await fetchRentals();
     } catch (error) {
       Alert.alert('Gagal menyimpan Transportation', error instanceof Error ? error.message : 'Terjadi kesalahan. Pastikan migration jadwal Transportation sudah dijalankan di Supabase.');
     } finally {

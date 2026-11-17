@@ -44,14 +44,38 @@ function isBlockingRental(rental: { status: RentalStatus }) {
   return rental.status === 'active' || rental.status === 'approved' || rental.status === 'overdue';
 }
 
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const timeoutError = new Promise<never>((_, reject) => {
+    controller.signal.addEventListener('abort', () => reject(new Error(timeoutMessage)), { once: true });
+  });
+  try {
+    return await Promise.race([
+      fetch(input, { ...init, signal: controller.signal }),
+      timeoutError,
+    ]);
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(timeoutMessage);
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function callWorker(path: string, payload: Record<string, unknown>) {
   const session = getSession();
   if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
-  const response = await fetch(workerApiUrl(path), {
+  const response = await fetchWithTimeout(workerApiUrl(path), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
     body: JSON.stringify(payload),
-  });
+  }, 10000, 'Notifikasi otomatis tidak merespons dalam 10 detik.');
   const result = await response.json().catch(() => null) as { error?: string } | null;
   if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
 }
@@ -59,11 +83,11 @@ async function callWorker(path: string, payload: Record<string, unknown>) {
 async function createWorkerRentalCycle(payload: CreateRentalCycleInput): Promise<RentalRecord[]> {
   const session = getSession();
   if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
-  const response = await fetch(workerApiUrl('/api/rentals/create-cycle'), {
+  const response = await fetchWithTimeout(workerApiUrl('/api/rentals/create-cycle'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
     body: JSON.stringify(payload),
-  });
+  }, 20000, 'Penyimpanan Transportation melewati batas waktu. Periksa koneksi lalu muat ulang daftar sebelum mencoba lagi.');
   const result = await response.json().catch(() => null) as { data?: RentalRecord[]; error?: string } | null;
   if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
   if (!Array.isArray(result?.data)) throw new Error('Worker mengembalikan data siklus peminjaman yang tidak valid.');
