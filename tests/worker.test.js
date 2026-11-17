@@ -63,6 +63,13 @@ function mockFetch(role, databaseRows = [], userOverrides = {}) {
     if (url.pathname === '/rest/v1/rpc/review_daily_note') {
       return Response.json({ id: 'note-1', status: 'active' });
     }
+    if ([
+      '/rest/v1/rpc/create_rental_cycle',
+      '/rest/v1/rpc/confirm_rental_return',
+      '/rest/v1/rpc/approve_rental_cycle_unit',
+    ].includes(url.pathname)) {
+      return Response.json(databaseRows);
+    }
     if (url.pathname === '/rest/v1/users') {
       if (options.method === 'PATCH') return Response.json([{ ...currentUser, ...JSON.parse(options.body) }]);
       return Response.json(Array.isArray(databaseRows) ? [currentUser] : databaseRows.users ?? [currentUser]);
@@ -654,7 +661,7 @@ test('rental cycle creation allows role 2 to create an independent cycle', async
       car_ids: ['11111111-1111-4111-8111-111111111111'],
       renter_name: 'Admin',
       renter_email: 'admin@example.com',
-      renter_phone: '0800',
+      renter_phone: '08001234567',
       start_date: '2026-10-22',
       start_time: '00:00',
       end_date: null,
