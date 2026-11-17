@@ -7,7 +7,6 @@ import { getSession } from '@/lib/auth';
 import { differenceInCalendarDays, formatDate } from '@/lib/format';
 import { Colors, Radius, Spacing, Typography } from '@/lib/theme';
 import type { DailyNote, RentalRecord, RentalStatus } from '@/lib/types';
-import { EmptyState } from '@/components/EmptyState';
 
 type ApprovalRental = RentalRecord & { car_name: string };
 type ApprovalInvestigation = DailyNote & { car_name: string };
@@ -141,6 +140,9 @@ export default function ApprovalScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchApprovals(); }} colors={[Colors.primary]} />}
+        ListHeaderComponent={isSuperAdmin() ? (
+          <Text style={styles.sectionTitle}>Transportation menunggu persetujuan</Text>
+        ) : null}
         renderItem={({ item }) => (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
@@ -209,7 +211,13 @@ export default function ApprovalScreen() {
             ))}
           </View>
         ) : null}
-        ListEmptyComponent={<EmptyState icon={<ClipboardCheck size={32} color={Colors.primary} strokeWidth={2} />} title={isSuperAdmin() ? 'Tidak ada approval pending' : 'Belum ada riwayat approval'} subtitle={isSuperAdmin() ? 'Permintaan baru dari role 3 dan 4 akan muncul di sini.' : 'Permintaan Transportation Anda akan muncul di sini.'} />}
+        ListEmptyComponent={(
+          <View style={styles.emptyList}>
+            <ClipboardCheck size={22} color={Colors.primary} strokeWidth={2} />
+            <Text style={styles.emptyTitle}>{isSuperAdmin() ? 'Tidak ada Transportation yang menunggu persetujuan.' : 'Belum ada riwayat Transportation.'}</Text>
+            {isSuperAdmin() ? <Text style={styles.emptySubtitle}>Permintaan baru dari role 3 dan 4 akan muncul di sini.</Text> : null}
+          </View>
+        )}
       />
       {decision ? (
         <View style={styles.modalOverlay}>
@@ -267,7 +275,10 @@ const styles = StyleSheet.create({
   title: { fontSize: Typography.xxxl, fontFamily: Typography.fontBold, color: Colors.white },
   notificationError: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginHorizontal: Spacing.lg, marginTop: Spacing.md, padding: Spacing.md, borderRadius: Radius.md, backgroundColor: '#FEE2E2' },
   notificationErrorText: { flex: 1, fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.error, lineHeight: 20 },
-  list: { padding: Spacing.lg, paddingBottom: 100 },
+  list: { padding: Spacing.lg, paddingBottom: 100, flexGrow: 1 },
+  emptyList: { alignItems: 'center', paddingVertical: Spacing.lg, paddingHorizontal: Spacing.md, gap: Spacing.xs },
+  emptyTitle: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textPrimary, textAlign: 'center' },
+  emptySubtitle: { fontSize: Typography.xs, fontFamily: Typography.fontRegular, color: Colors.textSecondary, textAlign: 'center' },
   investigationsSection: { marginTop: Spacing.md },
   sectionTitle: { fontSize: Typography.lg, fontFamily: Typography.fontSemiBold, color: Colors.textPrimary, marginBottom: Spacing.md },
   card: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight },
