@@ -13,8 +13,8 @@ const TABLES = new Set([
 
 const COLUMNS = {
   users: new Set(['id', 'username', 'full_name', 'email', 'phone', 'role', 'is_active', 'must_reset_password', 'created_at']),
-  cars: new Set(['id', 'name', 'brand', 'model', 'year', 'plate_number', 'color', 'photo_url', 'periodic_service_start_date', 'created_at']),
-  daily_notes: new Set(['id', 'car_id', 'created_name', 'section', 'note_date', 'start_date', 'end_date', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'detail', 'status', 'return_confirmed_by', 'return_confirmed_at', 'created_at']),
+  cars: new Set(['id', 'name', 'brand', 'model', 'year', 'plate_number', 'color', 'photo_url', 'operational_status', 'periodic_service_start_date', 'created_at']),
+  daily_notes: new Set(['id', 'car_id', 'created_name', 'section', 'note_date', 'start_date', 'start_time', 'end_date', 'end_time', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'detail', 'status', 'return_confirmed_by', 'return_confirmed_at', 'reviewed_by', 'reviewed_at', 'created_at']),
   completeness_items: new Set(['id', 'car_id', 'name', 'is_present', 'reminder_type', 'next_due_date', 'created_at']),
   damages: new Set(['id', 'car_id', 'description', 'severity', 'status', 'reported_date', 'resolved_date', 'created_at']),
   service_records: new Set(['id', 'car_id', 'service_date', 'service_type', 'description', 'cost', 'mileage', 'workshop', 'status', 'next_service_date', 'next_service_mileage', 'reminder_enabled', 'is_recurring', 'reminder_interval_months', 'reminder_interval_mileage', 'created_name', 'created_at']),
@@ -269,7 +269,13 @@ async function getDashboard(env, request) {
 
 async function proxyQuery(env, user, body) {
   const { table } = body;
-  if (!TABLES.has(table) || !userCanRead(table, user.role)) return { status: 403, error: 'Role is not allowed to read this table.' };
+  const requestedSelection = body.select?.replace(/\s/g, '');
+  const isServiceAvailabilityQuery = table === 'service_records'
+    && [3, 4].includes(user.role)
+    && requestedSelection === 'car_id,status,service_date';
+  if (!TABLES.has(table) || (!userCanRead(table, user.role) && !isServiceAvailabilityQuery)) {
+    return { status: 403, error: 'Role is not allowed to read this table.' };
+  }
   let query = body;
   if (table === 'rental_records' && [3, 4].includes(user.role)) {
     const filters = validateFilters(table, body.filters ?? []);
@@ -286,6 +292,20 @@ async function proxyQuery(env, user, body) {
           : [{ column: 'user_id', operator: 'eq', value: user.id }]),
       ],
       ...(isAvailabilityQuery ? { select: isDateAvailabilityQuery ? 'car_id,status,start_date,end_date' : 'car_id,status' } : {}),
+    };
+  }
+  if (isServiceAvailabilityQuery) {
+    const filters = validateFilters(table, body.filters ?? []);
+    if (!filters || filters.some((filter) => !['car_id', 'status'].includes(filter.column))) {
+      return { status: 400, error: 'Invalid Service availability filters.' };
+    }
+    query = {
+      ...body,
+      filters: [
+        ...filters.filter((filter) => filter.column === 'car_id'),
+        { column: 'status', operator: 'eq', value: 'scheduled' },
+      ],
+      select: 'car_id,status,service_date',
     };
   }
   const url = buildPostgrestUrl(env, table, query);
@@ -334,9 +354,11 @@ async function proxyMutation(env, user, body) {
       if (!createdName) return { status: 400, error: 'Nama user belum tersedia pada profil akun.' };
       for (const record of records) {
         record.created_name = createdName;
-        record.status = 'active';
+        record.status = [3, 4].includes(user.role) ? 'pending_approval' : 'active';
         delete record.return_confirmed_by;
         delete record.return_confirmed_at;
+        delete record.reviewed_by;
+        delete record.reviewed_at;
       }
     } else {
       for (const record of records) {
@@ -344,6 +366,8 @@ async function proxyMutation(env, user, body) {
         delete record.status;
         delete record.return_confirmed_by;
         delete record.return_confirmed_at;
+        delete record.reviewed_by;
+        delete record.reviewed_at;
       }
     }
   }
@@ -715,6 +739,37 @@ async function confirmDailyNoteReturn(request, env, user) {
   return { status: 200, data: result };
 }
 
+async function reviewDailyNote(request, env, user) {
+  if (user.role !== 1) return { status: 403, error: 'Hanya Super Admin (Role 1) yang dapat mereview Investigation.' };
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return { status: 400, error: 'Invalid JSON body.' };
+  }
+
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!body || typeof body.note_id !== 'string' || !uuidPattern.test(body.note_id)
+    || !['approved', 'rejected'].includes(body.decision)) {
+    return { status: 400, error: 'Data review Investigation tidak valid.' };
+  }
+
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/review_daily_note`, {
+    method: 'POST',
+    headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({
+      _note_id: body.note_id,
+      _reviewed_by: user.id,
+      _user_role: user.role,
+      _decision: body.decision,
+    }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) return { status: 409, error: typeof result?.message === 'string' ? result.message : 'Review Investigation gagal.' };
+  return { status: 200, data: Array.isArray(result) ? result[0] : result };
+}
+
 async function approveRentalCycleUnit(request, env, user) {
   if (user.role !== 1) return { status: 403, error: 'Hanya Super Admin (Role 1) yang dapat menyetujui rental.' };
 
@@ -876,6 +931,7 @@ export default {
       '/api/rentals/create-cycle',
       '/api/rentals/confirm-return',
       '/api/daily-notes/confirm-return',
+      '/api/daily-notes/review',
       '/api/rentals/approve-unit',
       '/api/inspections/approve',
       '/api/inspections/photo',
@@ -976,6 +1032,16 @@ export default {
       } catch (error) {
         console.error('Daily note return confirmation failed:', error);
         return Response.json({ error: 'Daily note return confirmation failed.' }, { status: 503, headers });
+      }
+    }
+
+    if (url.pathname === '/api/daily-notes/review') {
+      try {
+        const result = await reviewDailyNote(request, env, user);
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Investigation review failed:', error);
+        return Response.json({ error: 'Investigation review failed.' }, { status: 503, headers });
       }
     }
 

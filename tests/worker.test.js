@@ -60,6 +60,9 @@ function mockFetch(role, databaseRows = [], userOverrides = {}) {
       const values = JSON.parse(options.body);
       return Response.json([{ ...profile, username: values._username, full_name: values._full_name, email: values._email, phone: values._phone, role: 4, must_reset_password: false }]);
     }
+    if (url.pathname === '/rest/v1/rpc/review_daily_note') {
+      return Response.json({ id: 'note-1', status: 'active' });
+    }
     if (url.pathname === '/rest/v1/users') {
       if (options.method === 'PATCH') return Response.json([{ ...currentUser, ...JSON.parse(options.body) }]);
       return Response.json(Array.isArray(databaseRows) ? [currentUser] : databaseRows.users ?? [currentUser]);
@@ -360,6 +363,45 @@ test('rental availability queries expose dates without other users rental detail
   }
 });
 
+test('service availability for roles 3 and 4 exposes only scheduled service dates', async () => {
+  for (const role of [3, 4]) {
+    const mock = mockFetch(role);
+    try {
+      const token = await login(envFor(role), mock.calls);
+      const response = await worker.fetch(makeRequest('/api/data/query', {
+        table: 'service_records',
+        select: 'car_id,status,service_date',
+        filters: [{ column: 'status', operator: 'eq', value: 'completed' }],
+        single: false,
+      }, token), envFor(role));
+      const query = mock.calls.find((call) => call.url.pathname === '/rest/v1/service_records');
+      assert.equal(response.status, 200);
+      assert.equal(query.url.searchParams.get('select'), 'car_id,status,service_date');
+      assert.equal(query.url.searchParams.get('status'), 'eq.scheduled');
+    } finally {
+      mock.restore();
+    }
+  }
+});
+
+test('roles 3 and 4 cannot use the service availability projection to read service details', async () => {
+  const mock = mockFetch(3);
+  try {
+    const token = await login(envFor(3), mock.calls);
+    const before = mock.calls.length;
+    const response = await worker.fetch(makeRequest('/api/data/query', {
+      table: 'service_records',
+      select: '*',
+      filters: [],
+      single: false,
+    }, token), envFor(3));
+    assert.equal(response.status, 403);
+    assert.equal(mock.calls.slice(before).some((call) => call.url.pathname === '/rest/v1/service_records'), false);
+  } finally {
+    mock.restore();
+  }
+});
+
 test('rental records cannot be inserted through the generic data endpoint', async () => {
   const mock = mockFetch(3, [{ id: 'rental-1' }]);
   try {
@@ -452,6 +494,71 @@ test('daily note creator and return status are controlled by the Worker', async 
     assert.deepEqual(JSON.parse(updateCall.options.body), { content: 'Updated activity' });
   } finally {
     mock.restore();
+  }
+});
+
+test('roles 3 and 4 Investigation submissions wait for approval and cannot spoof review fields', async () => {
+  for (const role of [3, 4]) {
+    const mock = mockFetch(role, [{ id: 'note-1' }]);
+    try {
+      const token = await login(envFor(role), mock.calls);
+      const response = await worker.fetch(makeRequest('/api/data/insert', {
+        table: 'daily_notes',
+        values: {
+          car_id: 'car-1',
+          created_name: 'Spoofed Name',
+          status: 'active',
+          reviewed_by: 'spoofed-user',
+          reviewed_at: '2026-01-01T00:00:00Z',
+        },
+        single: true,
+      }, token), envFor(role));
+      assert.equal(response.status, 200);
+      const insert = mock.calls.find((call) => call.url.pathname === '/rest/v1/daily_notes' && call.options.method === 'POST');
+      assert.deepEqual(JSON.parse(insert.options.body), {
+        car_id: 'car-1',
+        created_name: 'Test User',
+        status: 'pending_approval',
+      });
+    } finally {
+      mock.restore();
+    }
+  }
+});
+
+test('only role 1 can approve or reject Investigation submissions', async () => {
+  const noteId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const adminMock = mockFetch(1);
+  try {
+    const token = await login(envFor(1), adminMock.calls);
+    const response = await worker.fetch(makeRequest('/api/daily-notes/review', {
+      note_id: noteId,
+      decision: 'approved',
+    }, token), envFor(1));
+    assert.equal(response.status, 200);
+    const call = adminMock.calls.find((item) => item.url.pathname === '/rest/v1/rpc/review_daily_note');
+    assert.deepEqual(JSON.parse(call.options.body), {
+      _note_id: noteId,
+      _reviewed_by: profile.id,
+      _user_role: 1,
+      _decision: 'approved',
+    });
+  } finally {
+    adminMock.restore();
+  }
+
+  const roleTwoMock = mockFetch(2);
+  try {
+    const token = await login(envFor(2), roleTwoMock.calls);
+    const before = roleTwoMock.calls.length;
+    const response = await worker.fetch(makeRequest('/api/daily-notes/review', {
+      note_id: noteId,
+      decision: 'rejected',
+    }, token), envFor(2));
+    assert.equal(response.status, 403);
+    assert.equal(roleTwoMock.calls.slice(before).some((item) => item.url.pathname === '/rest/v1/rpc/review_daily_note'), false);
+  } finally {
+    roleTwoMock.restore();
   }
 });
 

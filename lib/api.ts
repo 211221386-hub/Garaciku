@@ -22,6 +22,13 @@ export type CreateRentalCycleInput = {
   notes: string;
 };
 
+export type UnitAvailability = {
+  car_id: string;
+  status: string;
+  start_date: string;
+  end_date: string | null;
+};
+
 async function unwrap<T>(request: PromiseLike<{ data: T | null; error: { message: string } | null }>): Promise<T> {
   const { data, error } = await request;
   if (error) throw new Error(error.message);
@@ -205,9 +212,38 @@ class ApiClient {
       );
       return [...new Set(rows.filter(isBlockingRental).map((rental) => rental.car_id))];
     },
-    getAvailability: () => unwrap<Pick<RentalRecord, 'car_id' | 'status' | 'start_date' | 'end_date'>[]>(
-      supabase.from('rental_records').select('car_id,status,start_date,end_date').in('status', ['pending', 'active', 'approved', 'overdue'])
-    ),
+    getAvailability: async (): Promise<UnitAvailability[]> => {
+      const [rentals, notes, services, cars] = await Promise.all([
+        unwrap<Pick<RentalRecord, 'car_id' | 'status' | 'start_date' | 'end_date'>[]>(
+          supabase.from('rental_records').select('car_id,status,start_date,end_date').in('status', ['pending', 'active', 'approved', 'overdue'])
+        ),
+        unwrap<Pick<DailyNote, 'car_id' | 'status' | 'start_date' | 'end_date'>[]>(
+          supabase.from('daily_notes').select('car_id,status,start_date,end_date').in('status', ['pending_approval', 'active'])
+        ),
+        unwrap<Pick<ServiceRecord, 'car_id' | 'status' | 'service_date'>[]>(
+          supabase.from('service_records').select('car_id,status,service_date').eq('status', 'scheduled')
+        ),
+        unwrap<Pick<Car, 'id' | 'operational_status'>[]>(
+          supabase.from('cars').select('id,operational_status')
+        ),
+      ]);
+      return [
+        ...rentals,
+        ...notes,
+        ...services.map((service) => ({
+          car_id: service.car_id,
+          status: service.status,
+          start_date: service.service_date,
+          end_date: service.service_date,
+        })),
+        ...cars.filter((car) => car.operational_status === 'under_maintenance').map((car) => ({
+          car_id: car.id,
+          status: 'under_maintenance',
+          start_date: '',
+          end_date: null,
+        })),
+      ];
+    },
     getAll: async () => {
       const session = getSession();
       let query = supabase.from('rental_records').select('*, cars(name)').order('created_at', { ascending: false });
@@ -386,6 +422,19 @@ class ApiClient {
       const result = await response.json().catch(() => null) as { data?: DailyNote; error?: string } | null;
       if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
       if (!result?.data) throw new Error('Worker mengembalikan data catatan yang tidak valid.');
+      return result.data;
+    },
+    review: async (id: string, decision: 'approved' | 'rejected') => {
+      const session = getSession();
+      if (!session || session.user.role !== 1) throw new Error('Hanya Role 1 yang dapat mereview Investigation.');
+      const response = await fetch(workerApiUrl('/api/daily-notes/review'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ note_id: id, decision }),
+      });
+      const result = await response.json().catch(() => null) as { data?: DailyNote; error?: string } | null;
+      if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
+      if (!result?.data) throw new Error('Worker mengembalikan data review yang tidak valid.');
       return result.data;
     },
     delete: async (id: string) => {

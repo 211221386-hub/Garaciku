@@ -12,6 +12,7 @@ import { TimeField } from '@/components/TimeField';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import type { Car, RentalStatus } from '@/lib/types';
+import type { UnitAvailability } from '@/lib/api';
 import { getSession } from '@/lib/auth';
 import { notifyOverdueRentals } from '@/lib/notifications';
 
@@ -34,15 +35,16 @@ type RentalWithCar = {
   car_name: string;
 };
 
-type RentalAvailability = Pick<RentalWithCar, 'car_id' | 'start_date' | 'end_date' | 'status'>;
+type RentalAvailability = UnitAvailability;
 
-const blockingStatuses: RentalStatus[] = ['pending', 'active', 'approved', 'overdue'];
+const blockingStatuses = ['pending', 'active', 'approved', 'overdue', 'pending_approval', 'scheduled'];
 
 function hasRentalConflict(reservations: RentalAvailability[], carId: string, startDate: string, endDate: string) {
   return reservations.some((reservation) =>
     reservation.car_id === carId
-    && blockingStatuses.includes(reservation.status)
-    && dateRangesOverlap(startDate, endDate, reservation.start_date, reservation.end_date ?? reservation.start_date)
+    && (reservation.status === 'under_maintenance'
+      || (blockingStatuses.includes(reservation.status)
+        && dateRangesOverlap(startDate, endDate, reservation.start_date, reservation.end_date ?? reservation.start_date)))
   );
 }
 
@@ -200,7 +202,7 @@ export default function RentalScreen() {
       try {
         const latestReservations = await apiClient.rentals.getAvailability();
         if (hasRentalConflict(latestReservations, form.car_id, duplicateForm.start_date, duplicateForm.end_date)) {
-          throw new Error('Unit sudah terbooking pada rentang tanggal tersebut. Pilih unit atau tanggal lain.');
+          throw new Error('Unit tidak tersedia pada rentang tanggal tersebut karena ada jadwal aktif atau sedang dalam perawatan.');
         }
         await apiClient.notes.create({
           car_id: form.car_id,

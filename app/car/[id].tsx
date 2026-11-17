@@ -675,8 +675,10 @@ export default function CarDetailScreen() {
                   <Text style={styles.cardTitle}>{note.content || 'Catatan Investigation'}</Text>
                   <Text style={styles.metaText}>Dibuat oleh: {note.created_name || 'Catatan lama'}</Text>
                   {note.section ? <Text style={styles.metaText}>Section: {note.section}</Text> : null}
-                  <View style={[styles.statusPill, { backgroundColor: note.status === 'completed' ? Colors.primaryLight : '#FEF3C7', alignSelf: 'flex-start', marginTop: Spacing.xs }]}>
-                    <Text style={[styles.statusText, { color: note.status === 'completed' ? Colors.primary : '#92400E' }]}>{note.status === 'completed' ? 'Dikembalikan' : 'Menunggu konfirmasi pengembalian'}</Text>
+                  <View style={[styles.statusPill, { backgroundColor: note.status === 'completed' ? Colors.primaryLight : note.status === 'rejected' ? '#FEE2E2' : '#FEF3C7', alignSelf: 'flex-start', marginTop: Spacing.xs }]}>
+                    <Text style={[styles.statusText, { color: note.status === 'completed' ? Colors.primary : note.status === 'rejected' ? Colors.error : '#92400E' }]}>
+                      {note.status === 'pending_approval' ? 'Menunggu persetujuan' : note.status === 'active' ? 'Menunggu konfirmasi pengembalian' : note.status === 'completed' ? 'Dikembalikan' : 'Ditolak'}
+                    </Text>
                   </View>
                   <View style={styles.serviceMeta}>
                     <Text style={styles.metaText}>Tanggal: {formatDate(note.start_date || note.note_date)} {note.start_time?.slice(0, 5) || ''} - {formatDate(note.end_date || note.note_date)} {note.end_time?.slice(0, 5) || ''}</Text>

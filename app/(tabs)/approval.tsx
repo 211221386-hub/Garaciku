@@ -6,10 +6,11 @@ import { apiClient } from '@/lib/api';
 import { getSession } from '@/lib/auth';
 import { differenceInCalendarDays, formatDate } from '@/lib/format';
 import { Colors, Radius, Spacing, Typography } from '@/lib/theme';
-import type { RentalRecord, RentalStatus } from '@/lib/types';
+import type { DailyNote, RentalRecord, RentalStatus } from '@/lib/types';
 import { EmptyState } from '@/components/EmptyState';
 
 type ApprovalRental = RentalRecord & { car_name: string };
+type ApprovalInvestigation = DailyNote & { car_name: string };
 
 const isSuperAdmin = () => getSession()?.user.role === 1;
 
@@ -26,18 +27,28 @@ const statusConfig: Record<RentalStatus, { label: string; backgroundColor: strin
 
 export default function ApprovalScreen() {
   const [rentals, setRentals] = useState<ApprovalRental[]>([]);
+  const [investigations, setInvestigations] = useState<ApprovalInvestigation[]>([]);
   const [cars, setCars] = useState<{ id: string; name: string; plate_number: string }[]>([]);
   const [selectedCars, setSelectedCars] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [decision, setDecision] = useState<{ rental: ApprovalRental; status: 'approved' | 'rejected' } | null>(null);
+  const [investigationDecision, setInvestigationDecision] = useState<{ note: ApprovalInvestigation; status: 'approved' | 'rejected' } | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [processingInvestigationId, setProcessingInvestigationId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [notificationError, setNotificationError] = useState<string | null>(null);
 
   const fetchApprovals = useCallback(async () => {
     try {
-      const [rentalData, carData] = await Promise.all([apiClient.rentals.getAll(), apiClient.cars.getAll()]);
+      const [rentalData, carData, investigationData] = await Promise.all([
+        apiClient.rentals.getAll(),
+        apiClient.cars.getAll(),
+        isSuperAdmin() ? apiClient.notes.getAll() : Promise.resolve([]),
+      ]);
       setRentals(isSuperAdmin() ? rentalData.filter((rental) => rental.status === 'pending') : rentalData);
+      setInvestigations(isSuperAdmin()
+        ? investigationData.filter((note) => note.status === 'pending_approval')
+        : []);
       setCars(carData);
       setSelectedCars((current) => Object.fromEntries(rentalData.map((rental) => [rental.id, current[rental.id] ?? rental.car_id])));
     } catch (error) {
@@ -96,10 +107,25 @@ export default function ApprovalScreen() {
     setDecision({ rental, status });
   };
 
+  const reviewInvestigation = async (note: ApprovalInvestigation, status: 'approved' | 'rejected') => {
+    if (!isSuperAdmin()) return;
+    setProcessingInvestigationId(note.id);
+    setErrorMessage(null);
+    try {
+      await apiClient.notes.review(note.id, status);
+      setInvestigationDecision(null);
+      await fetchApprovals();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Terjadi kesalahan saat mereview Investigation.');
+    } finally {
+      setProcessingInvestigationId(null);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.greeting}>Persetujuan Transportation</Text>
+        <Text style={styles.greeting}>Persetujuan Transportation dan Investigation</Text>
         <Text style={styles.title}>{isSuperAdmin() ? 'Review Permintaan' : 'Riwayat Transportation'}</Text>
       </View>
       {notificationError ? (
@@ -144,6 +170,45 @@ export default function ApprovalScreen() {
             ) : <Text style={styles.waiting}>{item.status === 'pending' ? 'Menunggu Super Admin memilih dan menyetujui mobil.' : item.status === 'approved' || item.status === 'completed' ? 'Permintaan Anda sudah disetujui.' : 'Permintaan Anda ditolak.'}</Text>}
           </View>
         )}
+        ListFooterComponent={isSuperAdmin() ? (
+          <View style={styles.investigationsSection}>
+            <Text style={styles.sectionTitle}>Investigation menunggu persetujuan</Text>
+            {investigations.length === 0 ? (
+              <Text style={styles.waiting}>Tidak ada Investigation yang menunggu persetujuan.</Text>
+            ) : investigations.map((item) => (
+              <View key={item.id} style={styles.card}>
+                <View style={styles.cardHeader}>
+                  <View style={styles.icon}><ClipboardCheck size={18} color={Colors.primary} strokeWidth={2.2} /></View>
+                  <View style={styles.cardBody}>
+                    <Text style={styles.name}>{item.created_name || 'Pengguna'}</Text>
+                    <Text style={styles.email}>{item.car_name}</Text>
+                  </View>
+                  <View style={styles.pending}><Text style={styles.pendingText}>Menunggu</Text></View>
+                </View>
+                <Text style={styles.meta}>{formatDate(item.start_date)}{item.end_date ? ` - ${formatDate(item.end_date)}` : ''}</Text>
+                <Text style={styles.purpose}>{item.content || item.section || 'Investigation'}</Text>
+                {item.detail ? <Text style={styles.waiting}>{item.detail}</Text> : null}
+                <View style={styles.actions}>
+                  <TouchableOpacity
+                    style={[styles.action, styles.reject]}
+                    onPress={() => setInvestigationDecision({ note: item, status: 'rejected' })}
+                  >
+                    <X size={17} color={Colors.error} />
+                    <Text style={[styles.actionText, { color: Colors.error }]}>Tolak</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.action, styles.approve, processingInvestigationId === item.id && styles.actionDisabled]}
+                    onPress={() => setInvestigationDecision({ note: item, status: 'approved' })}
+                    disabled={processingInvestigationId === item.id}
+                  >
+                    <Check size={17} color={Colors.white} />
+                    <Text style={[styles.actionText, { color: Colors.white }]}>Approve</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
         ListEmptyComponent={<EmptyState icon={<ClipboardCheck size={32} color={Colors.primary} strokeWidth={2} />} title={isSuperAdmin() ? 'Tidak ada approval pending' : 'Belum ada riwayat approval'} subtitle={isSuperAdmin() ? 'Permintaan baru dari role 3 dan 4 akan muncul di sini.' : 'Permintaan Transportation Anda akan muncul di sini.'} />}
       />
       {decision ? (
@@ -157,6 +222,27 @@ export default function ApprovalScreen() {
             <View style={styles.confirmActions}>
               <TouchableOpacity style={[styles.confirmButton, styles.cancelButton]} onPress={() => setDecision(null)}><Text style={styles.cancelButtonText}>Batal</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.confirmButton, decision.status === 'approved' ? styles.approve : styles.reject, processingId === decision.rental.id && styles.actionDisabled]} disabled={processingId === decision.rental.id} onPress={() => { void decide(decision.rental, decision.status); }}><Text style={[styles.actionText, { color: decision.status === 'approved' ? Colors.white : Colors.error }]}>{processingId === decision.rental.id ? 'Memproses...' : decision.status === 'approved' ? 'Approve' : 'Tolak'}</Text></TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ) : null}
+      {investigationDecision ? (
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmModal}>
+            <View style={[styles.confirmIcon, investigationDecision.status === 'rejected' && styles.rejectIcon]}>
+              {investigationDecision.status === 'approved' ? <Check size={24} color={Colors.primary} strokeWidth={2.5} /> : <X size={24} color={Colors.error} strokeWidth={2.5} />}
+            </View>
+            <Text style={styles.confirmTitle}>{investigationDecision.status === 'approved' ? 'Setujui Investigation?' : 'Tolak Investigation?'}</Text>
+            <Text style={styles.confirmMessage}>Investigation dari {investigationDecision.note.created_name || 'pengguna'} akan {investigationDecision.status === 'approved' ? 'disetujui' : 'ditolak'}.</Text>
+            <View style={styles.confirmActions}>
+              <TouchableOpacity style={[styles.confirmButton, styles.cancelButton]} onPress={() => setInvestigationDecision(null)}><Text style={styles.cancelButtonText}>Batal</Text></TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmButton, investigationDecision.status === 'approved' ? styles.approve : styles.reject, processingInvestigationId === investigationDecision.note.id && styles.actionDisabled]}
+                disabled={processingInvestigationId === investigationDecision.note.id}
+                onPress={() => { void reviewInvestigation(investigationDecision.note, investigationDecision.status); }}
+              >
+                <Text style={[styles.actionText, { color: investigationDecision.status === 'approved' ? Colors.white : Colors.error }]}>{processingInvestigationId === investigationDecision.note.id ? 'Memproses...' : investigationDecision.status === 'approved' ? 'Approve' : 'Tolak'}</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -182,6 +268,8 @@ const styles = StyleSheet.create({
   notificationError: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginHorizontal: Spacing.lg, marginTop: Spacing.md, padding: Spacing.md, borderRadius: Radius.md, backgroundColor: '#FEE2E2' },
   notificationErrorText: { flex: 1, fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.error, lineHeight: 20 },
   list: { padding: Spacing.lg, paddingBottom: 100 },
+  investigationsSection: { marginTop: Spacing.md },
+  sectionTitle: { fontSize: Typography.lg, fontFamily: Typography.fontSemiBold, color: Colors.textPrimary, marginBottom: Spacing.md },
   card: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
   icon: { width: 38, height: 38, borderRadius: Radius.md, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: Spacing.sm },
