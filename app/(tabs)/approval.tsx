@@ -140,9 +140,12 @@ export default function ApprovalScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchApprovals(); }} colors={[Colors.primary]} />}
-        ListHeaderComponent={isSuperAdmin() ? (
-          <Text style={styles.sectionTitle}>Transportation menunggu persetujuan</Text>
-        ) : null}
+        ListHeaderComponent={(
+          <Text style={styles.sectionTitle}>
+            {isSuperAdmin() ? 'Transportation menunggu persetujuan' : 'Riwayat Transportation'}
+            <Text style={styles.sectionCount}> ({rentals.length})</Text>
+          </Text>
+        )}
         renderItem={({ item }) => (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
@@ -174,9 +177,16 @@ export default function ApprovalScreen() {
         )}
         ListFooterComponent={isSuperAdmin() ? (
           <View style={styles.investigationsSection}>
-            <Text style={styles.sectionTitle}>Investigation menunggu persetujuan</Text>
+            <Text style={styles.sectionTitle}>
+              Investigation menunggu persetujuan
+              <Text style={styles.sectionCount}> ({investigations.length})</Text>
+            </Text>
             {investigations.length === 0 ? (
-              <Text style={styles.waiting}>Tidak ada Investigation yang menunggu persetujuan.</Text>
+              <View style={styles.emptyList}>
+                <ClipboardCheck size={22} color={Colors.primary} strokeWidth={2} />
+                <Text style={styles.emptyTitle}>Tidak ada Investigation yang menunggu persetujuan.</Text>
+                <Text style={styles.emptySubtitle}>Investigation baru dari role 3 dan 4 akan muncul di sini.</Text>
+              </View>
             ) : investigations.map((item) => (
               <View key={item.id} style={styles.card}>
                 <View style={styles.cardHeader}>
@@ -215,7 +225,7 @@ export default function ApprovalScreen() {
           <View style={styles.emptyList}>
             <ClipboardCheck size={22} color={Colors.primary} strokeWidth={2} />
             <Text style={styles.emptyTitle}>{isSuperAdmin() ? 'Tidak ada Transportation yang menunggu persetujuan.' : 'Belum ada riwayat Transportation.'}</Text>
-            {isSuperAdmin() ? <Text style={styles.emptySubtitle}>Permintaan baru dari role 3 dan 4 akan muncul di sini.</Text> : null}
+            {isSuperAdmin() ? <Text style={styles.emptySubtitle}>Transportation baru dari role 3 dan 4 akan muncul di sini.</Text> : null}
           </View>
         )}
       />
@@ -275,12 +285,13 @@ const styles = StyleSheet.create({
   title: { fontSize: Typography.xxxl, fontFamily: Typography.fontBold, color: Colors.white },
   notificationError: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginHorizontal: Spacing.lg, marginTop: Spacing.md, padding: Spacing.md, borderRadius: Radius.md, backgroundColor: '#FEE2E2' },
   notificationErrorText: { flex: 1, fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.error, lineHeight: 20 },
-  list: { padding: Spacing.lg, paddingBottom: 100, flexGrow: 1 },
-  emptyList: { alignItems: 'center', paddingVertical: Spacing.lg, paddingHorizontal: Spacing.md, gap: Spacing.xs },
+  list: { padding: Spacing.lg, paddingBottom: 100 },
+  emptyList: { alignItems: 'center', paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md, gap: Spacing.xs },
   emptyTitle: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textPrimary, textAlign: 'center' },
   emptySubtitle: { fontSize: Typography.xs, fontFamily: Typography.fontRegular, color: Colors.textSecondary, textAlign: 'center' },
   investigationsSection: { marginTop: Spacing.md },
   sectionTitle: { fontSize: Typography.lg, fontFamily: Typography.fontSemiBold, color: Colors.textPrimary, marginBottom: Spacing.md },
+  sectionCount: { fontFamily: Typography.fontMedium, color: Colors.textSecondary },
   card: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
   icon: { width: 38, height: 38, borderRadius: Radius.md, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: Spacing.sm },
