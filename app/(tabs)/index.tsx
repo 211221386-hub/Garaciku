@@ -53,6 +53,9 @@ export default function CarsScreen() {
     setRefreshing(true);
     fetchCars();
   };
+  const carRows = Array.from({ length: Math.ceil(cars.length / 2) }, (_, index) =>
+    cars.slice(index * 2, index * 2 + 2)
+  );
 
   return (
     <View style={styles.container}>
@@ -69,24 +72,29 @@ export default function CarsScreen() {
       </View>
 
       <FlatList
-        data={cars}
-        numColumns={2}
-        keyExtractor={(item) => item.id}
+        data={carRows}
+        keyExtractor={(row) => row[0].id}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} />}
-        renderItem={({ item }) => {
-          const carStatus = carStatuses[item.id] ?? { status: 'Ready' as const, renter_name: null };
-          const unavailableToUser = ['Booked', 'Delay', 'Under Maintenance'].includes(carStatus.status);
-          return (
-            <CarCard
-              car={item}
-              onPress={() => router.push(`/car/${item.id}`)}
-              disabled={unavailableToUser}
-              statusLabel={carStatus.status}
-              statusDetail={carStatus.renter_name ? `Peminjam: ${carStatus.renter_name}` : null}
-            />
-          );
-        }}
+        renderItem={({ item: row }) => (
+          <View style={styles.carRow}>
+            {row.map((car) => {
+              const carStatus = carStatuses[car.id] ?? { status: 'Ready' as const, renter_name: null };
+              const unavailableToUser = ['Booked', 'Delay', 'Under Maintenance'].includes(carStatus.status);
+              return (
+                <CarCard
+                  key={car.id}
+                  car={car}
+                  onPress={() => router.push(`/car/${car.id}`)}
+                  disabled={unavailableToUser}
+                  statusLabel={carStatus.status}
+                  statusDetail={carStatus.renter_name ? `Peminjam: ${carStatus.renter_name}` : null}
+                />
+              );
+            })}
+            {row.length === 1 ? <View style={styles.emptyCardSlot} /> : null}
+          </View>
+        )}
         ListEmptyComponent={
           !loading ? (
             <EmptyState
@@ -151,6 +159,13 @@ const styles = StyleSheet.create({
   list: {
     padding: Spacing.lg,
     paddingBottom: 100,
+  },
+  carRow: {
+    flexDirection: 'row',
+  },
+  emptyCardSlot: {
+    flex: 1,
+    marginHorizontal: Spacing.xs,
   },
   fab: {
     position: 'absolute',
