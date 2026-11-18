@@ -42,7 +42,7 @@ const blockingStatuses = ['pending', 'active', 'approved', 'overdue', 'pending_a
 function hasRentalConflict(reservations: RentalAvailability[], carId: string, startDate: string, endDate: string) {
   return reservations.some((reservation) =>
     reservation.car_id === carId
-    && (reservation.status === 'under_maintenance'
+    && (['under_maintenance', 'inactive'].includes(reservation.status)
       || (blockingStatuses.includes(reservation.status)
         && dateRangesOverlap(startDate, endDate, reservation.start_date, reservation.end_date ?? '9999-12-31')))
   );

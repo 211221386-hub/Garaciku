@@ -152,7 +152,7 @@ function validateFilters(table, filters, required = false) {
 }
 
 function isUnitScheduleConflict(message) {
-  return /Siklus peminjaman|Unit sudah terbooking|Investigation.*rentang tanggal|jadwal Service.*rentang tanggal|sedang dalam perawatan/i.test(message);
+  return /Siklus peminjaman|Unit sudah terbooking|Investigation.*rentang tanggal|jadwal Service.*rentang tanggal|sedang dalam perawatan|berstatus Inactive/i.test(message);
 }
 
 function encodeFilter(filter) {
@@ -310,6 +310,17 @@ async function proxyQuery(env, user, body) {
         { column: 'status', operator: 'eq', value: 'scheduled' },
       ],
       select: 'car_id,status,service_date',
+    };
+  }
+  if (table === 'cars' && [3, 4].includes(user.role)) {
+    const filters = validateFilters(table, body.filters ?? []);
+    if (!filters) return { status: 400, error: 'Invalid car filters.' };
+    query = {
+      ...query,
+      filters: [
+        ...filters.filter((filter) => filter.column !== 'operational_status'),
+        { column: 'operational_status', operator: 'in', value: ['ready', 'under_maintenance'] },
+      ],
     };
   }
   const url = buildPostgrestUrl(env, table, query);

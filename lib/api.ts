@@ -149,7 +149,12 @@ class ApiClient {
   };
 
   cars = {
-    getAll: () => unwrap<Car[]>(supabase.from('cars').select('*').order('created_at', { ascending: false })),
+    getAll: async () => {
+      const cars = await unwrap<Car[]>(supabase.from('cars').select('*').order('created_at', { ascending: false }));
+      return [3, 4].includes(getSession()?.user.role ?? 0)
+        ? cars.filter((car) => car.operational_status !== 'inactive')
+        : cars;
+    },
     getById: (id: string) => unwrap<Car>(supabase.from('cars').select('*').eq('id', id).single()),
     create: (data: Record<string, unknown>) => {
       const session = getSession();
@@ -163,13 +168,13 @@ class ApiClient {
       if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya role 1 atau 2 yang dapat mengubah data mobil.');
       return unwrap<Car>(supabase.from('cars').update(data).eq('id', id).select().single());
     },
-    setMaintenanceStatus: (id: string, underMaintenance: boolean) => {
+    setOperationalStatus: (id: string, operationalStatus: Car['operational_status']) => {
       const session = getSession();
       if (!session || ![1, 2].includes(session.user.role)) {
-        throw new Error('Hanya role 1 atau 2 yang dapat mengubah status perawatan unit.');
+        throw new Error('Hanya role 1 atau 2 yang dapat mengubah status unit.');
       }
       return unwrap<Car>(supabase.from('cars').update({
-        operational_status: underMaintenance ? 'under_maintenance' : 'ready',
+        operational_status: operationalStatus,
       }).eq('id', id).select().single());
     },
     getStatuses: async (carIds: string[]) => {
@@ -196,7 +201,7 @@ class ApiClient {
         ),
       ]);
       const today = todayISO();
-      const result: Record<string, { status: 'Ready' | 'Booked' | 'Under Maintenance' | 'Time to Service' | 'Delay'; renter_name: string | null }> = {};
+      const result: Record<string, { status: 'Ready' | 'Booked' | 'Under Maintenance' | 'Time to Service' | 'Delay' | 'Inactive'; renter_name: string | null }> = {};
 
       for (const car of cars) {
         const carRentals = rentals.filter((rental) => rental.car_id === car.id)
@@ -207,7 +212,9 @@ class ApiClient {
           && service.next_service_date !== null
           && today >= addDaysToISO(service.next_service_date, service.is_recurring ? -7 : -2));
 
-        if (car.operational_status === 'under_maintenance') {
+        if (car.operational_status === 'inactive') {
+          result[car.id] = { status: 'Inactive', renter_name: null };
+        } else if (car.operational_status === 'under_maintenance') {
           result[car.id] = { status: 'Under Maintenance', renter_name: null };
         } else if (delayedRental) {
           result[car.id] = { status: 'Delay', renter_name: delayedRental.renter_name };
@@ -260,9 +267,9 @@ class ApiClient {
           start_date: service.service_date,
           end_date: service.service_date,
         })),
-        ...cars.filter((car) => car.operational_status === 'under_maintenance').map((car) => ({
+        ...cars.filter((car) => ['under_maintenance', 'inactive'].includes(car.operational_status)).map((car) => ({
           car_id: car.id,
-          status: 'under_maintenance',
+          status: car.operational_status,
           start_date: '',
           end_date: null,
         })),

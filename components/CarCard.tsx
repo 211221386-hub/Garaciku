@@ -16,6 +16,7 @@ function getStatusStyle(statusLabel?: string) {
   if (statusLabel === 'Under Maintenance') return styles.maintenanceBadge;
   if (statusLabel === 'Time to Service') return styles.serviceBadge;
   if (statusLabel === 'Delay') return styles.delayBadge;
+  if (statusLabel === 'Inactive') return styles.inactiveBadge;
   return styles.readyBadge;
 }
 
@@ -82,6 +83,7 @@ const styles = StyleSheet.create({
   maintenanceBadge: { backgroundColor: 'rgba(107, 114, 128, 0.95)' },
   serviceBadge: { backgroundColor: 'rgba(245, 158, 11, 0.95)' },
   delayBadge: { backgroundColor: 'rgba(220, 38, 38, 0.92)' },
+  inactiveBadge: { backgroundColor: 'rgba(75, 85, 99, 0.95)' },
   statusText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.white, textAlign: 'center' },
   statusDetail: { maxWidth: 105, fontSize: Typography.xs, fontFamily: Typography.fontMedium, color: Colors.textSecondary },
   plateRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },

@@ -26,8 +26,13 @@ export default function CarsScreen() {
         const statuses = await apiClient.cars.getStatuses(data.map((car) => car.id));
         setCarStatuses(statuses);
       } catch (statusError) {
-        console.warn('Gagal memuat status mobil; unit ditampilkan sebagai Ready.', statusError);
-        setCarStatuses({});
+        console.warn('Gagal memuat status jadwal mobil; hanya status operasional yang ditampilkan.', statusError);
+        setCarStatuses(Object.fromEntries(data
+          .filter((car) => car.operational_status !== 'ready')
+          .map((car) => [car.id, {
+            status: car.operational_status === 'inactive' ? 'Inactive' as const : 'Under Maintenance' as const,
+            renter_name: null,
+          }])));
       }
     } catch (error) {
       console.error('Error fetching cars:', error);

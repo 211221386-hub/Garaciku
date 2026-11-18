@@ -3,6 +3,7 @@ import { View, StyleSheet, ScrollView, Alert, ActivityIndicator, TouchableOpacit
 import { router, useLocalSearchParams } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
+import type { Car } from '@/lib/types';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
 import { Field } from '@/components/Field';
 import { Button } from '@/components/Button';
@@ -17,7 +18,7 @@ export default function EditCarScreen() {
   const [plate, setPlate] = useState('');
   const [color, setColor] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
-  const [underMaintenance, setUnderMaintenance] = useState(false);
+  const [operationalStatus, setOperationalStatus] = useState<Car['operational_status']>('ready');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -36,7 +37,7 @@ export default function EditCarScreen() {
         setPlate(data.plate_number);
         setColor(data.color);
         setPhotoUrl(data.photo_url ?? '');
-        setUnderMaintenance(data.operational_status === 'under_maintenance');
+        setOperationalStatus(data.operational_status);
       }
       setLoading(false);
     })();
@@ -58,7 +59,7 @@ export default function EditCarScreen() {
         color: color.trim(),
         photo_url: photoUrl.trim() || null,
       });
-      await apiClient.cars.setMaintenanceStatus(id, underMaintenance);
+      await apiClient.cars.setOperationalStatus(id, operationalStatus);
       router.back();
     } catch (error) {
       Alert.alert('Gagal menyimpan', error instanceof Error ? error.message : 'Terjadi kesalahan.');
@@ -94,11 +95,14 @@ export default function EditCarScreen() {
         <Field label="URL Gambar Mobil" value={photoUrl} onChangeText={setPhotoUrl} placeholder="https://contoh.com/mobil.jpg" />
         <Text style={styles.sectionLabel}>Status Unit</Text>
         <View style={styles.statusOptions}>
-          <TouchableOpacity style={[styles.statusOption, !underMaintenance && styles.statusOptionActive]} onPress={() => setUnderMaintenance(false)}>
-            <Text style={[styles.statusOptionText, !underMaintenance && styles.statusOptionTextActive]}>Ready</Text>
+          <TouchableOpacity style={[styles.statusOption, operationalStatus === 'ready' && styles.statusOptionActive]} onPress={() => setOperationalStatus('ready')}>
+            <Text style={[styles.statusOptionText, operationalStatus === 'ready' && styles.statusOptionTextActive]}>Ready</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.statusOption, underMaintenance && styles.statusOptionActive]} onPress={() => setUnderMaintenance(true)}>
-            <Text style={[styles.statusOptionText, underMaintenance && styles.statusOptionTextActive]}>Under Maintenance</Text>
+          <TouchableOpacity style={[styles.statusOption, operationalStatus === 'under_maintenance' && styles.statusOptionActive]} onPress={() => setOperationalStatus('under_maintenance')}>
+            <Text style={[styles.statusOptionText, operationalStatus === 'under_maintenance' && styles.statusOptionTextActive]}>Maintenance</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.statusOption, operationalStatus === 'inactive' && styles.statusOptionActive]} onPress={() => setOperationalStatus('inactive')}>
+            <Text style={[styles.statusOptionText, operationalStatus === 'inactive' && styles.statusOptionTextActive]}>Inactive</Text>
           </TouchableOpacity>
         </View>
         <View style={{ height: Spacing.md }} />

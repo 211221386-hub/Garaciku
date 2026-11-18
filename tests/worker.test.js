@@ -290,6 +290,26 @@ test('authenticated data query is proxied and returned in the expected envelope'
   }
 });
 
+test('roles 3 and 4 cannot query Inactive cars', async () => {
+  for (const role of [3, 4]) {
+    const mock = mockFetch(role);
+    try {
+      const token = await login(envFor(role), mock.calls);
+      const response = await worker.fetch(makeRequest('/api/data/query', {
+        table: 'cars',
+        select: '*',
+        filters: [{ column: 'operational_status', operator: 'eq', value: 'inactive' }],
+        single: false,
+      }, token), envFor(role));
+      const query = mock.calls.find((call) => call.url.pathname === '/rest/v1/cars');
+      assert.equal(response.status, 200);
+      assert.equal(query.url.searchParams.get('operational_status'), 'in.("ready","under_maintenance")');
+    } finally {
+      mock.restore();
+    }
+  }
+});
+
 test('query projection forwards only the requested rental columns', async () => {
   const mock = mockFetch(3, [{ car_id: 'car-1', status: 'active' }]);
   try {
@@ -701,6 +721,32 @@ test('rental cycle cross-table conflicts return conflict status', async () => {
     const result = await response.json();
     assert.equal(response.status, 409);
     assert.match(result.error, /jadwal Service/);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('Inactive unit conflicts return conflict status for rental cycles', async () => {
+  const mock = mockFetch(2, [], {}, {
+    '/rest/v1/rpc/create_rental_cycle': {
+      status: 400,
+      body: { message: 'Unit berstatus Inactive dan tidak dapat digunakan.' },
+    },
+  });
+  try {
+    const token = await login(envFor(2), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/rentals/create-cycle', {
+      car_ids: ['11111111-1111-4111-8111-111111111111'],
+      start_date: '2026-10-22',
+      start_time: '09:00',
+      end_date: '2026-10-23',
+      end_time: '17:00',
+      purpose: 'Business trip',
+      notes: '',
+    }, token), envFor(2));
+    const result = await response.json();
+    assert.equal(response.status, 409);
+    assert.match(result.error, /Inactive/);
   } finally {
     mock.restore();
   }

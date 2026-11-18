@@ -66,7 +66,7 @@ export default function ServiceScreen() {
     try {
       const [serviceData, carData] = await Promise.all([apiClient.services.getAll(), apiClient.cars.getAll()]);
       setServices(serviceData);
-      setCars(carData);
+      setCars(carData.filter((car) => car.operational_status !== 'inactive'));
       void syncServiceReminders(serviceData).catch((error) => console.warn('Gagal menyinkronkan reminder service:', error));
     } catch (error) {
       console.error('Error fetching services:', error);
