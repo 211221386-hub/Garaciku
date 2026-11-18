@@ -146,8 +146,24 @@ export default function ServiceScreen() {
     }
   };
 
-  const confirmServiceDone = async (service: ServiceWithCar) => {
+  const startService = async (service: ServiceWithCar) => {
     if (confirmingServiceId || service.status !== 'scheduled' || !service.reminder_enabled) return;
+    const dueDate = service.next_service_date || service.service_date;
+    const startWindow = addDaysToISO(dueDate, service.is_recurring ? -7 : -2);
+    if (todayISO() < startWindow) return;
+    setConfirmingServiceId(service.id);
+    try {
+      await apiClient.services.update(service.id, { status: 'in_progress' });
+      await fetchServices();
+    } catch (error) {
+      Alert.alert('Gagal memulai service', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+    } finally {
+      setConfirmingServiceId(null);
+    }
+  };
+
+  const completeService = async (service: ServiceWithCar) => {
+    if (confirmingServiceId || service.status !== 'in_progress') return;
     setConfirmingServiceId(service.id);
     const completedDate = todayISO();
     const nextServiceDate = service.is_recurring ? addMonthsToISO(completedDate, 6) : null;
@@ -186,7 +202,7 @@ export default function ServiceScreen() {
       }
       await fetchServices();
     } catch (error) {
-      Alert.alert('Gagal mengonfirmasi service', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+      Alert.alert('Gagal menyelesaikan service', error instanceof Error ? error.message : 'Terjadi kesalahan.');
     } finally {
       setConfirmingServiceId(null);
     }
@@ -210,7 +226,8 @@ export default function ServiceScreen() {
             const isScheduledReminder = item.status === 'scheduled' && item.reminder_enabled;
             const dueDate = item.next_service_date || item.service_date;
             const reminderStatus = isScheduledReminder ? getReminderStatus(dueDate) : null;
-            const confirmationWindowEnd = addDaysToISO(todayISO(), item.is_recurring ? 7 : 2);
+            const startWindow = addDaysToISO(dueDate, item.is_recurring ? -7 : -2);
+            const confirmationWindowEnd = todayISO();
             return (
               <View style={styles.card}>
                 <TouchableOpacity style={styles.cardMain} onPress={() => router.push(`/car/${item.car_id}`)} activeOpacity={0.85}>
@@ -218,7 +235,7 @@ export default function ServiceScreen() {
                   <View style={styles.cardBody}>
                     <Text style={styles.serviceType} numberOfLines={1}>{item.service_type}</Text>
                     <Text style={styles.metaText}>{formatDate(item.service_date)}{item.workshop ? ` · ${item.workshop}` : ''}</Text>
-                    <Text style={[styles.statusText, item.status === 'scheduled' && styles.scheduledText]}>{item.status === 'scheduled' ? 'Terjadwal' : 'Sudah dilakukan'}</Text>
+                    <Text style={[styles.statusText, item.status !== 'completed' && styles.scheduledText]}>{item.status === 'scheduled' ? 'Terjadwal' : item.status === 'in_progress' ? 'Sedang dikerjakan' : 'Sudah dilakukan'}</Text>
                     {isScheduledReminder ? <Text style={styles.reminderText}>{item.is_recurring ? 'Berkala tiap 6 bulan · ' : 'Reminder: '}{formatDate(dueDate)}</Text> : null}
                     {reminderStatus ? <Text style={[styles.reminderStatus, reminderStatus === 'Jatuh tempo' ? styles.overdueReminder : styles.soonReminder]}>{reminderStatus}</Text> : null}
                     {item.cost !== null ? <Text style={styles.costText}>{formatCurrency(item.cost)}</Text> : null}
@@ -226,12 +243,19 @@ export default function ServiceScreen() {
                   </View>
                   <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2.2} />
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.deleteButton} onPress={() => deleteService(item)} hitSlop={10} accessibilityLabel={`Hapus service ${item.service_type}`}>
-                  <Trash2 size={18} color={Colors.error} strokeWidth={2.2} />
-                </TouchableOpacity>
-                {isScheduledReminder && dueDate <= confirmationWindowEnd ? (
-                  <TouchableOpacity style={[styles.confirmServiceButton, confirmingServiceId === item.id && styles.actionDisabled]} onPress={() => { void confirmServiceDone(item); }} disabled={confirmingServiceId === item.id}>
-                    <Text style={styles.confirmServiceButtonText}>{confirmingServiceId === item.id ? 'Memproses...' : 'Konfirmasi sudah melakukan'}</Text>
+                {item.status !== 'in_progress' ? (
+                  <TouchableOpacity style={styles.deleteButton} onPress={() => deleteService(item)} hitSlop={10} accessibilityLabel={`Hapus service ${item.service_type}`}>
+                    <Trash2 size={18} color={Colors.error} strokeWidth={2.2} />
+                  </TouchableOpacity>
+                ) : null}
+                {isScheduledReminder && startWindow <= confirmationWindowEnd ? (
+                  <TouchableOpacity style={[styles.confirmServiceButton, confirmingServiceId === item.id && styles.actionDisabled]} onPress={() => { void startService(item); }} disabled={confirmingServiceId === item.id}>
+                    <Text style={styles.confirmServiceButtonText}>{confirmingServiceId === item.id ? 'Memproses...' : 'Mulai Service'}</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {item.status === 'in_progress' ? (
+                  <TouchableOpacity style={[styles.confirmServiceButton, confirmingServiceId === item.id && styles.actionDisabled]} onPress={() => { void completeService(item); }} disabled={confirmingServiceId === item.id}>
+                    <Text style={styles.confirmServiceButtonText}>{confirmingServiceId === item.id ? 'Memproses...' : 'Sudah Completed'}</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>

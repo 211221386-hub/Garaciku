@@ -197,7 +197,7 @@ class ApiClient {
           supabase.from('rental_records').select('car_id,status,renter_name,end_date,end_time').in('status', ['active', 'approved', 'overdue']).in('car_id', carIds)
         ),
         unwrap<Pick<ServiceRecord, 'car_id' | 'next_service_date' | 'reminder_enabled' | 'status' | 'is_recurring'>[]>(
-          supabase.from('service_records').select('car_id,next_service_date,reminder_enabled,status,is_recurring').eq('status', 'scheduled').eq('reminder_enabled', true).in('car_id', carIds)
+          supabase.from('service_records').select('car_id,next_service_date,reminder_enabled,status,is_recurring').in('status', ['scheduled', 'in_progress']).in('car_id', carIds)
         ),
       ]);
       const today = todayISO();
@@ -208,13 +208,18 @@ class ApiClient {
           .map((rental) => ({ ...rental, status: getRentalStatus(rental.status, rental.end_date, rental.end_time) }));
         const delayedRental = carRentals.find((rental) => rental.status === 'overdue');
         const bookedRental = carRentals.find((rental) => rental.status === 'active' || rental.status === 'approved');
+        const serviceInProgress = services.some((service) => service.car_id === car.id && service.status === 'in_progress');
         const hasServiceDue = services.some((service) => service.car_id === car.id
+          && service.status === 'scheduled'
+          && service.reminder_enabled
           && service.next_service_date !== null
           && today >= addDaysToISO(service.next_service_date, service.is_recurring ? -7 : -2));
 
         if (car.operational_status === 'inactive') {
           result[car.id] = { status: 'Inactive', renter_name: null };
         } else if (car.operational_status === 'under_maintenance') {
+          result[car.id] = { status: 'Under Maintenance', renter_name: null };
+        } else if (serviceInProgress) {
           result[car.id] = { status: 'Under Maintenance', renter_name: null };
         } else if (delayedRental) {
           result[car.id] = { status: 'Delay', renter_name: delayedRental.renter_name };
@@ -252,7 +257,7 @@ class ApiClient {
           supabase.from('daily_notes').select('car_id,status,start_date,end_date').in('status', ['pending_approval', 'active'])
         ),
         unwrap<Pick<ServiceRecord, 'car_id' | 'status' | 'service_date'>[]>(
-          supabase.from('service_records').select('car_id,status,service_date').eq('status', 'scheduled')
+          supabase.from('service_records').select('car_id,status,service_date').in('status', ['scheduled', 'in_progress'])
         ),
         unwrap<Pick<Car, 'id' | 'operational_status'>[]>(
           supabase.from('cars').select('id,operational_status')
@@ -265,7 +270,7 @@ class ApiClient {
           car_id: service.car_id,
           status: service.status,
           start_date: service.service_date,
-          end_date: service.service_date,
+          end_date: service.status === 'in_progress' ? null : service.service_date,
         })),
         ...cars.filter((car) => ['under_maintenance', 'inactive'].includes(car.operational_status)).map((car) => ({
           car_id: car.id,

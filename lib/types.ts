@@ -66,7 +66,7 @@ export type ServiceRecord = {
   cost: number | null;
   mileage: number | null;
   workshop: string;
-  status: 'completed' | 'scheduled';
+  status: 'completed' | 'scheduled' | 'in_progress';
   next_service_date: string | null;
   next_service_mileage: number | null;
   reminder_enabled: boolean;
