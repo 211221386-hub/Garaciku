@@ -23,6 +23,7 @@ export type Car = {
   color: string;
   photo_url: string | null;
   operational_status: 'ready' | 'under_maintenance' | 'inactive';
+  periodic_service_start_date: string | null;
   created_at: string;
 };
 

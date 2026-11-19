@@ -448,6 +448,38 @@ test('rental records cannot be inserted through the generic data endpoint', asyn
   }
 });
 
+test('roles 1 and 2 can create a car without a periodic service date and set it later', async () => {
+  const mock = mockFetch(2, [{ id: 'car-1' }]);
+  try {
+    const token = await login(envFor(2), mock.calls);
+    const createResponse = await worker.fetch(makeRequest('/api/data/insert', {
+      table: 'cars',
+      values: { name: 'Mobil Baru', periodic_service_start_date: null },
+      single: true,
+    }, token), envFor(2));
+    assert.equal(createResponse.status, 200);
+
+    const updateResponse = await worker.fetch(makeRequest('/api/data/update', {
+      table: 'cars',
+      filters: [{ column: 'id', operator: 'eq', value: 'car-1' }],
+      values: { periodic_service_start_date: '2027-01-15' },
+      single: true,
+    }, token), envFor(2));
+    assert.equal(updateResponse.status, 200);
+
+    const mutations = mock.calls.filter((call) => call.url.pathname === '/rest/v1/cars');
+    assert.deepEqual(JSON.parse(mutations[0].options.body), {
+      name: 'Mobil Baru',
+      periodic_service_start_date: null,
+    });
+    assert.deepEqual(JSON.parse(mutations[1].options.body), {
+      periodic_service_start_date: '2027-01-15',
+    });
+  } finally {
+    mock.restore();
+  }
+});
+
 test('service record names come from the authenticated creator or confirmer', async () => {
   const mock = mockFetch(2, [{ id: 'service-1', created_name: 'Test User' }]);
   try {

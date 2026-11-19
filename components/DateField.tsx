@@ -24,9 +24,10 @@ type Props = {
   placeholder?: string;
   minimumDate?: Date;
   containerStyle?: ViewStyle;
+  allowClear?: boolean;
 };
 
-export function DateField({ label, value, onChange, placeholder = 'Pilih tanggal', minimumDate, containerStyle }: Props) {
+export function DateField({ label, value, onChange, placeholder = 'Pilih tanggal', minimumDate, containerStyle, allowClear = false }: Props) {
   const [open, setOpen] = useState(false);
 
   const handleChange = (event: DateTimePickerEvent, date?: Date) => {
@@ -46,6 +47,11 @@ export function DateField({ label, value, onChange, placeholder = 'Pilih tanggal
           'aria-label': label,
           style: webDateInputStyle,
         })}
+        {allowClear && value ? (
+          <TouchableOpacity style={styles.clearButton} onPress={() => onChange('')}>
+            <Text style={styles.clearText}>Kosongkan tanggal</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     );
   }
@@ -71,6 +77,11 @@ export function DateField({ label, value, onChange, placeholder = 'Pilih tanggal
           <Text style={styles.doneText}>Selesai</Text>
         </TouchableOpacity>
       ) : null}
+      {allowClear && value ? (
+        <TouchableOpacity style={styles.clearButton} onPress={() => onChange('')}>
+          <Text style={styles.clearText}>Kosongkan tanggal</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -84,6 +95,8 @@ const styles = StyleSheet.create({
   placeholder: { color: Colors.textTertiary },
   doneButton: { alignSelf: 'flex-end', paddingVertical: Spacing.xs, paddingHorizontal: Spacing.sm },
   doneText: { color: Colors.primary, fontFamily: Typography.fontSemiBold, fontSize: Typography.sm },
+  clearButton: { alignSelf: 'flex-start', paddingVertical: Spacing.xs, paddingHorizontal: Spacing.sm },
+  clearText: { color: Colors.error, fontFamily: Typography.fontMedium, fontSize: Typography.sm },
 });
 
 const webDateInputStyle = {

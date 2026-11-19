@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/api';
 import type { Car } from '@/lib/types';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
 import { Field } from '@/components/Field';
+import { DateField } from '@/components/DateField';
 import { Button } from '@/components/Button';
 import { getSession } from '@/lib/auth';
 
@@ -18,6 +19,8 @@ export default function EditCarScreen() {
   const [plate, setPlate] = useState('');
   const [color, setColor] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
+  const [periodicServiceStartDate, setPeriodicServiceStartDate] = useState<string | null>(null);
+  const [canSetPeriodicServiceStartDate, setCanSetPeriodicServiceStartDate] = useState(false);
   const [operationalStatus, setOperationalStatus] = useState<Car['operational_status']>('ready');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -37,6 +40,8 @@ export default function EditCarScreen() {
         setPlate(data.plate_number);
         setColor(data.color);
         setPhotoUrl(data.photo_url ?? '');
+        setPeriodicServiceStartDate(data.periodic_service_start_date);
+        setCanSetPeriodicServiceStartDate(data.periodic_service_start_date === null);
         setOperationalStatus(data.operational_status);
       }
       setLoading(false);
@@ -50,7 +55,7 @@ export default function EditCarScreen() {
     }
     setSaving(true);
     try {
-      await apiClient.cars.update(id, {
+      const updatedCar = await apiClient.cars.update(id, {
         name: name.trim(),
         brand: brand.trim(),
         model: model.trim(),
@@ -58,7 +63,10 @@ export default function EditCarScreen() {
         plate_number: plate.trim().toUpperCase(),
         color: color.trim(),
         photo_url: photoUrl.trim() || null,
+        ...(periodicServiceStartDate ? { periodic_service_start_date: periodicServiceStartDate } : {}),
       });
+      setPeriodicServiceStartDate(updatedCar.periodic_service_start_date);
+      setCanSetPeriodicServiceStartDate(updatedCar.periodic_service_start_date === null);
       await apiClient.cars.setOperationalStatus(id, operationalStatus);
       router.back();
     } catch (error) {
@@ -93,6 +101,13 @@ export default function EditCarScreen() {
         <Field label="Plat Nomor" value={plate} onChangeText={setPlate} placeholder="B 1234 ABC" />
         <Field label="Warna" value={color} onChangeText={setColor} placeholder="Hitam" />
         <Field label="URL Gambar Mobil" value={photoUrl} onChangeText={setPhotoUrl} placeholder="https://contoh.com/mobil.jpg" />
+        {canSetPeriodicServiceStartDate ? (
+          <>
+            <Text style={styles.sectionLabel}>Jadwal Service Berkala</Text>
+            <DateField label="Tanggal Service Berkala Pertama (opsional)" value={periodicServiceStartDate ?? ''} onChange={setPeriodicServiceStartDate} />
+            <Text style={styles.helperText}>Tanggal ini hanya dapat diisi satu kali. Setelah disimpan, jadwal berikutnya dibuat otomatis 6 bulan setelah Service dikonfirmasi.</Text>
+          </>
+        ) : null}
         <Text style={styles.sectionLabel}>Status Unit</Text>
         <View style={styles.statusOptions}>
           <TouchableOpacity style={[styles.statusOption, operationalStatus === 'ready' && styles.statusOptionActive]} onPress={() => setOperationalStatus('ready')}>
@@ -154,6 +169,13 @@ const styles = StyleSheet.create({
     fontFamily: Typography.fontMedium,
     color: Colors.textPrimary,
     marginBottom: Spacing.xs,
+  },
+  helperText: {
+    fontSize: Typography.sm,
+    fontFamily: Typography.fontRegular,
+    color: Colors.textSecondary,
+    marginTop: -Spacing.sm,
+    marginBottom: Spacing.md,
   },
   statusOptions: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md },
   statusOption: {

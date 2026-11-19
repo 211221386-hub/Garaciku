@@ -36,10 +36,6 @@ export default function AddCarScreen() {
       Alert.alert('Nama wajib diisi', 'Beri nama untuk mobil Anda.');
       return;
     }
-    if (!periodicServiceDate) {
-      Alert.alert('Tanggal service berkala wajib diisi', 'Pilih tanggal service berkala pertama untuk mobil ini.');
-      return;
-    }
     setSaving(true);
     try {
       await apiClient.cars.create({
@@ -50,7 +46,7 @@ export default function AddCarScreen() {
         plate_number: plate.trim().toUpperCase(),
         color: color.trim(),
         photo_url: photoUrl.trim() || null,
-        periodic_service_start_date: periodicServiceDate,
+        periodic_service_start_date: periodicServiceDate || null,
       });
       router.replace('/(tabs)');
     } catch (error) {
@@ -78,8 +74,8 @@ export default function AddCarScreen() {
         <Field label="Warna" value={color} onChangeText={setColor} placeholder="Hitam" />
         <Field label="URL Gambar Mobil" value={photoUrl} onChangeText={setPhotoUrl} placeholder="https://contoh.com/mobil.jpg" />
         <Text style={styles.sectionTitle}>Jadwal Service Berkala</Text>
-        <DateField label="Tanggal Service Berkala Pertama*" value={periodicServiceDate} onChange={setPeriodicServiceDate} />
-        <Text style={styles.helperText}>Tanggal awal default 6 bulan dari hari ini. Jadwal berikutnya otomatis dibuat 6 bulan setelah service dikonfirmasi.</Text>
+        <DateField label="Tanggal Service Berkala Pertama (opsional)" value={periodicServiceDate} onChange={setPeriodicServiceDate} allowClear />
+        <Text style={styles.helperText}>Jika belum diketahui, kosongkan dan atur satu kali nanti dari Edit Mobil. Jadwal berikutnya dibuat 6 bulan setelah service dikonfirmasi.</Text>
         <View style={{ height: Spacing.md }} />
         <Button label="Simpan Mobil" onPress={save} loading={saving} />
       </ScrollView>
