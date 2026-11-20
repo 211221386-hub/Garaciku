@@ -232,7 +232,7 @@ export default function ApprovalScreen() {
               </View>
             ) : (
               <Text style={styles.waiting}>
-                {entry.item.status === 'pending_approval' ? 'Menunggu persetujuan Super Admin.' : entry.item.status === 'active' ? 'Investigation Anda sudah disetujui.' : entry.item.status === 'completed' ? 'Investigation sudah selesai.' : 'Pengajuan Investigation ditolak.'}
+                {entry.item.status === 'pending_approval' ? 'Menunggu persetujuan Admin.' : entry.item.status === 'active' ? 'Investigation Anda sudah disetujui.' : entry.item.status === 'completed' ? 'Investigation selesai.' : 'Pengajuan Investigation ditolak.'}
               </Text>
             )}
           </View>
