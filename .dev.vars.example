@@ -4,3 +4,5 @@ SUPABASE_SERVICE_ROLE_KEY=replace-with-your-local-service-role-key
 APP_JWT_SECRET=replace-with-at-least-32-random-bytes
 # Optional: set this only when testing rental notifications.
 # RENTAL_AUTOMATION_URL=
+# Optional: set this only when testing Investigation approval notifications.
+# INVESTIGATION_AUTOMATION_URL=

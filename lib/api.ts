@@ -456,10 +456,10 @@ class ApiClient {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
         body: JSON.stringify({ note_id: id, decision }),
       });
-      const result = await response.json().catch(() => null) as { data?: DailyNote; error?: string } | null;
+      const result = await response.json().catch(() => null) as { data?: DailyNote; error?: string; notificationError?: string } | null;
       if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
       if (!result?.data) throw new Error('Worker mengembalikan data review yang tidak valid.');
-      return result.data;
+      return { note: result.data, notificationError: result.notificationError };
     },
     delete: async (id: string) => {
       const session = getSession();

@@ -14,7 +14,7 @@ const TABLES = new Set([
 const COLUMNS = {
   users: new Set(['id', 'username', 'full_name', 'email', 'phone', 'role', 'is_active', 'must_reset_password', 'created_at']),
   cars: new Set(['id', 'name', 'brand', 'model', 'year', 'plate_number', 'color', 'photo_url', 'operational_status', 'periodic_service_start_date', 'created_at']),
-  daily_notes: new Set(['id', 'car_id', 'created_name', 'section', 'note_date', 'start_date', 'start_time', 'end_date', 'end_time', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'detail', 'status', 'return_confirmed_by', 'return_confirmed_at', 'reviewed_by', 'reviewed_at', 'created_at']),
+  daily_notes: new Set(['id', 'car_id', 'created_by', 'created_name', 'section', 'note_date', 'start_date', 'start_time', 'end_date', 'end_time', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'detail', 'status', 'return_confirmed_by', 'return_confirmed_at', 'reviewed_by', 'reviewed_at', 'created_at']),
   completeness_items: new Set(['id', 'car_id', 'name', 'is_present', 'reminder_type', 'next_due_date', 'created_at']),
   damages: new Set(['id', 'car_id', 'description', 'severity', 'status', 'reported_date', 'resolved_date', 'created_at']),
   service_records: new Set(['id', 'car_id', 'service_date', 'service_type', 'description', 'cost', 'mileage', 'workshop', 'status', 'next_service_date', 'next_service_mileage', 'reminder_enabled', 'is_recurring', 'reminder_interval_months', 'reminder_interval_mileage', 'created_name', 'created_at']),
@@ -300,13 +300,12 @@ async function proxyQuery(env, user, body) {
   }
   if (table === 'daily_notes' && [3, 4].includes(user.role)) {
     const filters = validateFilters(table, body.filters ?? []);
-    const creatorName = typeof user.full_name === 'string' ? user.full_name.trim() : '';
-    if (!filters || !creatorName) return { status: 403, error: 'Investigation history is not available for this account.' };
+    if (!filters) return { status: 403, error: 'Investigation history is not available for this account.' };
     query = {
       ...body,
       filters: [
-        ...filters.filter((filter) => filter.column !== 'created_name'),
-        { column: 'created_name', operator: 'eq', value: creatorName },
+        ...filters.filter((filter) => filter.column !== 'created_by'),
+        { column: 'created_by', operator: 'eq', value: user.id },
       ],
     };
   }
@@ -395,6 +394,7 @@ async function proxyMutation(env, user, body) {
       const createdName = typeof user.full_name === 'string' ? user.full_name.trim() : '';
       if (!createdName) return { status: 400, error: 'Nama user belum tersedia pada profil akun.' };
       for (const record of records) {
+        record.created_by = user.id;
         record.created_name = createdName;
         record.status = [3, 4].includes(user.role) ? 'pending_approval' : 'active';
         delete record.return_confirmed_by;
@@ -405,6 +405,7 @@ async function proxyMutation(env, user, body) {
     } else {
       for (const record of records) {
         delete record.created_name;
+        delete record.created_by;
         delete record.status;
         delete record.return_confirmed_by;
         delete record.return_confirmed_at;
@@ -810,7 +811,67 @@ async function reviewDailyNote(request, env, user) {
   });
   const result = await response.json().catch(() => null);
   if (!response.ok) return { status: 409, error: typeof result?.message === 'string' ? result.message : 'Review Investigation gagal.' };
-  return { status: 200, data: Array.isArray(result) ? result[0] : result };
+  const note = Array.isArray(result) ? result[0] : result;
+  if (body.decision !== 'approved') return { status: 200, data: note };
+
+  const notificationError = await sendInvestigationApprovalNotification(env, note);
+  return { status: 200, data: note, notificationError };
+}
+
+async function sendInvestigationApprovalNotification(env, note) {
+  if (!env.INVESTIGATION_AUTOMATION_URL) {
+    return 'Notifikasi Investigation belum dikonfigurasi pada Worker.';
+  }
+  if (!note || typeof note.created_by !== 'string' || typeof note.car_id !== 'string') {
+    return 'Data pemesan atau unit Investigation tidak lengkap.';
+  }
+
+  try {
+    const [userResponse, carResponse] = await Promise.all([
+      fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/users?id=eq.${encodeURIComponent(note.created_by)}&select=id,full_name,email,phone&limit=1`, {
+        headers: serviceHeaders(env),
+      }),
+      fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/cars?id=eq.${encodeURIComponent(note.car_id)}&select=id,name,plate_number&limit=1`, {
+        headers: serviceHeaders(env),
+      }),
+    ]);
+    const [users, cars] = await Promise.all([
+      userResponse.json().catch(() => null),
+      carResponse.json().catch(() => null),
+    ]);
+    if (!userResponse.ok || !carResponse.ok || !Array.isArray(users) || !users[0] || !Array.isArray(cars) || !cars[0]) {
+      return 'Gagal memuat data pemesan atau unit untuk notifikasi Investigation.';
+    }
+
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+    if (!datePattern.test(note.start_date ?? '') || !datePattern.test(note.end_date ?? '')) {
+      return 'Tanggal Investigation tidak valid untuk notifikasi.';
+    }
+    const days = Math.max(1, Math.round(
+      (Date.parse(`${note.end_date}T00:00:00Z`) - Date.parse(`${note.start_date}T00:00:00Z`)) / 86_400_000,
+    ));
+    const payload = {
+      namaPemesan: users[0].full_name ?? '',
+      emailpemesan: users[0].email ?? '',
+      nomorTelepon: users[0].phone ?? '',
+      jenisKendaraan: cars[0].name ?? '',
+      platNomor: cars[0].plate_number ?? '',
+      tanggalMulaiInvestigation: note.start_date,
+      tanggalSelesaiInvestigation: note.end_date,
+      jumlahHariInestigation: days,
+      Aktivitas: note.content ?? '',
+    };
+
+    const webhookResponse = await fetch(env.INVESTIGATION_AUTOMATION_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!webhookResponse.ok) return `Webhook notifikasi Investigation mengembalikan status ${webhookResponse.status}.`;
+    return null;
+  } catch {
+    return 'Notifikasi Investigation gagal dikirim karena layanan database atau webhook tidak dapat dihubungi.';
+  }
 }
 
 async function approveRentalCycleUnit(request, env, user) {
@@ -1085,7 +1146,10 @@ export default {
     if (url.pathname === '/api/daily-notes/review') {
       try {
         const result = await reviewDailyNote(request, env, user);
-        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+        return Response.json(result.status >= 400
+          ? { error: result.error }
+          : { data: result.data, ...(result.notificationError ? { notificationError: result.notificationError } : {}) },
+        { status: result.status, headers });
       } catch (error) {
         console.error('Investigation review failed:', error);
         return Response.json({ error: 'Investigation review failed.' }, { status: 503, headers });

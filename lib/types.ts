@@ -37,6 +37,7 @@ export type CarStatusInfo = {
 export type DailyNote = {
   id: string;
   car_id: string;
+  created_by: string | null;
   created_name: string;
   section: string;
   note_date: string;

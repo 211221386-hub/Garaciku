@@ -29,6 +29,7 @@ function envFor(role = profile.role) {
     AUTH_IP_LIMITER: { limit: async () => ({ success: true }) },
     AUTH_USERNAME_LIMITER: { limit: async () => ({ success: true }) },
     RENTAL_AUTOMATION_URL: 'https://automation.example.test/hook',
+    INVESTIGATION_AUTOMATION_URL: 'https://investigation.example.test/hook',
     ASSETS: { fetch: async () => new Response('asset') },
     testRole: role,
   };
@@ -81,7 +82,7 @@ function mockFetch(role, databaseRows = [], userOverrides = {}, responseOverride
       const rows = Array.isArray(databaseRows) ? databaseRows : databaseRows[url.pathname.split('/').at(-1)] ?? [];
       return Response.json(rows, { status: 200 });
     }
-    if (url.href.startsWith('https://automation.example.test/')) return new Response(null, { status: 202 });
+    if (url.href.startsWith('https://automation.example.test/') || url.href.startsWith('https://investigation.example.test/')) return new Response(null, { status: 202 });
     throw new Error(`Unexpected fetch ${url.href}`);
   };
   return { calls, restore: () => { globalThis.fetch = originalFetch; } };
@@ -438,12 +439,12 @@ test('Investigation history for roles 3 and 4 is scoped to the authenticated cre
     const response = await worker.fetch(makeRequest('/api/data/query', {
       table: 'daily_notes',
       select: '*,cars(name)',
-      filters: [{ column: 'created_name', operator: 'eq', value: 'Someone Else' }],
+      filters: [{ column: 'created_by', operator: 'eq', value: 'someone-else' }],
       single: false,
     }, token), envFor(3));
     assert.equal(response.status, 200);
     const query = mock.calls.find((call) => call.url.pathname === '/rest/v1/daily_notes');
-    assert.equal(query.url.searchParams.get('created_name'), 'eq.Test User');
+    assert.equal(query.url.searchParams.get('created_by'), `eq.${profile.id}`);
     assert.equal(query.url.searchParams.get('select'), '*,cars(name)');
   } finally {
     mock.restore();
@@ -582,6 +583,7 @@ test('daily note creator and return status are controlled by the Worker', async 
     const insertCall = mock.calls.find((call) => call.url.pathname === '/rest/v1/daily_notes' && call.options.method === 'POST');
     const updateCall = mock.calls.find((call) => call.url.pathname === '/rest/v1/daily_notes' && call.options.method === 'PATCH');
     assert.deepEqual(JSON.parse(insertCall.options.body), {
+      created_by: profile.id,
       car_id: 'car-1',
       created_name: 'Test User',
       status: 'active',
@@ -613,6 +615,7 @@ test('roles 3 and 4 Investigation submissions wait for approval and cannot spoof
       assert.equal(response.status, 200);
       const insert = mock.calls.find((call) => call.url.pathname === '/rest/v1/daily_notes' && call.options.method === 'POST');
       assert.deepEqual(JSON.parse(insert.options.body), {
+        created_by: profile.id,
         car_id: 'car-1',
         created_name: 'Test User',
         status: 'pending_approval',
@@ -647,7 +650,24 @@ test('roles 3 and 4 cannot submit Investigation while a Transportation cycle is 
 
 test('only role 1 can approve or reject Investigation submissions', async () => {
   const noteId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-  const adminMock = mockFetch(1);
+  const adminMock = mockFetch(1, [], {}, {
+    '/rest/v1/rpc/review_daily_note': {
+      status: 200,
+      body: {
+        id: 'note-1',
+        car_id: 'car-1',
+        created_by: profile.id,
+        start_date: '2026-11-20',
+        end_date: '2026-11-22',
+        content: 'Trial',
+        status: 'active',
+      },
+    },
+    '/rest/v1/cars': {
+      status: 200,
+      body: [{ id: 'car-1', name: 'Avanza', plate_number: 'B 1234 ABC' }],
+    },
+  });
   try {
     const token = await login(envFor(1), adminMock.calls);
     const response = await worker.fetch(makeRequest('/api/daily-notes/review', {
@@ -661,6 +681,20 @@ test('only role 1 can approve or reject Investigation submissions', async () => 
       _reviewed_by: profile.id,
       _user_role: 1,
       _decision: 'approved',
+    });
+    const webhook = adminMock.calls.find((item) => item.url.href === 'https://investigation.example.test/hook');
+    assert.ok(webhook);
+    assert.equal(webhook.options.method, 'POST');
+    assert.deepEqual(JSON.parse(webhook.options.body), {
+      namaPemesan: profile.full_name,
+      emailpemesan: profile.email,
+      nomorTelepon: profile.phone,
+      jenisKendaraan: 'Avanza',
+      platNomor: 'B 1234 ABC',
+      tanggalMulaiInvestigation: '2026-11-20',
+      tanggalSelesaiInvestigation: '2026-11-22',
+      jumlahHariInestigation: 2,
+      Aktivitas: 'Trial',
     });
   } finally {
     adminMock.restore();

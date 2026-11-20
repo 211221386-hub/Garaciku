@@ -11,7 +11,7 @@ import { DateField } from '@/components/DateField';
 import { TimeField } from '@/components/TimeField';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
-import type { Car, RentalStatus } from '@/lib/types';
+import type { Car, DailyNote, RentalStatus } from '@/lib/types';
 import type { UnitAvailability } from '@/lib/api';
 import { getSession } from '@/lib/auth';
 import { notifyOverdueRentals } from '@/lib/notifications';
@@ -34,6 +34,11 @@ type RentalWithCar = {
   notes: string;
   car_name: string;
 };
+
+type InvestigationWithCar = DailyNote & { car_name: string };
+type ReturnListItem =
+  | { kind: 'rental'; item: RentalWithCar }
+  | { kind: 'investigation'; item: InvestigationWithCar };
 
 type RentalAvailability = UnitAvailability;
 
@@ -61,6 +66,7 @@ const statusConfig: Record<RentalStatus, { label: string; bg: string; text: stri
 
 export default function RentalScreen() {
   const [rentals, setRentals] = useState<RentalWithCar[]>([]);
+  const [investigations, setInvestigations] = useState<InvestigationWithCar[]>([]);
   const [activeTab, setActiveTab] = useState<'borrowing' | 'return'>('borrowing');
   const [cars, setCars] = useState<Pick<Car, 'id' | 'name' | 'plate_number'>[]>([]);
   const [availabilityRentals, setAvailabilityRentals] = useState<RentalAvailability[]>([]);
@@ -94,12 +100,14 @@ export default function RentalScreen() {
   const fetchRentals = useCallback(async () => {
     setAvailabilityLoading(true);
     try {
-      const [rentalData, carData, reservationData] = await Promise.all([
+      const [rentalData, carData, reservationData, investigationData] = await Promise.all([
         apiClient.rentals.getAll(),
         apiClient.cars.getAll(),
         apiClient.rentals.getAvailability(),
+        apiClient.notes.getAll(),
       ]);
       setRentals(rentalData);
+      setInvestigations(investigationData);
       setAvailabilityRentals(reservationData);
       if ([1, 2].includes(getSession()?.user.role ?? 0)) void notifyOverdueRentals(rentalData);
       setCars(carData);
@@ -116,8 +124,16 @@ export default function RentalScreen() {
   const returnStatuses: RentalStatus[] = ['approved', 'active', 'overdue', 'returned', 'completed'];
   const returnRentals = rentals.filter((rental) => returnStatuses.includes(rental.status));
   const borrowingRentals = rentals.filter((rental) => !returnStatuses.includes(rental.status));
-  const displayedRentals = activeTab === 'borrowing' ? borrowingRentals : returnRentals;
-  const pendingReturnCount = returnRentals.filter((rental) => ['approved', 'active', 'overdue'].includes(rental.status)).length;
+  const pendingReturnCount = returnRentals.filter((rental) => ['approved', 'active', 'overdue'].includes(rental.status)).length
+    + investigations.filter((note) => note.status === 'active').length;
+  const displayedRecords: ReturnListItem[] = activeTab === 'return'
+    ? [
+      ...returnRentals.map((item) => ({ kind: 'rental' as const, item })),
+      ...investigations
+        .filter((note) => note.status === 'active' || note.status === 'completed')
+        .map((item) => ({ kind: 'investigation' as const, item })),
+    ].sort((first, second) => second.item.start_date.localeCompare(first.item.start_date))
+    : borrowingRentals.map((item) => ({ kind: 'rental' as const, item }));
   const isAdmin = [1, 2].includes(getSession()?.user.role ?? 0);
   const userProfile = getSession()?.user;
   const profileEmail = userProfile?.email?.trim() ?? '';
@@ -292,6 +308,19 @@ export default function RentalScreen() {
     }
   };
 
+  const confirmInvestigationReturn = async (note: InvestigationWithCar) => {
+    if (returningId === note.id) return;
+    setReturningId(note.id);
+    try {
+      await apiClient.notes.confirmReturn(note.id);
+      await fetchRentals();
+    } catch (error) {
+      Alert.alert('Gagal mengonfirmasi pengembalian Investigation', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+    } finally {
+      setReturningId(null);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}><Text style={styles.greeting}>Transportation Mobil</Text><Text style={styles.title}>{activeTab === 'borrowing' ? 'Transportation' : 'Pengembalian'}</Text>{activeTab === 'return' && isAdmin && overdueCount > 0 ? <Text style={styles.overdueNotice}>{overdueCount} Transportation perlu konfirmasi pengembalian</Text> : null}</View>
@@ -306,9 +335,34 @@ export default function RentalScreen() {
           {pendingReturnCount > 0 ? <Text style={[styles.tabCount, activeTab === 'return' && styles.activeTabCount]}>{pendingReturnCount}</Text> : null}
         </TouchableOpacity>
       </View>
-      <FlatList data={displayedRentals} keyExtractor={(item) => item.id} contentContainerStyle={styles.list}
+      <FlatList data={displayedRecords} keyExtractor={(entry) => `${entry.kind}-${entry.item.id}`} contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchRentals(); }} colors={[Colors.primary]} />}
-        renderItem={({ item }) => { const st = statusConfig[item.status] ?? statusConfig.active; const cycleUnitCount = rentals.filter((rental) => rental.cycle_id === item.cycle_id).length; return (
+        renderItem={({ item: entry }) => {
+          if (entry.kind === 'investigation') {
+            const note = entry.item;
+            const returned = note.status === 'completed';
+            return (
+              <View style={styles.card}>
+                <View style={styles.rentalIcon}><RotateCcw size={16} color={Colors.primary} strokeWidth={2.2} /></View>
+                <View style={styles.cardBody}>
+                  <Text style={styles.renterName} numberOfLines={1}>{note.created_name}</Text>
+                  <Text style={styles.carName} numberOfLines={1}>{note.car_name || 'Mobil tidak diketahui'}</Text>
+                  <Text style={styles.emailText}>Investigation</Text>
+                  <View style={styles.metaRow}><Text style={styles.metaText}>{formatDate(note.start_date)} {note.start_time || ''} - {formatDate(note.end_date)} {note.end_time || ''}</Text></View>
+                  <Text style={styles.metaText}>Aktivitas: {note.content || note.section}</Text>
+                  <View style={[styles.statusPill, { backgroundColor: returned ? Colors.surfaceAlt : Colors.primaryLight }]}>
+                    <Text style={[styles.statusText, { color: returned ? Colors.textSecondary : Colors.primary }]}>{returned ? 'Selesai' : 'Menunggu pengembalian'}</Text>
+                  </View>
+                  {activeTab === 'return' && isAdmin && !returned ? <TouchableOpacity style={[styles.returnButton, returningId === note.id && styles.actionDisabled]} onPress={() => { void confirmInvestigationReturn(note); }} disabled={returningId === note.id}><Text style={styles.returnButtonText}>{returningId === note.id ? 'Memproses...' : 'Unit sudah diterima'}</Text></TouchableOpacity> : null}
+                </View>
+                <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2.2} />
+              </View>
+            );
+          }
+          const item = entry.item;
+          const st = statusConfig[item.status] ?? statusConfig.active;
+          const cycleUnitCount = rentals.filter((rental) => rental.cycle_id === item.cycle_id).length;
+          return (
           <TouchableOpacity style={styles.card} onPress={() => router.push(`/car/rental/${item.id}` as never)} activeOpacity={0.85}>
             <View style={styles.rentalIcon}><KeyRound size={16} color={Colors.primary} strokeWidth={2.2} /></View>
             <View style={styles.cardBody}>

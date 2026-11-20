@@ -118,7 +118,10 @@ export default function ApprovalScreen() {
     setProcessingInvestigationId(note.id);
     setErrorMessage(null);
     try {
-      await apiClient.notes.review(note.id, status);
+      const result = await apiClient.notes.review(note.id, status);
+      if (result.notificationError) {
+        setNotificationError(`Investigation berhasil disetujui, tetapi notifikasi gagal dikirim: ${result.notificationError}`);
+      }
       setInvestigationDecision(null);
       await fetchApprovals();
     } catch (error) {

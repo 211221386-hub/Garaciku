@@ -25,7 +25,7 @@ Aplikasi Expo untuk pencatatan mobil, servis, kerusakan, checklist kendaraan, da
 
 2. Buat `.env.local` dari `.env.example`. Isi `EXPO_PUBLIC_API_BASE_URL` dengan origin Worker yang dapat dijangkau saat memakai Expo development server (termasuk web) atau aplikasi native. Untuk web yang langsung disajikan Worker pada origin yang sama, variabel ini boleh dikosongkan.
 
-3. Untuk menjalankan Worker lokal, buat `.dev.vars` dari `.dev.vars.example`, lalu isi `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, dan `APP_JWT_SECRET`. Secret JWT harus memiliki sedikitnya 32 byte. `APP_ORIGIN` lokal pada contoh harus cocok dengan origin Wrangler, biasanya `http://localhost:8787`. `RENTAL_AUTOMATION_URL` hanya diperlukan untuk integrasi notifikasi.
+3. Untuk menjalankan Worker lokal, buat `.dev.vars` dari `.dev.vars.example`, lalu isi `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, dan `APP_JWT_SECRET`. Secret JWT harus memiliki sedikitnya 32 byte. `APP_ORIGIN` lokal pada contoh harus cocok dengan origin Wrangler, biasanya `http://localhost:8787`. `RENTAL_AUTOMATION_URL` dan `INVESTIGATION_AUTOMATION_URL` hanya diperlukan untuk integrasi notifikasi.
 
 4. Jalankan web melalui Worker lokal:
 
@@ -88,6 +88,7 @@ Konfigurasi Wrangler juga membatasi login menjadi 20 request per menit per IP da
 | `SUPABASE_SERVICE_ROLE_KEY` | Ya | Akses database server-side. Atur sebagai Worker secret, bukan `vars` atau variabel Expo. |
 | `APP_JWT_SECRET` | Ya | Menandatangani token sesi; minimal 32 byte. Atur sebagai Worker secret. |
 | `RENTAL_AUTOMATION_URL` | Tidak | URL webhook notifikasi rental. Atur sebagai Worker secret jika integrasi digunakan. |
+| `INVESTIGATION_AUTOMATION_URL` | Tidak | URL webhook notifikasi Investigation setelah disetujui. Atur sebagai Worker secret jika integrasi digunakan. |
 
 Atur secret deployment dengan Wrangler:
 
@@ -95,6 +96,7 @@ Atur secret deployment dengan Wrangler:
 npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 npx wrangler secret put APP_JWT_SECRET
 npx wrangler secret put RENTAL_AUTOMATION_URL
+npx wrangler secret put INVESTIGATION_AUTOMATION_URL
 ```
 
 Jalankan perintah webhook hanya jika integrasi notifikasi digunakan. Wrangler akan meminta nilai secret secara interaktif.
