@@ -298,6 +298,18 @@ async function proxyQuery(env, user, body) {
       ...(isAvailabilityQuery ? { select: isDateAvailabilityQuery ? 'car_id,status,start_date,end_date' : 'car_id,status' } : {}),
     };
   }
+  if (table === 'daily_notes' && [3, 4].includes(user.role)) {
+    const filters = validateFilters(table, body.filters ?? []);
+    const creatorName = typeof user.full_name === 'string' ? user.full_name.trim() : '';
+    if (!filters || !creatorName) return { status: 403, error: 'Investigation history is not available for this account.' };
+    query = {
+      ...body,
+      filters: [
+        ...filters.filter((filter) => filter.column !== 'created_name'),
+        { column: 'created_name', operator: 'eq', value: creatorName },
+      ],
+    };
+  }
   if (isServiceAvailabilityQuery) {
     const filters = validateFilters(table, body.filters ?? []);
     if (!filters || filters.some((filter) => !['car_id', 'status'].includes(filter.column))) {

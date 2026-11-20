@@ -431,6 +431,25 @@ test('roles 3 and 4 cannot use the service availability projection to read servi
   }
 });
 
+test('Investigation history for roles 3 and 4 is scoped to the authenticated creator', async () => {
+  const mock = mockFetch(3, [{ id: 'note-1' }]);
+  try {
+    const token = await login(envFor(3), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/data/query', {
+      table: 'daily_notes',
+      select: '*,cars(name)',
+      filters: [{ column: 'created_name', operator: 'eq', value: 'Someone Else' }],
+      single: false,
+    }, token), envFor(3));
+    assert.equal(response.status, 200);
+    const query = mock.calls.find((call) => call.url.pathname === '/rest/v1/daily_notes');
+    assert.equal(query.url.searchParams.get('created_name'), 'eq.Test User');
+    assert.equal(query.url.searchParams.get('select'), '*,cars(name)');
+  } finally {
+    mock.restore();
+  }
+});
+
 test('rental records cannot be inserted through the generic data endpoint', async () => {
   const mock = mockFetch(3, [{ id: 'rental-1' }]);
   try {

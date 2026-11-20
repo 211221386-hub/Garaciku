@@ -13,8 +13,13 @@ type ApprovalInvestigation = DailyNote & { car_name: string };
 type ApprovalQueueItem =
   | { kind: 'transportation'; item: ApprovalRental }
   | { kind: 'investigation'; item: ApprovalInvestigation };
-
 const isSuperAdmin = () => getSession()?.user.role === 1;
+const investigationStatusConfig: Record<DailyNote['status'], { label: string; backgroundColor: string; color: string }> = {
+  pending_approval: { label: 'Menunggu persetujuan', backgroundColor: '#FEF3C7', color: '#92400E' },
+  active: { label: 'Disetujui', backgroundColor: '#DCFCE7', color: '#15803D' },
+  completed: { label: 'Selesai', backgroundColor: Colors.surfaceAlt, color: Colors.textSecondary },
+  rejected: { label: 'Ditolak', backgroundColor: '#FEE2E2', color: Colors.error },
+};
 
 const statusConfig: Record<RentalStatus, { label: string; backgroundColor: string; color: string }> = {
   pending: { label: 'Menunggu', backgroundColor: '#FEF3C7', color: '#92400E' },
@@ -28,6 +33,7 @@ const statusConfig: Record<RentalStatus, { label: string; backgroundColor: strin
 };
 
 export default function ApprovalScreen() {
+  const [activeTab, setActiveTab] = useState<'transportation' | 'investigation'>('transportation');
   const [rentals, setRentals] = useState<ApprovalRental[]>([]);
   const [investigations, setInvestigations] = useState<ApprovalInvestigation[]>([]);
   const [cars, setCars] = useState<{ id: string; name: string; plate_number: string }[]>([]);
@@ -48,9 +54,7 @@ export default function ApprovalScreen() {
         isSuperAdmin() ? apiClient.notes.getAll() : Promise.resolve([]),
       ]);
       setRentals(isSuperAdmin() ? rentalData.filter((rental) => rental.status === 'pending') : rentalData);
-      setInvestigations(isSuperAdmin()
-        ? investigationData.filter((note) => note.status === 'pending_approval')
-        : []);
+      setInvestigations(isSuperAdmin() ? investigationData.filter((note) => note.status === 'pending_approval') : investigationData);
       setCars(carData);
       setSelectedCars((current) => Object.fromEntries(rentalData.map((rental) => [rental.id, current[rental.id] ?? rental.car_id])));
     } catch (error) {
@@ -124,18 +128,16 @@ export default function ApprovalScreen() {
     }
   };
 
-  const approvalItems: ApprovalQueueItem[] = [
-    ...rentals.map((item) => ({ kind: 'transportation' as const, item })),
-    ...investigations.map((item) => ({ kind: 'investigation' as const, item })),
-  ].sort((first, second) => {
-    return second.item.start_date.localeCompare(first.item.start_date);
-  });
+  const approvalItems: ApprovalQueueItem[] = activeTab === 'transportation'
+    ? rentals.map((item) => ({ kind: 'transportation' as const, item }))
+    : investigations.map((item) => ({ kind: 'investigation' as const, item }));
+  approvalItems.sort((first, second) => second.item.start_date.localeCompare(first.item.start_date));
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.greeting}>Persetujuan Transportation dan Investigation</Text>
-        <Text style={styles.title}>{isSuperAdmin() ? 'Review Permintaan' : 'Riwayat Transportation'}</Text>
+        <Text style={styles.title}>{isSuperAdmin() ? 'Review Permintaan' : `Riwayat ${activeTab === 'transportation' ? 'Transportation' : 'Investigation'}`}</Text>
       </View>
       {notificationError ? (
         <View style={styles.notificationError}>
@@ -145,14 +147,26 @@ export default function ApprovalScreen() {
           </TouchableOpacity>
         </View>
       ) : null}
+      <View style={styles.tabs}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'transportation' && styles.activeTab]}
+          onPress={() => setActiveTab('transportation')}
+        >
+          <Text style={[styles.tabText, activeTab === 'transportation' && styles.activeTabText]}>Transportation</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'investigation' && styles.activeTab]}
+          onPress={() => setActiveTab('investigation')}
+        >
+          <Text style={[styles.tabText, activeTab === 'investigation' && styles.activeTabText]}>Investigation</Text>
+        </TouchableOpacity>
+      </View>
       <FlatList
         data={approvalItems}
         keyExtractor={(entry) => `${entry.kind}-${entry.item.id}`}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchApprovals(); }} colors={[Colors.primary]} />}
-        ListHeaderComponent={!isSuperAdmin() ? (
-          <Text style={styles.sectionTitle}>Riwayat Transportation</Text>
-        ) : null}
+        ListHeaderComponent={<Text style={styles.sectionTitle}>{activeTab === 'transportation' ? 'Riwayat Transportation' : isSuperAdmin() ? 'Investigation menunggu persetujuan' : 'Riwayat Investigation'}</Text>}
         renderItem={({ item: entry }) => entry.kind === 'transportation' ? (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
@@ -191,35 +205,45 @@ export default function ApprovalScreen() {
                 <Text style={styles.email}>{entry.item.car_name}</Text>
               </View>
               <View style={styles.typeBadge}><Text style={styles.typeBadgeText}>Investigation</Text></View>
-              <View style={styles.pending}><Text style={styles.pendingText}>Menunggu</Text></View>
+              <View style={[styles.pending, { backgroundColor: investigationStatusConfig[entry.item.status].backgroundColor }]}>
+                <Text style={[styles.pendingText, { color: investigationStatusConfig[entry.item.status].color }]}>{investigationStatusConfig[entry.item.status].label}</Text>
+              </View>
             </View>
             <Text style={styles.meta}>{formatDate(entry.item.start_date)}{entry.item.end_date ? ` - ${formatDate(entry.item.end_date)}` : ''}</Text>
             <Text style={styles.purpose}>{entry.item.content || entry.item.section || 'Investigation'}</Text>
             {entry.item.detail ? <Text style={styles.waiting}>{entry.item.detail}</Text> : null}
-            <View style={styles.actions}>
-              <TouchableOpacity
-                style={[styles.action, styles.reject]}
-                onPress={() => setInvestigationDecision({ note: entry.item, status: 'rejected' })}
-              >
-                <X size={17} color={Colors.error} />
-                <Text style={[styles.actionText, { color: Colors.error }]}>Tolak</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.action, styles.approve, processingInvestigationId === entry.item.id && styles.actionDisabled]}
-                onPress={() => setInvestigationDecision({ note: entry.item, status: 'approved' })}
-                disabled={processingInvestigationId === entry.item.id}
-              >
-                <Check size={17} color={Colors.white} />
-                <Text style={[styles.actionText, { color: Colors.white }]}>{processingInvestigationId === entry.item.id ? 'Memproses...' : 'Approve'}</Text>
-              </TouchableOpacity>
-            </View>
+            {isSuperAdmin() && entry.item.status === 'pending_approval' ? (
+              <View style={styles.actions}>
+                <TouchableOpacity
+                  style={[styles.action, styles.reject]}
+                  onPress={() => setInvestigationDecision({ note: entry.item, status: 'rejected' })}
+                >
+                  <X size={17} color={Colors.error} />
+                  <Text style={[styles.actionText, { color: Colors.error }]}>Tolak</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.action, styles.approve, processingInvestigationId === entry.item.id && styles.actionDisabled]}
+                  onPress={() => setInvestigationDecision({ note: entry.item, status: 'approved' })}
+                  disabled={processingInvestigationId === entry.item.id}
+                >
+                  <Check size={17} color={Colors.white} />
+                  <Text style={[styles.actionText, { color: Colors.white }]}>{processingInvestigationId === entry.item.id ? 'Memproses...' : 'Approve'}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <Text style={styles.waiting}>
+                {entry.item.status === 'pending_approval' ? 'Menunggu persetujuan Super Admin.' : entry.item.status === 'active' ? 'Investigation Anda sudah disetujui.' : entry.item.status === 'completed' ? 'Investigation sudah selesai.' : 'Pengajuan Investigation ditolak.'}
+              </Text>
+            )}
           </View>
         )}
         ListEmptyComponent={(
           <View style={styles.emptyList}>
             <ClipboardCheck size={22} color={Colors.primary} strokeWidth={2} />
-            <Text style={styles.emptyTitle}>{isSuperAdmin() ? 'Tidak ada permintaan yang menunggu persetujuan.' : 'Belum ada riwayat Transportation.'}</Text>
-            {isSuperAdmin() ? <Text style={styles.emptySubtitle}>Permintaan Transportation dan Investigation dari role 3 dan 4 akan muncul di sini.</Text> : null}
+            <Text style={styles.emptyTitle}>{activeTab === 'investigation'
+              ? isSuperAdmin() ? 'Tidak ada Investigation yang menunggu persetujuan.' : 'Belum ada riwayat Investigation.'
+              : isSuperAdmin() ? 'Tidak ada Transportation yang menunggu persetujuan.' : 'Belum ada riwayat Transportation.'}</Text>
+            {isSuperAdmin() ? <Text style={styles.emptySubtitle}>Permintaan {activeTab === 'transportation' ? 'Transportation' : 'Investigation'} dari role 3 dan 4 akan muncul di sini.</Text> : null}
           </View>
         )}
       />
@@ -279,6 +303,11 @@ const styles = StyleSheet.create({
   title: { fontSize: Typography.xxxl, fontFamily: Typography.fontBold, color: Colors.white },
   notificationError: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginHorizontal: Spacing.lg, marginTop: Spacing.md, padding: Spacing.md, borderRadius: Radius.md, backgroundColor: '#FEE2E2' },
   notificationErrorText: { flex: 1, fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.error, lineHeight: 20 },
+  tabs: { flexDirection: 'row', marginHorizontal: Spacing.lg, marginTop: Spacing.md, padding: 4, borderRadius: Radius.lg, backgroundColor: Colors.surfaceAlt },
+  tab: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: Radius.md },
+  activeTab: { backgroundColor: Colors.white },
+  tabText: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary },
+  activeTabText: { color: Colors.primary, fontFamily: Typography.fontSemiBold },
   list: { padding: Spacing.lg, paddingBottom: 100 },
   emptyList: { alignItems: 'center', paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md, gap: Spacing.xs },
   emptyTitle: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textPrimary, textAlign: 'center' },
