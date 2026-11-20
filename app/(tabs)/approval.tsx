@@ -51,7 +51,7 @@ export default function ApprovalScreen() {
       const [rentalData, carData, investigationData] = await Promise.all([
         apiClient.rentals.getAll(),
         apiClient.cars.getAll(),
-        isSuperAdmin() ? apiClient.notes.getAll() : Promise.resolve([]),
+        apiClient.notes.getAll(),
       ]);
       setRentals(isSuperAdmin() ? rentalData.filter((rental) => rental.status === 'pending') : rentalData);
       setInvestigations(isSuperAdmin() ? investigationData.filter((note) => note.status === 'pending_approval') : investigationData);
