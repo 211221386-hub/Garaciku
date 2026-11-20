@@ -575,7 +575,9 @@ test('daily note creator and return status are controlled by the Worker', async 
 
 test('roles 3 and 4 Investigation submissions wait for approval and cannot spoof review fields', async () => {
   for (const role of [3, 4]) {
-    const mock = mockFetch(role, [{ id: 'note-1' }]);
+    const mock = mockFetch(role, [{ id: 'note-1' }], {}, {
+      '/rest/v1/rental_records': { status: 200, body: [] },
+    });
     try {
       const token = await login(envFor(role), mock.calls);
       const response = await worker.fetch(makeRequest('/api/data/insert', {
@@ -599,6 +601,28 @@ test('roles 3 and 4 Investigation submissions wait for approval and cannot spoof
     } finally {
       mock.restore();
     }
+  }
+});
+
+test('roles 3 and 4 cannot submit Investigation while a Transportation cycle is open', async () => {
+  const mock = mockFetch(3, [], {}, {
+    '/rest/v1/rental_records': { status: 200, body: [{ id: 'open-rental' }] },
+  });
+  try {
+    const token = await login(envFor(3), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/data/insert', {
+      table: 'daily_notes',
+      values: { car_id: 'car-1', section: 'Ops' },
+      single: true,
+    }, token), envFor(3));
+    assert.equal(response.status, 409);
+    assert.match((await response.json()).error, /Siklus Transportation masih berjalan/);
+    assert.equal(mock.calls.some((call) => call.url.pathname === '/rest/v1/daily_notes' && call.options.method === 'POST'), false);
+    const rentalCheck = mock.calls.find((call) => call.url.pathname === '/rest/v1/rental_records');
+    assert.equal(rentalCheck.url.searchParams.get('user_id'), `eq.${profile.id}`);
+    assert.equal(rentalCheck.url.searchParams.get('status'), 'in.(pending,approved,active,overdue)');
+  } finally {
+    mock.restore();
   }
 });
 

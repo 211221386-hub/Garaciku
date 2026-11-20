@@ -157,6 +157,10 @@ export default function RentalScreen() {
 
   const addRecord = async () => {
     if (saving) return;
+    if (hasOpenCycle) {
+      Alert.alert('Siklus Transportation masih berjalan', 'Pengajuan Transportation atau Investigation tersedia setelah Admin mengonfirmasi semua unit sudah diterima.');
+      return;
+    }
     if (recordKind === 'duplicate' && !form.car_id) {
       Alert.alert('Pilih mobil terlebih dahulu', 'Pilih salah satu mobil sebelum menyimpan data.');
       return;
@@ -330,7 +334,7 @@ export default function RentalScreen() {
           <TouchableOpacity disabled={hasOpenCycle} style={[styles.recordType, recordKind === 'rental' && styles.recordTypeActive, hasOpenCycle && styles.actionDisabled]} onPress={() => { setRecordKind('rental'); setSelectedCarIds([]); setForm((current) => ({ ...current, car_id: '' })); }}>
             <Text style={[styles.recordTypeText, recordKind === 'rental' && styles.recordTypeTextActive]}>Transportation</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.recordType, recordKind === 'duplicate' && styles.recordTypeActive]} onPress={() => { setRecordKind('duplicate'); setSelectedCarIds([]); setForm((current) => ({ ...current, car_id: '' })); }}>
+          <TouchableOpacity disabled={hasOpenCycle} style={[styles.recordType, recordKind === 'duplicate' && styles.recordTypeActive, hasOpenCycle && styles.actionDisabled]} onPress={() => { setRecordKind('duplicate'); setSelectedCarIds([]); setForm((current) => ({ ...current, car_id: '' })); }}>
             <Text style={[styles.recordTypeText, recordKind === 'duplicate' && styles.recordTypeTextActive]}>Investigation</Text>
           </TouchableOpacity>
         </View>
@@ -400,7 +404,7 @@ export default function RentalScreen() {
         )}
 
         <View style={{ height: Spacing.sm }} />
-        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigation'} onPress={addRecord} loading={saving} disabled={(hasOpenCycle && recordKind === 'rental') || !selectedCarAvailable || (recordKind === 'rental' ? !rentalContactComplete || !form.start_time || !form.end_time : !userProfile?.full_name?.trim() || !duplicateForm.section.trim() || !duplicateForm.start_time || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
+        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigation'} onPress={addRecord} loading={saving} disabled={hasOpenCycle || !selectedCarAvailable || (recordKind === 'rental' ? !rentalContactComplete || !form.start_time || !form.end_time : !userProfile?.full_name?.trim() || !duplicateForm.section.trim() || !duplicateForm.start_time || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
       </Sheet>
     </View>
   );

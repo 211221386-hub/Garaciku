@@ -353,6 +353,21 @@ async function proxyMutation(env, user, body) {
   const values = operation === 'insert'
     ? (Array.isArray(body.values) ? body.values.map((value) => ({ ...value })) : { ...body.values })
     : body.values;
+  if (table === 'daily_notes' && operation === 'insert' && [3, 4].includes(user.role)) {
+    const rentalUrl = new URL(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rental_records`);
+    rentalUrl.searchParams.set('select', 'id');
+    rentalUrl.searchParams.set('user_id', `eq.${user.id}`);
+    rentalUrl.searchParams.set('status', 'in.(pending,approved,active,overdue)');
+    rentalUrl.searchParams.set('limit', '1');
+    const rentalResponse = await fetch(rentalUrl, { headers: serviceHeaders(env) });
+    const openRentals = await rentalResponse.json().catch(() => null);
+    if (!rentalResponse.ok || !Array.isArray(openRentals)) {
+      return { status: 503, error: 'Tidak dapat memverifikasi siklus Transportation saat ini. Coba lagi.' };
+    }
+    if (openRentals.length > 0) {
+      return { status: 409, error: 'Siklus Transportation masih berjalan. Pengajuan Investigation tersedia setelah semua unit dikonfirmasi diterima.' };
+    }
+  }
   if (table === 'service_records' && operation !== 'delete') {
     const createdName = typeof user.full_name === 'string' ? user.full_name.trim() : '';
     if (!createdName) return { status: 400, error: 'Nama user belum tersedia pada profil akun.' };
