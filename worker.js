@@ -613,10 +613,9 @@ async function completeFirstLogin(request, env, user) {
 }
 
 async function proxyNotification(request, env, user, path, headers) {
-  const allowed = path === '/api/rental-created'
-    ? [1, 3, 4].includes(user.role)
-    : path === '/api/rental-approved' && user.role === 1;
-  if (!allowed) return Response.json({ error: 'Role is not allowed to send this notification.' }, { status: 403, headers });
+  if (path !== '/api/rental-approved' || user.role !== 1) {
+    return Response.json({ error: 'Only role 1 can send approval notifications.' }, { status: 403, headers });
+  }
   if (!env.RENTAL_AUTOMATION_URL) return Response.json({ error: 'Rental automation is not configured.' }, { status: 503, headers });
 
   let payload;
@@ -1010,6 +1009,10 @@ export default {
 
     if (user.must_reset_password) {
       return Response.json({ error: 'Selesaikan penggantian password dan profil sebelum menggunakan aplikasi.' }, { status: 403, headers });
+    }
+
+    if (url.pathname === '/api/rental-created') {
+      return Response.json({ error: 'Transportation notifications are sent only after approval.' }, { status: 410, headers });
     }
 
     if (url.pathname === '/api/rentals/create-cycle') {

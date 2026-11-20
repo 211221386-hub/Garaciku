@@ -318,18 +318,6 @@ class ApiClient {
       if (!rows[0]) throw new Error('Siklus peminjaman tidak menghasilkan unit.');
       return rows[0];
     },
-    notifyCreated: async (payload: {
-      namaPemesan: string;
-      emailPemesan: string;
-      nomorTelepon: string;
-      jenisKendaraan: string;
-      platNomor: string;
-      tanggalMulaiSewa: string;
-      tanggalSelesaiSewa: string;
-      jumlahHariSewa: number | '';
-    }) => {
-      await callWorker('/api/rental-created', payload);
-    },
     notifyApproved: async (payload: {
       namaPemesan: string;
       emailPemesan: string;

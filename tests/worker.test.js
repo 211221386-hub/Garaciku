@@ -448,6 +448,21 @@ test('rental records cannot be inserted through the generic data endpoint', asyn
   }
 });
 
+test('rental submission notification endpoint is disabled', async () => {
+  const mock = mockFetch(1);
+  try {
+    const token = await login(envFor(1), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/rental-created', {
+      namaPemesan: 'Test User',
+    }, token), envFor(1));
+    assert.equal(response.status, 410);
+    assert.match((await response.json()).error, /only after approval/);
+    assert.equal(mock.calls.some((call) => call.url.href.startsWith('https://automation.example.test/')), false);
+  } finally {
+    mock.restore();
+  }
+});
+
 test('roles 1 and 2 can create a car without a periodic service date and set it later', async () => {
   const mock = mockFetch(2, [{ id: 'car-1' }]);
   try {

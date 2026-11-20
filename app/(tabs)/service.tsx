@@ -4,7 +4,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { KeyRound, Plus, ChevronRight, RotateCcw } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
-import { dateRangesOverlap, differenceInCalendarDays, formatDate, formatCurrency } from '@/lib/format';
+import { dateRangesOverlap, formatDate, formatCurrency } from '@/lib/format';
 import { Sheet } from '@/components/Sheet';
 import { Field } from '@/components/Field';
 import { DateField } from '@/components/DateField';
@@ -250,7 +250,7 @@ export default function RentalScreen() {
     const today = new Date().toISOString().split('T')[0];
     setSaving(true);
     try {
-      const createdRentals = await apiClient.rentals.createCycle({
+      await apiClient.rentals.createCycle({
         car_ids: selectedCarIds,
         ...(isAdmin ? {
           renter_name: rentalContact.name,
@@ -264,25 +264,10 @@ export default function RentalScreen() {
         purpose: form.purpose.trim(),
         notes: form.notes.trim(),
       });
-      const firstRental = createdRentals[0];
       resetFormState();
       setSheet(false);
       setSaving(false);
       void fetchRentals();
-      if (getSession()?.user.role !== 2) {
-        void apiClient.rentals.notifyCreated({
-            namaPemesan: firstRental.renter_name,
-            emailPemesan: firstRental.renter_email,
-            nomorTelepon: firstRental.renter_phone,
-            jenisKendaraan: cars.filter((car) => selectedCarIds.includes(car.id)).map((car) => car.name).join(', '),
-            platNomor: cars.filter((car) => selectedCarIds.includes(car.id)).map((car) => car.plate_number).join(', '),
-            tanggalMulaiSewa: firstRental.start_date,
-            tanggalSelesaiSewa: firstRental.end_date ?? '',
-            jumlahHariSewa: firstRental.end_date ? differenceInCalendarDays(firstRental.start_date, firstRental.end_date) : '',
-          }).catch((error: unknown) => {
-            Alert.alert('Transportation tersimpan', `Notifikasi otomatis gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
-          });
-      }
     } catch (error) {
       Alert.alert('Gagal menyimpan Transportation', error instanceof Error ? error.message : 'Terjadi kesalahan. Pastikan migration jadwal Transportation sudah dijalankan di Supabase.');
     } finally {

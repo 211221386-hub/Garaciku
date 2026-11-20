@@ -28,7 +28,7 @@ import {
 import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
 import type { Car, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStatus, DamageSeverity, DamageStatus, CompletenessReminderType, VehicleInspection, VehicleInspectionItem } from '@/lib/types';
-import { differenceInCalendarDays, formatDate, formatShortDate, formatCurrency, todayISO } from '@/lib/format';
+import { formatDate, formatShortDate, formatCurrency, todayISO } from '@/lib/format';
 import { Sheet } from '@/components/Sheet';
 import { Field } from '@/components/Field';
 import { DateField } from '@/components/DateField';
@@ -531,22 +531,7 @@ export default function CarDetailScreen() {
     setSubmitting(true);
     try {
       const startDate = newRental.start_date || todayISO();
-      const rental = await apiClient.rentals.create({ car_id: id, renter_name: renterName, renter_email: renterEmail, renter_phone: renterPhone, start_date: startDate, end_date: newRental.end_date || null, purpose: newRental.purpose.trim(), notes: newRental.notes.trim(), status: 'active' });
-      try {
-        const endDate = rental.end_date ?? '';
-        await apiClient.rentals.notifyCreated({
-          namaPemesan: rental.renter_name,
-          emailPemesan: rental.renter_email,
-          nomorTelepon: rental.renter_phone,
-          jenisKendaraan: car?.name ?? '',
-          platNomor: car?.plate_number ?? '',
-          tanggalMulaiSewa: rental.start_date,
-          tanggalSelesaiSewa: endDate,
-          jumlahHariSewa: endDate ? differenceInCalendarDays(rental.start_date, endDate) : '',
-        });
-      } catch (error) {
-        Alert.alert('Transportation tersimpan', `Notifikasi otomatis gagal dikirim: ${error instanceof Error ? error.message : 'Terjadi kesalahan.'}`);
-      }
+      await apiClient.rentals.create({ car_id: id, renter_name: renterName, renter_email: renterEmail, renter_phone: renterPhone, start_date: startDate, end_date: newRental.end_date || null, purpose: newRental.purpose.trim(), notes: newRental.notes.trim(), status: 'active' });
       setNewRental({ start_date: '', end_date: '', purpose: '', notes: '' });
       setRentalSheet(false);
       await fetchAll();
