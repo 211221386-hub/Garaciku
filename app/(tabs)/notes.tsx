@@ -10,11 +10,18 @@ import { Field } from '@/components/Field';
 import { DateField } from '@/components/DateField';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
-import type { ServiceRecord } from '@/lib/types';
+import type { Car, ServiceRecord } from '@/lib/types';
 import { getSession } from '@/lib/auth';
 import { syncServiceReminders } from '@/lib/notifications';
 
 type ServiceWithCar = ServiceRecord & { car_name: string };
+type ServiceCar = Pick<Car, 'id' | 'name' | 'plate_number' | 'annual_tax_due_date' | 'plate_tax_due_date'>;
+type VehicleTaxType = 'annual' | 'plate';
+type VehicleTaxReminder = {
+  car: ServiceCar;
+  taxType: VehicleTaxType;
+  dueDate: string;
+};
 
 type ServiceForm = {
   car_id: string;
@@ -43,6 +50,15 @@ function getReminderStatus(nextServiceDate: string): 'Jatuh tempo' | 'Segera' | 
   return null;
 }
 
+function getVehicleTaxReminders(cars: ServiceCar[], today: string): VehicleTaxReminder[] {
+  return cars.flatMap((car) => [
+    { car, taxType: 'annual' as const, dueDate: car.annual_tax_due_date },
+    { car, taxType: 'plate' as const, dueDate: car.plate_tax_due_date },
+  ].filter((reminder): reminder is VehicleTaxReminder => Boolean(
+    reminder.dueDate && today >= addDaysToISO(reminder.dueDate, -7)
+  )));
+}
+
 export default function ServiceScreen() {
   useEffect(() => {
     const role = getSession()?.user.role;
@@ -50,17 +66,20 @@ export default function ServiceScreen() {
   }, []);
 
   const [services, setServices] = useState<ServiceWithCar[]>([]);
-  const [cars, setCars] = useState<{ id: string; name: string; plate_number: string }[]>([]);
+  const [cars, setCars] = useState<ServiceCar[]>([]);
   const [selectedCarId, setSelectedCarId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [sheet, setSheet] = useState(false);
   const [serviceToDelete, setServiceToDelete] = useState<ServiceWithCar | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmingServiceId, setConfirmingServiceId] = useState<string | null>(null);
+  const [confirmingTaxKey, setConfirmingTaxKey] = useState<string | null>(null);
   const [form, setForm] = useState<ServiceForm>(emptyForm);
 
   const selectedCar = cars.find((car) => car.id === selectedCarId) ?? null;
   const selectedCarServices = selectedCarId ? services.filter((service) => service.car_id === selectedCarId) : [];
+  const vehicleTaxReminders = getVehicleTaxReminders(cars, todayISO())
+    .filter((reminder) => !selectedCarId || reminder.car.id === selectedCarId);
 
   const fetchServices = useCallback(async () => {
     try {
@@ -208,6 +227,55 @@ export default function ServiceScreen() {
     }
   };
 
+  const confirmVehicleTax = async (reminder: VehicleTaxReminder) => {
+    const key = `${reminder.car.id}:${reminder.taxType}`;
+    if (confirmingTaxKey) return;
+    setConfirmingTaxKey(key);
+    try {
+      await apiClient.cars.confirmTax(reminder.car.id, reminder.taxType, reminder.dueDate);
+      await fetchServices();
+    } catch (error) {
+      Alert.alert('Gagal mengonfirmasi pajak', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+    } finally {
+      setConfirmingTaxKey(null);
+    }
+  };
+
+  const taxReminderHeader = vehicleTaxReminders.length ? (
+    <View>
+      <Text style={styles.taxSectionTitle}>Pajak Kendaraan Perlu Dikonfirmasi</Text>
+      {vehicleTaxReminders.map((reminder) => {
+        const key = `${reminder.car.id}:${reminder.taxType}`;
+        const daysUntilDue = Math.round(
+          (new Date(`${reminder.dueDate}T00:00:00Z`).getTime() - new Date(`${todayISO()}T00:00:00Z`).getTime())
+          / (24 * 60 * 60 * 1000),
+        );
+        const taxLabel = reminder.taxType === 'annual' ? 'Pajak Tahunan' : 'Pajak 5 Tahunan';
+        const dueDescription = daysUntilDue < 0
+          ? `Lewat jatuh tempo ${Math.abs(daysUntilDue)} hari`
+          : daysUntilDue === 0
+            ? 'Jatuh tempo hari ini'
+            : `Jatuh tempo dalam ${daysUntilDue} hari`;
+        return (
+          <View key={key} style={styles.taxReminderCard}>
+            <View style={styles.taxReminderBody}>
+              <Text style={styles.taxReminderTitle}>{taxLabel} · {reminder.car.name}</Text>
+              <Text style={styles.metaText}>{reminder.car.plate_number}</Text>
+              <Text style={styles.taxReminderDue}>{dueDescription} · {formatDate(reminder.dueDate)}</Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.confirmServiceButton, confirmingTaxKey === key && styles.actionDisabled]}
+              onPress={() => { void confirmVehicleTax(reminder); }}
+              disabled={confirmingTaxKey !== null}
+            >
+              <Text style={styles.confirmServiceButtonText}>{confirmingTaxKey === key ? 'Memproses...' : 'Konfirmasi Pajak'}</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      })}
+    </View>
+  ) : null;
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -219,6 +287,7 @@ export default function ServiceScreen() {
       {selectedCar ? (
         <FlatList
           data={selectedCarServices}
+          ListHeaderComponent={taxReminderHeader}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchServices(); }} colors={[Colors.primary]} />}
@@ -266,6 +335,7 @@ export default function ServiceScreen() {
       ) : (
         <FlatList
           data={cars}
+          ListHeaderComponent={taxReminderHeader}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchServices(); }} colors={[Colors.primary]} />}
@@ -368,6 +438,11 @@ const styles = StyleSheet.create({
   statusText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.success, marginTop: 5 },
   scheduledText: { color: Colors.warning },
   reminderText: { fontSize: Typography.xs, fontFamily: Typography.fontMedium, color: Colors.primary, marginTop: 3 },
+  taxSectionTitle: { fontSize: Typography.base, fontFamily: Typography.fontSemiBold, color: Colors.textPrimary, marginBottom: Spacing.sm },
+  taxReminderCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight },
+  taxReminderBody: { flex: 1 },
+  taxReminderTitle: { fontSize: Typography.sm, fontFamily: Typography.fontSemiBold, color: Colors.textPrimary },
+  taxReminderDue: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.warning, marginTop: 3 },
   reminderStatus: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, marginTop: 3 },
   overdueReminder: { color: Colors.error },
   soonReminder: { color: Colors.warning },

@@ -24,6 +24,8 @@ export type Car = {
   photo_url: string | null;
   operational_status: 'ready' | 'under_maintenance' | 'inactive';
   periodic_service_start_date: string | null;
+  annual_tax_due_date: string | null;
+  plate_tax_due_date: string | null;
   created_at: string;
 };
 

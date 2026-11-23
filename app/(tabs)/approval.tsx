@@ -169,7 +169,6 @@ export default function ApprovalScreen() {
         keyExtractor={(entry) => `${entry.kind}-${entry.item.id}`}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchApprovals(); }} colors={[Colors.primary]} />}
-        ListHeaderComponent={<Text style={styles.sectionTitle}>{activeTab === 'transportation' ? 'Riwayat Transportation' : isSuperAdmin() ? 'Investigation menunggu persetujuan' : 'Riwayat Investigation'}</Text>}
         renderItem={({ item: entry }) => entry.kind === 'transportation' ? (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
@@ -315,7 +314,6 @@ const styles = StyleSheet.create({
   emptyList: { alignItems: 'center', paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md, gap: Spacing.xs },
   emptyTitle: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textPrimary, textAlign: 'center' },
   emptySubtitle: { fontSize: Typography.xs, fontFamily: Typography.fontRegular, color: Colors.textSecondary, textAlign: 'center' },
-  sectionTitle: { fontSize: Typography.lg, fontFamily: Typography.fontSemiBold, color: Colors.textPrimary, marginBottom: Spacing.md },
   card: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight },
   cardHeader: { flexDirection: 'row', alignItems: 'center' },
   icon: { width: 38, height: 38, borderRadius: Radius.md, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: Spacing.sm },

@@ -43,7 +43,7 @@ type ReturnListItem =
 
 type RentalAvailability = UnitAvailability;
 
-const blockingStatuses = ['pending', 'active', 'approved', 'overdue', 'pending_approval', 'scheduled'];
+const blockingStatuses = ['pending', 'active', 'approved', 'overdue', 'pending_approval', 'scheduled', 'tax_due'];
 
 function hasRentalConflict(reservations: RentalAvailability[], carId: string, startDate: string, endDate: string) {
   return reservations.some((reservation) =>
@@ -543,7 +543,11 @@ export default function RentalScreen() {
             const itineraryReady = Boolean(itinerary?.itinerary && itinerary.parts.length > 0);
             const canSubmitItinerary = !returned && note.created_by === userProfile?.id;
             return (
-              <View style={styles.card}>
+              <TouchableOpacity
+                style={styles.card}
+                activeOpacity={0.85}
+                onPress={() => openInvestigationDetails(note)}
+              >
                 <View style={styles.rentalIcon}><RotateCcw size={16} color={Colors.primary} strokeWidth={2.2} /></View>
                 <View style={styles.cardBody}>
                   <View style={styles.recordTypeBadge}><Text style={styles.recordTypeBadgeText}>Investigation</Text></View>
@@ -557,12 +561,6 @@ export default function RentalScreen() {
                   {!returned ? <Text style={styles.metaText}>
                     Itinerary: {!note.created_by ? 'pemilik belum teridentifikasi' : itineraryLoadErrors[note.id] ? 'gagal dimuat' : itineraryReady ? 'sudah dikirim' : 'belum dikirim'}
                   </Text> : null}
-                  <Button
-                    label="Lihat detail Investigation"
-                    variant="secondary"
-                    style={styles.cardActionButton}
-                    onPress={() => openInvestigationDetails(note)}
-                  />
                   {activeTab === 'return' && canSubmitItinerary ? (
                     <Button
                       label={itineraryReady ? 'Ubah itinerary pengembalian' : 'Isi itinerary pengembalian'}
@@ -583,7 +581,7 @@ export default function RentalScreen() {
                   ) : null}
                 </View>
                 <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2.2} />
-              </View>
+              </TouchableOpacity>
             );
           }
           const item = entry.item;

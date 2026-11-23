@@ -13,7 +13,7 @@ const TABLES = new Set([
 
 const COLUMNS = {
   users: new Set(['id', 'username', 'full_name', 'email', 'phone', 'role', 'is_active', 'must_reset_password', 'created_at']),
-  cars: new Set(['id', 'name', 'brand', 'model', 'year', 'plate_number', 'color', 'photo_url', 'operational_status', 'periodic_service_start_date', 'created_at']),
+  cars: new Set(['id', 'name', 'brand', 'model', 'year', 'plate_number', 'color', 'photo_url', 'operational_status', 'periodic_service_start_date', 'annual_tax_due_date', 'plate_tax_due_date', 'created_at']),
   daily_notes: new Set(['id', 'car_id', 'created_by', 'created_name', 'section', 'note_date', 'start_date', 'start_time', 'end_date', 'end_time', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'detail', 'status', 'return_confirmed_by', 'return_confirmed_at', 'reviewed_by', 'reviewed_at', 'created_at']),
   completeness_items: new Set(['id', 'car_id', 'name', 'is_present', 'reminder_type', 'next_due_date', 'created_at']),
   damages: new Set(['id', 'car_id', 'description', 'severity', 'status', 'reported_date', 'resolved_date', 'created_at']),
@@ -152,7 +152,7 @@ function validateFilters(table, filters, required = false) {
 }
 
 function isUnitScheduleConflict(message) {
-  return /Siklus peminjaman|Unit sudah terbooking|Investigation.*rentang tanggal|jadwal Service.*rentang tanggal|sedang dalam perawatan|berstatus Inactive/i.test(message);
+  return /Siklus peminjaman|Unit sudah terbooking|Investigation.*rentang tanggal|jadwal Service.*rentang tanggal|sedang dalam perawatan|berstatus Inactive|Pajak kendaraan jatuh tempo/i.test(message);
 }
 
 function encodeFilter(filter) {
@@ -803,6 +803,36 @@ async function confirmDailyNoteReturn(request, env, user) {
   return { status: 200, data: result };
 }
 
+async function confirmVehicleTax(request, env, user) {
+  if (![1, 2].includes(user.role)) return { status: 403, error: 'Hanya Role 1 atau 2 yang dapat mengonfirmasi pajak kendaraan.' };
+  let body;
+  try { body = await request.json(); } catch { return { status: 400, error: 'Invalid JSON body.' }; }
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  const expectedDate = typeof body?.expected_due_date === 'string' && datePattern.test(body.expected_due_date)
+    ? new Date(`${body.expected_due_date}T00:00:00Z`)
+    : null;
+  if (!body || typeof body.car_id !== 'string' || !uuidPattern.test(body.car_id)
+    || !['annual', 'plate'].includes(body.tax_type)
+    || !expectedDate || Number.isNaN(expectedDate.getTime())
+    || expectedDate.toISOString().slice(0, 10) !== body.expected_due_date) {
+    return { status: 400, error: 'Data konfirmasi pajak kendaraan tidak valid.' };
+  }
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/confirm_vehicle_tax`, {
+    method: 'POST',
+    headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({
+      _car_id: body.car_id,
+      _tax_type: body.tax_type,
+      _expected_due_date: body.expected_due_date,
+      _user_role: user.role,
+    }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) return { status: 409, error: typeof result?.message === 'string' ? result.message : 'Konfirmasi pajak kendaraan gagal.' };
+  return { status: 200, data: result };
+}
+
 async function handleDailyNoteReturnItinerary(request, env, user) {
   const baseUrl = env.SUPABASE_URL.replace(/\/$/, '');
   const bucket = 'daily-note-return-photos';
@@ -1195,6 +1225,7 @@ export default {
       '/api/data/delete',
       '/api/rentals/create-cycle',
       '/api/rentals/confirm-return',
+      '/api/cars/confirm-tax',
       '/api/daily-notes/confirm-return',
       '/api/daily-notes/return-itinerary',
       '/api/daily-notes/review',
@@ -1302,6 +1333,16 @@ export default {
       } catch (error) {
         console.error('Daily note return confirmation failed:', error);
         return Response.json({ error: 'Daily note return confirmation failed.' }, { status: 503, headers });
+      }
+    }
+
+    if (url.pathname === '/api/cars/confirm-tax') {
+      try {
+        const result = await confirmVehicleTax(request, env, user);
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Vehicle tax confirmation failed:', error);
+        return Response.json({ error: 'Vehicle tax confirmation failed.' }, { status: 503, headers });
       }
     }
 

@@ -570,6 +570,56 @@ test('roles 1 and 2 can create a car without a periodic service date and set it 
   }
 });
 
+test('role 2 can confirm vehicle tax with an expected due date', async () => {
+  const updatedCar = {
+    id: '11111111-1111-4111-8111-111111111111',
+    annual_tax_due_date: '2027-11-23',
+    annual_tax_confirmed_at: '2026-11-23T00:00:00Z',
+  };
+  const mock = mockFetch(2, [], {}, {
+    '/rest/v1/rpc/confirm_vehicle_tax': { status: 200, body: updatedCar },
+  });
+  try {
+    const token = await login(envFor(2), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/cars/confirm-tax', {
+      car_id: updatedCar.id,
+      tax_type: 'annual',
+      expected_due_date: '2026-11-23',
+    }, token), envFor(2));
+    const result = await response.json();
+    const rpc = mock.calls.find((call) => call.url.pathname === '/rest/v1/rpc/confirm_vehicle_tax');
+    assert.equal(response.status, 200);
+    assert.deepEqual(result.data, updatedCar);
+    assert.deepEqual(JSON.parse(rpc.options.body), {
+      _car_id: updatedCar.id,
+      _tax_type: 'annual',
+      _expected_due_date: '2026-11-23',
+      _user_role: 2,
+    });
+  } finally {
+    mock.restore();
+  }
+});
+
+test('roles 3 and 4 cannot confirm vehicle tax', async () => {
+  for (const role of [3, 4]) {
+    const mock = mockFetch(role);
+    try {
+      const token = await login(envFor(role), mock.calls);
+      const before = mock.calls.length;
+      const response = await worker.fetch(makeRequest('/api/cars/confirm-tax', {
+        car_id: '11111111-1111-4111-8111-111111111111',
+        tax_type: 'plate',
+        expected_due_date: '2026-11-23',
+      }, token), envFor(role));
+      assert.equal(response.status, 403);
+      assert.equal(mock.calls.slice(before).some((call) => call.url.pathname === '/rest/v1/rpc/confirm_vehicle_tax'), false);
+    } finally {
+      mock.restore();
+    }
+  }
+});
+
 test('service record names come from the authenticated creator or confirmer', async () => {
   const mock = mockFetch(2, [{ id: 'service-1', created_name: 'Test User' }]);
   try {

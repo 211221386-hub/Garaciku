@@ -9,6 +9,8 @@ export type LoginResult = {
   expiresAt?: number;
 };
 
+export type VehicleTaxType = 'annual' | 'plate';
+
 export type CreateRentalCycleInput = {
   car_ids: string[];
   renter_name?: string;
@@ -168,6 +170,19 @@ class ApiClient {
       if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya role 1 atau 2 yang dapat mengubah data mobil.');
       return unwrap<Car>(supabase.from('cars').update(data).eq('id', id).select().single());
     },
+    confirmTax: async (carId: string, taxType: VehicleTaxType, expectedDueDate: string): Promise<Car> => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      if (![1, 2].includes(session.user.role)) throw new Error('Hanya Role 1 atau 2 yang dapat mengonfirmasi pajak kendaraan.');
+      const response = await fetch(workerApiUrl('/api/cars/confirm-tax'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ car_id: carId, tax_type: taxType, expected_due_date: expectedDueDate }),
+      });
+      const result = await response.json().catch(() => null) as { data?: Car; error?: string } | null;
+      if (!response.ok || !result?.data) throw new Error(result?.error ?? 'Gagal mengonfirmasi pajak kendaraan.');
+      return result.data;
+    },
     setOperationalStatus: (id: string, operationalStatus: Car['operational_status']) => {
       const session = getSession();
       if (!session || ![1, 2].includes(session.user.role)) {
@@ -179,17 +194,33 @@ class ApiClient {
     },
     getStatuses: async (carIds: string[]) => {
       if (!carIds.length) return { statuses: {}, warning: null };
-      let cars: Pick<Car, 'id' | 'operational_status'>[];
+      let cars: Pick<Car, 'id' | 'operational_status' | 'annual_tax_due_date' | 'plate_tax_due_date'>[];
+      let taxDatesAvailable = true;
       try {
-        cars = await unwrap<Pick<Car, 'id' | 'operational_status'>[]>(
-          supabase.from('cars').select('id, operational_status').in('id', carIds)
+        cars = await unwrap<Pick<Car, 'id' | 'operational_status' | 'annual_tax_due_date' | 'plate_tax_due_date'>[]>(
+          supabase.from('cars').select('id,operational_status,annual_tax_due_date,plate_tax_due_date').in('id', carIds)
         );
       } catch (error) {
-        console.warn('Kolom operational_status belum tersedia; unit dianggap Ready sampai migration dijalankan.', error);
-        const legacyCars = await unwrap<{ id: string }[]>(
-          supabase.from('cars').select('id').in('id', carIds)
-        );
-        cars = legacyCars.map((car) => ({ ...car, operational_status: 'ready' as const }));
+        console.warn('Kolom pajak kendaraan belum tersedia; memuat status tanpa tanggal pajak.', error);
+        try {
+          const legacyCars = await unwrap<Pick<Car, 'id' | 'operational_status'>[]>(
+            supabase.from('cars').select('id,operational_status').in('id', carIds)
+          );
+          cars = legacyCars.map((car) => ({ ...car, annual_tax_due_date: null, plate_tax_due_date: null }));
+          taxDatesAvailable = false;
+        } catch (legacyError) {
+          console.warn('Kolom operational_status belum tersedia; unit dianggap Ready sampai migration dijalankan.', legacyError);
+          const oldestCars = await unwrap<{ id: string }[]>(
+            supabase.from('cars').select('id').in('id', carIds)
+          );
+          cars = oldestCars.map((car) => ({
+            ...car,
+            operational_status: 'ready' as const,
+            annual_tax_due_date: null,
+            plate_tax_due_date: null,
+          }));
+          taxDatesAvailable = false;
+        }
       }
 
       const rentals = await unwrap<Pick<RentalRecord, 'car_id' | 'status' | 'renter_name' | 'end_date' | 'end_time'>[]>(
@@ -248,6 +279,9 @@ class ApiClient {
       const result: Record<string, { status: CarDisplayStatus; renter_name: string | null }> = {};
 
       for (const car of cars) {
+        const taxDueDates = [car.annual_tax_due_date, car.plate_tax_due_date].filter((date): date is string => date !== null);
+        const taxUnderMaintenance = taxDueDates.some((date) => today >= date);
+        const taxReminderDue = taxDueDates.some((date) => today >= addDaysToISO(date, -7));
         const carRentals = rentals.filter((rental) => rental.car_id === car.id)
           .map((rental) => ({
             ...rental,
@@ -276,6 +310,10 @@ class ApiClient {
           result[car.id] = { status: 'Under Maintenance', renter_name: null };
         } else if (serviceInProgress) {
           result[car.id] = { status: 'Under Maintenance', renter_name: null };
+        } else if (taxUnderMaintenance) {
+          result[car.id] = { status: 'Under Maintenance', renter_name: null };
+        } else if (taxReminderDue) {
+          result[car.id] = { status: 'Time to Service', renter_name: null };
         } else if (delayedRental) {
           result[car.id] = { status: 'Delay', renter_name: rentalNames.get(car.id) ?? null };
         } else if (delayedInvestigation) {
@@ -293,8 +331,10 @@ class ApiClient {
       return {
         statuses: result,
         warning: serviceDetailsAvailable
-          ? null
-          : 'Status mobil berhasil dimuat. Detail pengingat Service tidak tersedia, tetapi peminjaman dan Service yang sedang berjalan tetap dihitung.',
+          ? taxDatesAvailable
+            ? null
+            : 'Tanggal pajak kendaraan belum dapat dibaca. Jalankan migration pajak kendaraan agar reminder dan status pajak dihitung.'
+          : `Status mobil berhasil dimuat. Detail pengingat Service tidak tersedia, tetapi peminjaman dan Service yang sedang berjalan tetap dihitung.${taxDatesAvailable ? '' : ' Tanggal pajak juga belum dapat dibaca; jalankan migration pajak kendaraan.'}`,
       };
     },
     delete: async (id: string) => {
@@ -323,9 +363,18 @@ class ApiClient {
         unwrap<Pick<ServiceRecord, 'car_id' | 'status' | 'service_date'>[]>(
           supabase.from('service_records').select('car_id,status,service_date').in('status', ['scheduled', 'in_progress'])
         ),
-        unwrap<Pick<Car, 'id' | 'operational_status'>[]>(
-          supabase.from('cars').select('id,operational_status')
-        ),
+        (async () => {
+          try {
+            return await unwrap<Pick<Car, 'id' | 'operational_status' | 'annual_tax_due_date' | 'plate_tax_due_date'>[]>(
+              supabase.from('cars').select('id,operational_status,annual_tax_due_date,plate_tax_due_date')
+            );
+          } catch (error) {
+            console.warn('Tanggal pajak belum tersedia saat memuat ketersediaan unit.', error);
+            return (await unwrap<Pick<Car, 'id' | 'operational_status'>[]>(
+              supabase.from('cars').select('id,operational_status')
+            )).map((car) => ({ ...car, annual_tax_due_date: null, plate_tax_due_date: null }));
+          }
+        })(),
       ]);
       return [
         ...rentals,
@@ -336,6 +385,14 @@ class ApiClient {
           start_date: service.service_date,
           end_date: service.status === 'in_progress' ? null : service.service_date,
         })),
+        ...cars.flatMap((car) => [car.annual_tax_due_date, car.plate_tax_due_date]
+          .filter((dueDate): dueDate is string => dueDate !== null)
+          .map((dueDate) => ({
+            car_id: car.id,
+            status: 'tax_due',
+            start_date: dueDate,
+            end_date: dueDate < todayISO() ? null : dueDate,
+          }))),
         ...cars.filter((car) => ['under_maintenance', 'inactive'].includes(car.operational_status)).map((car) => ({
           car_id: car.id,
           status: car.operational_status,

@@ -52,6 +52,8 @@ Gunakan proyek staging terlebih dahulu dan buat backup sebelum mengubah database
 
 Alur itinerary pengembalian Investigation memerlukan migration `20261123120000_daily_note_return_itinerary.sql` sebelum Worker dan aplikasi yang memuat fitur tersebut di-deploy. Migration ini membuat penyimpanan itinerary, daftar part, foto privat, serta RPC yang mewajibkan itinerary sebelum konfirmasi penerimaan unit. Untuk Investigation aktif lama dengan `created_by` kosong, identifikasi dan perbaiki pemiliknya secara manual sebelum pengembalian; itinerary hanya dapat diisi oleh pembuat yang teridentifikasi.
 
+Reminder pajak kendaraan memerlukan migration `20261123160000_vehicle_tax_reminders.sql` sebelum Worker dan aplikasi yang memuat fitur ini di-deploy. Admin mengisi tanggal jatuh tempo pajak tahunan dan pajak 5 tahunan di data mobil. Pengingat muncul mulai H-7 di tab Service; konfirmasi hanya dapat dilakukan oleh Role 1 atau 2 dan memajukan jatuh tempo satu atau lima tahun. Mulai hari jatuh tempo, mobil berstatus Under Maintenance dan tidak tersedia untuk peminjaman sampai pajak dikonfirmasi.
+
 Migrasi awal menyertakan akun demo. Jangan memakai akun atau password demo untuk deployment produksi; siapkan kredensial produksi yang unik dan verifikasi login sebelum membuka aplikasi ke pengguna.
 
 ### Bulk Onboarding User

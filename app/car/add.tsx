@@ -25,6 +25,8 @@ export default function AddCarScreen() {
   const [color, setColor] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
   const [periodicServiceDate, setPeriodicServiceDate] = useState(() => addMonthsToISO(todayISO(), 6));
+  const [annualTaxDueDate, setAnnualTaxDueDate] = useState('');
+  const [plateTaxDueDate, setPlateTaxDueDate] = useState('');
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
@@ -47,6 +49,8 @@ export default function AddCarScreen() {
         color: color.trim(),
         photo_url: photoUrl.trim() || null,
         periodic_service_start_date: periodicServiceDate || null,
+        annual_tax_due_date: annualTaxDueDate || null,
+        plate_tax_due_date: plateTaxDueDate || null,
       });
       router.replace('/(tabs)');
     } catch (error) {
@@ -76,6 +80,10 @@ export default function AddCarScreen() {
         <Text style={styles.sectionTitle}>Jadwal Service Berkala</Text>
         <DateField label="Tanggal Service Berkala Pertama (opsional)" value={periodicServiceDate} onChange={setPeriodicServiceDate} allowClear />
         <Text style={styles.helperText}>Jika belum diketahui, kosongkan dan atur satu kali nanti dari Edit Mobil. Jadwal berikutnya dibuat 6 bulan setelah service dikonfirmasi.</Text>
+        <Text style={styles.sectionTitle}>Pajak Kendaraan</Text>
+        <DateField label="Jatuh Tempo Pajak Tahunan (opsional)" value={annualTaxDueDate} onChange={setAnnualTaxDueDate} allowClear />
+        <DateField label="Jatuh Tempo Pajak 5 Tahunan (opsional)" value={plateTaxDueDate} onChange={setPlateTaxDueDate} allowClear />
+        <Text style={styles.helperText}>Reminder muncul 7 hari sebelum jatuh tempo. Setelah dikonfirmasi, tanggal berikutnya otomatis maju 1 tahun atau 5 tahun.</Text>
         <View style={{ height: Spacing.md }} />
         <Button label="Simpan Mobil" onPress={save} loading={saving} />
       </ScrollView>

@@ -21,6 +21,8 @@ export default function EditCarScreen() {
   const [photoUrl, setPhotoUrl] = useState('');
   const [periodicServiceStartDate, setPeriodicServiceStartDate] = useState<string | null>(null);
   const [canSetPeriodicServiceStartDate, setCanSetPeriodicServiceStartDate] = useState(false);
+  const [annualTaxDueDate, setAnnualTaxDueDate] = useState<string | null>(null);
+  const [plateTaxDueDate, setPlateTaxDueDate] = useState<string | null>(null);
   const [operationalStatus, setOperationalStatus] = useState<Car['operational_status']>('ready');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -42,6 +44,8 @@ export default function EditCarScreen() {
         setPhotoUrl(data.photo_url ?? '');
         setPeriodicServiceStartDate(data.periodic_service_start_date);
         setCanSetPeriodicServiceStartDate(data.periodic_service_start_date === null);
+        setAnnualTaxDueDate(data.annual_tax_due_date);
+        setPlateTaxDueDate(data.plate_tax_due_date);
         setOperationalStatus(data.operational_status);
       }
       setLoading(false);
@@ -64,6 +68,8 @@ export default function EditCarScreen() {
         color: color.trim(),
         photo_url: photoUrl.trim() || null,
         ...(periodicServiceStartDate ? { periodic_service_start_date: periodicServiceStartDate } : {}),
+        ...(annualTaxDueDate ? { annual_tax_due_date: annualTaxDueDate } : {}),
+        ...(plateTaxDueDate ? { plate_tax_due_date: plateTaxDueDate } : {}),
       });
       setPeriodicServiceStartDate(updatedCar.periodic_service_start_date);
       setCanSetPeriodicServiceStartDate(updatedCar.periodic_service_start_date === null);
@@ -106,6 +112,14 @@ export default function EditCarScreen() {
             <Text style={styles.sectionLabel}>Jadwal Service Berkala</Text>
             <DateField label="Tanggal Service Berkala Pertama (opsional)" value={periodicServiceStartDate ?? ''} onChange={setPeriodicServiceStartDate} />
             <Text style={styles.helperText}>Tanggal ini hanya dapat diisi satu kali. Setelah disimpan, jadwal berikutnya dibuat otomatis 6 bulan setelah Service dikonfirmasi.</Text>
+          </>
+        ) : null}
+        {annualTaxDueDate === null || plateTaxDueDate === null ? (
+          <>
+            <Text style={styles.sectionLabel}>Pajak Kendaraan</Text>
+            {annualTaxDueDate === null ? <DateField label="Jatuh Tempo Pajak Tahunan (opsional)" value="" onChange={setAnnualTaxDueDate} allowClear /> : null}
+            {plateTaxDueDate === null ? <DateField label="Jatuh Tempo Pajak 5 Tahunan (opsional)" value="" onChange={setPlateTaxDueDate} allowClear /> : null}
+            <Text style={styles.helperText}>Tanggal yang sudah diatur hanya berubah setelah konfirmasi pajak. Reminder muncul mulai 7 hari sebelum jatuh tempo.</Text>
           </>
         ) : null}
         <Text style={styles.sectionLabel}>Status Unit</Text>
