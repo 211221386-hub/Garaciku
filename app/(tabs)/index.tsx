@@ -83,8 +83,9 @@ export default function CarsScreen() {
           <View style={styles.carRow}>
             {row.map((car) => {
               const carStatus = carStatuses[car.id] ?? { status: 'Unknown' as const, renter_name: null };
-              const unavailableToUser = ['Booked', 'Delay', 'Under Maintenance'].includes(carStatus.status)
-                || (isRestrictedRole && carStatus.status === 'Unknown');
+              const unavailableToUser = isRestrictedRole && (
+                ['Booked', 'Delay', 'Under Maintenance', 'Unknown'].includes(carStatus.status)
+              );
               return (
                 <CarCard
                   key={car.id}
