@@ -320,7 +320,7 @@ async function proxyQuery(env, user, body) {
       ...body,
       filters: [
         ...filters.filter((filter) => filter.column === 'car_id'),
-        { column: 'status', operator: 'eq', value: 'scheduled' },
+        { column: 'status', operator: 'in', value: ['scheduled', 'in_progress'] },
       ],
       select: 'car_id,status,service_date',
     };

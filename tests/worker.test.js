@@ -415,7 +415,7 @@ test('car status queries include rentals from other users for roles 3 and 4', as
   }
 });
 
-test('service availability for roles 3 and 4 exposes only scheduled service dates', async () => {
+test('service availability for roles 3 and 4 exposes scheduled and in-progress service dates', async () => {
   for (const role of [3, 4]) {
     const mock = mockFetch(role);
     try {
@@ -423,13 +423,13 @@ test('service availability for roles 3 and 4 exposes only scheduled service date
       const response = await worker.fetch(makeRequest('/api/data/query', {
         table: 'service_records',
         select: 'car_id,status,service_date',
-        filters: [{ column: 'status', operator: 'eq', value: 'completed' }],
+        filters: [{ column: 'status', operator: 'in', value: ['completed'] }],
         single: false,
       }, token), envFor(role));
       const query = mock.calls.find((call) => call.url.pathname === '/rest/v1/service_records');
       assert.equal(response.status, 200);
       assert.equal(query.url.searchParams.get('select'), 'car_id,status,service_date');
-      assert.equal(query.url.searchParams.get('status'), 'eq.scheduled');
+      assert.equal(query.url.searchParams.get('status'), 'in.("scheduled","in_progress")');
     } finally {
       mock.restore();
     }

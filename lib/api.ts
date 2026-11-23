@@ -198,8 +198,11 @@ class ApiClient {
       let services: Pick<ServiceRecord, 'car_id' | 'next_service_date' | 'reminder_enabled' | 'status' | 'is_recurring'>[] = [];
       let servicesAvailable = true;
       try {
+        const restrictedRole = [3, 4].includes(getSession()?.user.role ?? 0);
         services = await unwrap(
-          supabase.from('service_records').select('car_id,next_service_date,reminder_enabled,status,is_recurring').in('status', ['scheduled', 'in_progress']).in('car_id', carIds)
+          restrictedRole
+            ? supabase.from('service_records').select('car_id,status,service_date').in('status', ['scheduled', 'in_progress']).in('car_id', carIds)
+            : supabase.from('service_records').select('car_id,next_service_date,reminder_enabled,status,is_recurring').in('status', ['scheduled', 'in_progress']).in('car_id', carIds)
         );
       } catch (error) {
         servicesAvailable = false;
