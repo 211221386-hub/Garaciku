@@ -393,6 +393,28 @@ test('rental availability queries expose dates without other users rental detail
   }
 });
 
+test('car status queries include rentals from other users for roles 3 and 4', async () => {
+  for (const role of [3, 4]) {
+    const mock = mockFetch(role, [{ car_id: 'zenix-id', status: 'approved', end_date: '2026-11-28', end_time: '17:00' }]);
+    try {
+      const token = await login(envFor(role), mock.calls);
+      const response = await worker.fetch(makeRequest('/api/data/query', {
+        table: 'rental_records',
+        select: 'car_id,status,renter_name,end_date,end_time',
+        filters: [{ column: 'status', operator: 'in', value: ['active', 'approved', 'overdue'] }],
+        single: false,
+      }, token), envFor(role));
+      const query = mock.calls.find((call) => call.url.pathname === '/rest/v1/rental_records');
+      assert.equal(response.status, 200);
+      assert.equal(query.url.searchParams.get('select'), 'car_id,status,end_date,end_time');
+      assert.equal(query.url.searchParams.get('status'), 'in.("pending","active","approved","overdue")');
+      assert.equal(query.url.searchParams.has('user_id'), false);
+    } finally {
+      mock.restore();
+    }
+  }
+});
+
 test('service availability for roles 3 and 4 exposes only scheduled service dates', async () => {
   for (const role of [3, 4]) {
     const mock = mockFetch(role);

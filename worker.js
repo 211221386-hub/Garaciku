@@ -286,16 +286,18 @@ async function proxyQuery(env, user, body) {
     if (!filters) throw new Error('Invalid query filters.');
     const requestedSelection = body.select?.replace(/\s/g, '');
     const isAvailabilityQuery = requestedSelection === 'car_id,status' || requestedSelection === 'car_id,status,start_date,end_date';
+    const isCarStatusQuery = requestedSelection === 'car_id,status,renter_name,end_date,end_time';
     const isDateAvailabilityQuery = requestedSelection === 'car_id,status,start_date,end_date';
     query = {
       ...body,
       filters: [
-        ...filters.filter((filter) => filter.column !== 'user_id' && (!isAvailabilityQuery || filter.column !== 'status')),
-        ...(isAvailabilityQuery
+        ...filters.filter((filter) => filter.column !== 'user_id' && (!(isAvailabilityQuery || isCarStatusQuery) || filter.column !== 'status')),
+        ...(isAvailabilityQuery || isCarStatusQuery
           ? [{ column: 'status', operator: 'in', value: ['pending', 'active', 'approved', 'overdue'] }]
           : [{ column: 'user_id', operator: 'eq', value: user.id }]),
       ],
       ...(isAvailabilityQuery ? { select: isDateAvailabilityQuery ? 'car_id,status,start_date,end_date' : 'car_id,status' } : {}),
+      ...(isCarStatusQuery ? { select: 'car_id,status,end_date,end_time' } : {}),
     };
   }
   if (table === 'daily_notes' && [3, 4].includes(user.role)) {

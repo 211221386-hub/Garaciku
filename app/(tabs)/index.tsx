@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl } from 'react-native';
+import { Alert, View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Car as CarIcon, Plus, RefreshCw } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
@@ -23,16 +23,19 @@ export default function CarsScreen() {
       setLoading(false);
 
       try {
-        const statuses = await apiClient.cars.getStatuses(data.map((car) => car.id));
-        setCarStatuses(statuses);
+        const statusResult = await apiClient.cars.getStatuses(data.map((car) => car.id));
+        setCarStatuses(statusResult.statuses);
+        if (statusResult.warning) Alert.alert('Status mobil belum lengkap', statusResult.warning);
       } catch (statusError) {
-        console.warn('Gagal memuat status jadwal mobil; hanya status operasional yang ditampilkan.', statusError);
+        console.error('Gagal memuat status mobil.', statusError);
         setCarStatuses(Object.fromEntries(data
-          .filter((car) => car.operational_status !== 'ready')
           .map((car) => [car.id, {
-            status: car.operational_status === 'inactive' ? 'Inactive' as const : 'Under Maintenance' as const,
+            status: car.operational_status === 'inactive'
+              ? 'Inactive' as const
+              : car.operational_status === 'under_maintenance' ? 'Under Maintenance' as const : 'Unknown' as const,
             renter_name: null,
           }])));
+        Alert.alert('Gagal memuat status mobil', statusError instanceof Error ? statusError.message : 'Terjadi kesalahan saat memuat status unit.');
       }
     } catch (error) {
       console.error('Error fetching cars:', error);
@@ -79,8 +82,9 @@ export default function CarsScreen() {
         renderItem={({ item: row }) => (
           <View style={styles.carRow}>
             {row.map((car) => {
-              const carStatus = carStatuses[car.id] ?? { status: 'Ready' as const, renter_name: null };
-              const unavailableToUser = ['Booked', 'Delay', 'Under Maintenance'].includes(carStatus.status);
+              const carStatus = carStatuses[car.id] ?? { status: 'Unknown' as const, renter_name: null };
+              const unavailableToUser = ['Booked', 'Delay', 'Under Maintenance'].includes(carStatus.status)
+                || (isRestrictedRole && carStatus.status === 'Unknown');
               return (
                 <CarCard
                   key={car.id}

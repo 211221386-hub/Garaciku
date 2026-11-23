@@ -27,7 +27,7 @@ export type Car = {
   created_at: string;
 };
 
-export type CarDisplayStatus = 'Ready' | 'Booked' | 'Under Maintenance' | 'Time to Service' | 'Delay' | 'Inactive';
+export type CarDisplayStatus = 'Ready' | 'Booked' | 'Under Maintenance' | 'Time to Service' | 'Delay' | 'Inactive' | 'Unknown';
 
 export type CarStatusInfo = {
   status: CarDisplayStatus;

@@ -17,6 +17,7 @@ function getStatusStyle(statusLabel?: string) {
   if (statusLabel === 'Time to Service') return styles.serviceBadge;
   if (statusLabel === 'Delay') return styles.delayBadge;
   if (statusLabel === 'Inactive') return styles.inactiveBadge;
+  if (statusLabel === 'Unknown') return styles.maintenanceBadge;
   return styles.readyBadge;
 }
 

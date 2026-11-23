@@ -1,5 +1,5 @@
 import { supabase, workerApiUrl } from '@/lib/supabase';
-import type { AppUser, Car, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStatus, ServiceRecord, VehicleInspection, VehicleInspectionItem, VehicleInspectionPhoto } from '@/lib/types';
+import type { AppUser, Car, CarDisplayStatus, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStatus, ServiceRecord, VehicleInspection, VehicleInspectionItem, VehicleInspectionPhoto } from '@/lib/types';
 import { addDaysToISO, getRentalStatus, todayISO } from '@/lib/format';
 import { getSession } from '@/lib/auth';
 
@@ -178,7 +178,7 @@ class ApiClient {
       }).eq('id', id).select().single());
     },
     getStatuses: async (carIds: string[]) => {
-      if (!carIds.length) return {};
+      if (!carIds.length) return { statuses: {}, warning: null };
       let cars: Pick<Car, 'id' | 'operational_status'>[];
       try {
         cars = await unwrap<Pick<Car, 'id' | 'operational_status'>[]>(
@@ -192,20 +192,29 @@ class ApiClient {
         cars = legacyCars.map((car) => ({ ...car, operational_status: 'ready' as const }));
       }
 
-      const [rentals, services] = await Promise.all([
-        unwrap<Pick<RentalRecord, 'car_id' | 'status' | 'renter_name' | 'end_date' | 'end_time'>[]>(
-          supabase.from('rental_records').select('car_id,status,renter_name,end_date,end_time').in('status', ['active', 'approved', 'overdue']).in('car_id', carIds)
-        ),
-        unwrap<Pick<ServiceRecord, 'car_id' | 'next_service_date' | 'reminder_enabled' | 'status' | 'is_recurring'>[]>(
+      const rentals = await unwrap<Pick<RentalRecord, 'car_id' | 'status' | 'renter_name' | 'end_date' | 'end_time'>[]>(
+        supabase.from('rental_records').select('car_id,status,renter_name,end_date,end_time').in('status', ['active', 'approved', 'overdue']).in('car_id', carIds)
+      );
+      let services: Pick<ServiceRecord, 'car_id' | 'next_service_date' | 'reminder_enabled' | 'status' | 'is_recurring'>[] = [];
+      let servicesAvailable = true;
+      try {
+        services = await unwrap(
           supabase.from('service_records').select('car_id,next_service_date,reminder_enabled,status,is_recurring').in('status', ['scheduled', 'in_progress']).in('car_id', carIds)
-        ),
-      ]);
+        );
+      } catch (error) {
+        servicesAvailable = false;
+        console.warn('Gagal memuat status Service; status ketersediaan sebagian unit tidak dapat dipastikan.', error);
+      }
       const today = todayISO();
-      const result: Record<string, { status: 'Ready' | 'Booked' | 'Under Maintenance' | 'Time to Service' | 'Delay' | 'Inactive'; renter_name: string | null }> = {};
+      const result: Record<string, { status: CarDisplayStatus; renter_name: string | null }> = {};
 
       for (const car of cars) {
         const carRentals = rentals.filter((rental) => rental.car_id === car.id)
-          .map((rental) => ({ ...rental, status: getRentalStatus(rental.status, rental.end_date, rental.end_time) }));
+          .map((rental) => ({
+            ...rental,
+            renter_name: rental.renter_name ?? null,
+            status: getRentalStatus(rental.status, rental.end_date, rental.end_time),
+          }));
         const delayedRental = carRentals.find((rental) => rental.status === 'overdue');
         const bookedRental = carRentals.find((rental) => rental.status === 'active' || rental.status === 'approved');
         const serviceInProgress = services.some((service) => service.car_id === car.id && service.status === 'in_progress');
@@ -227,11 +236,13 @@ class ApiClient {
           result[car.id] = { status: 'Booked', renter_name: null };
         } else if (hasServiceDue) {
           result[car.id] = { status: 'Time to Service', renter_name: null };
+        } else if (!servicesAvailable) {
+          result[car.id] = { status: 'Unknown', renter_name: null };
         } else {
           result[car.id] = { status: 'Ready', renter_name: null };
         }
       }
-      return result;
+      return { statuses: result, warning: servicesAvailable ? null : 'Status Transportation berhasil dimuat, tetapi data Service gagal dimuat. Status unit yang tidak sedang dipinjam mungkin belum lengkap.' };
     },
     delete: async (id: string) => {
       const session = getSession();
