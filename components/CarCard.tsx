@@ -37,19 +37,23 @@ export function CarCard({ car, onPress, disabled = false, statusLabel, statusDet
           {[car.brand, car.model, car.year].filter(Boolean).join(' ') || 'Tidak ada detail'}
         </Text>
         {car.plate_number ? (
-          <View style={styles.plateRow}>
-          <View style={[styles.plate, disabled && styles.disabledPlate]}>
-            <Text style={[styles.plateText, disabled && styles.disabledText]}>{car.plate_number}</Text>
-          </View>
-          {statusLabel && (
-            <View style={styles.statusGroup}>
-              <View style={[styles.statusBadge, getStatusStyle(statusLabel)]}>
-                <Text style={styles.statusText}>{statusLabel}</Text>
+          <>
+            <View style={styles.plateRow}>
+              <View style={[styles.plate, disabled && styles.disabledPlate]}>
+                <Text style={[styles.plateText, disabled && styles.disabledText]}>{car.plate_number}</Text>
               </View>
-              {statusDetail ? <Text style={styles.statusDetail} numberOfLines={1}>{statusDetail}</Text> : null}
+              {statusLabel ? (
+                <View style={styles.statusGroup}>
+                  <View style={[styles.statusBadge, getStatusStyle(statusLabel)]}>
+                    <Text style={styles.statusText}>{statusLabel}</Text>
+                  </View>
+                </View>
+              ) : null}
             </View>
-          )}
-          </View>
+            {statusLabel === 'Delay' && statusDetail ? (
+              <Text style={styles.statusDetail} numberOfLines={1}>{statusDetail}</Text>
+            ) : null}
+          </>
         ) : null}
       </View>
     </TouchableOpacity>
@@ -86,7 +90,7 @@ const styles = StyleSheet.create({
   delayBadge: { backgroundColor: 'rgba(220, 38, 38, 0.92)' },
   inactiveBadge: { backgroundColor: 'rgba(75, 85, 99, 0.95)' },
   statusText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.white, textAlign: 'center' },
-  statusDetail: { maxWidth: 105, fontSize: Typography.xs, fontFamily: Typography.fontMedium, color: Colors.textSecondary },
+  statusDetail: { alignSelf: 'stretch', marginTop: 2, fontSize: Typography.xs, fontFamily: Typography.fontMedium, color: Colors.textSecondary, textAlign: 'center' },
   plateRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
   info: { padding: Spacing.sm },
   name: {

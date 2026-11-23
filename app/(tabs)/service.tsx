@@ -557,12 +557,19 @@ export default function RentalScreen() {
                   {!returned ? <Text style={styles.metaText}>
                     Itinerary: {!note.created_by ? 'pemilik belum teridentifikasi' : itineraryLoadErrors[note.id] ? 'gagal dimuat' : itineraryReady ? 'sudah dikirim' : 'belum dikirim'}
                   </Text> : null}
-                  <TouchableOpacity style={styles.detailButton} onPress={() => openInvestigationDetails(note)}>
-                    <Text style={styles.detailButtonText}>Lihat detail Investigation</Text>
-                  </TouchableOpacity>
-                  {activeTab === 'return' && canSubmitItinerary ? <TouchableOpacity style={styles.detailButton} onPress={() => { void openItineraryEditor(note); }}>
-                    <Text style={styles.detailButtonText}>{itineraryReady ? 'Ubah itinerary pengembalian' : 'Isi itinerary pengembalian'}</Text>
-                  </TouchableOpacity> : null}
+                  <Button
+                    label="Lihat detail Investigation"
+                    variant="secondary"
+                    style={styles.cardActionButton}
+                    onPress={() => openInvestigationDetails(note)}
+                  />
+                  {activeTab === 'return' && canSubmitItinerary ? (
+                    <Button
+                      label={itineraryReady ? 'Ubah itinerary pengembalian' : 'Isi itinerary pengembalian'}
+                      style={styles.cardActionButton}
+                      onPress={() => { void openItineraryEditor(note); }}
+                    />
+                  ) : null}
                   {activeTab === 'return' && isAdmin && !returned ? (
                     <TouchableOpacity
                       style={[styles.returnButton, (!itineraryReady || returningId === note.id) && styles.actionDisabled]}
@@ -860,8 +867,7 @@ const styles = StyleSheet.create({
   recordTypeTextActive: { color: Colors.primary, fontFamily: Typography.fontSemiBold },
   recordTypeBadge: { alignSelf: 'flex-start', paddingHorizontal: Spacing.sm, paddingVertical: 3, borderRadius: Radius.pill, backgroundColor: Colors.primaryLight, marginBottom: Spacing.xs },
   recordTypeBadgeText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.primary },
-  detailButton: { alignSelf: 'flex-start', marginTop: Spacing.sm, paddingVertical: Spacing.xs },
-  detailButtonText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.primary },
+  cardActionButton: { height: 42, marginTop: Spacing.sm },
   detailTypeBadge: { alignSelf: 'flex-start', paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, borderRadius: Radius.pill, backgroundColor: Colors.primaryLight, marginBottom: Spacing.md },
   detailTypeBadgeText: { fontSize: Typography.sm, fontFamily: Typography.fontSemiBold, color: Colors.primary },
   detailRow: { paddingVertical: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
