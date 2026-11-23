@@ -43,8 +43,12 @@ export function addMonthsToISO(dateStr: string, months: number): string {
 
 export function getRentalStatus(status: RentalStatus, endDate: string | null, endTime: string | null = null): RentalStatus {
   if ((status !== 'active' && status !== 'approved') || !endDate || !endTime) return status;
+  const timeParts = /^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d)(?:\.\d+)?)?$/.exec(endTime);
+  if (!timeParts) throw new Error('Jam selesai rental tidak valid.');
+  const normalizedTime = `${timeParts[1]}:${timeParts[2]}:${timeParts[3] ?? '00'}`;
   const now = new Date();
-  const end = new Date(`${endDate}T${endTime}:00+07:00`);
+  const end = new Date(`${endDate}T${normalizedTime}+07:00`);
+  if (Number.isNaN(end.getTime())) throw new Error('Tanggal selesai rental tidak valid.');
   return end.getTime() <= now.getTime() ? 'overdue' : status;
 }
 

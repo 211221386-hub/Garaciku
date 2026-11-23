@@ -303,13 +303,29 @@ async function proxyQuery(env, user, body) {
   if (table === 'daily_notes' && [3, 4].includes(user.role)) {
     const filters = validateFilters(table, body.filters ?? []);
     if (!filters) return { status: 403, error: 'Investigation history is not available for this account.' };
-    query = {
-      ...body,
-      filters: [
-        ...filters.filter((filter) => filter.column !== 'created_by'),
-        { column: 'created_by', operator: 'eq', value: user.id },
-      ],
-    };
+    const requestedSelection = body.select?.replace(/\s/g, '');
+    const isInvestigationStatusQuery = requestedSelection === 'car_id,status,start_date,start_time,end_date,end_time';
+    if (isInvestigationStatusQuery) {
+      if (filters.some((filter) => !['car_id', 'status'].includes(filter.column))) {
+        return { status: 400, error: 'Invalid Investigation status filters.' };
+      }
+      query = {
+        ...body,
+        filters: [
+          ...filters.filter((filter) => filter.column === 'car_id'),
+          { column: 'status', operator: 'eq', value: 'active' },
+        ],
+        select: 'car_id,status,start_date,start_time,end_date,end_time',
+      };
+    } else {
+      query = {
+        ...body,
+        filters: [
+          ...filters.filter((filter) => filter.column !== 'created_by'),
+          { column: 'created_by', operator: 'eq', value: user.id },
+        ],
+      };
+    }
   }
   if (isServiceAvailabilityQuery) {
     const filters = validateFilters(table, body.filters ?? []);

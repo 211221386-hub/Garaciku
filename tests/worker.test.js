@@ -415,6 +415,39 @@ test('car status queries include rentals from other users for roles 3 and 4', as
   }
 });
 
+test('Investigation status queries expose only active schedule data to roles 3 and 4', async () => {
+  for (const role of [3, 4]) {
+    const mock = mockFetch(role, [{
+      car_id: 'car-1',
+      status: 'active',
+      start_date: '2026-11-23',
+      start_time: '10:21:00',
+      end_date: '2026-11-23',
+      end_time: '10:30:00',
+    }]);
+    try {
+      const token = await login(envFor(role), mock.calls);
+      const response = await worker.fetch(makeRequest('/api/data/query', {
+        table: 'daily_notes',
+        select: 'car_id,status,start_date,start_time,end_date,end_time',
+        filters: [
+          { column: 'car_id', operator: 'in', value: ['car-1'] },
+          { column: 'status', operator: 'eq', value: 'completed' },
+        ],
+        single: false,
+      }, token), envFor(role));
+      const query = mock.calls.find((call) => call.url.pathname === '/rest/v1/daily_notes');
+      assert.equal(response.status, 200);
+      assert.equal(query.url.searchParams.get('select'), 'car_id,status,start_date,start_time,end_date,end_time');
+      assert.equal(query.url.searchParams.get('status'), 'eq.active');
+      assert.equal(query.url.searchParams.has('created_by'), false);
+      assert.equal(query.url.searchParams.has('created_name'), false);
+    } finally {
+      mock.restore();
+    }
+  }
+});
+
 test('service availability for roles 3 and 4 exposes scheduled and in-progress service dates', async () => {
   for (const role of [3, 4]) {
     const mock = mockFetch(role);

@@ -195,6 +195,28 @@ class ApiClient {
       const rentals = await unwrap<Pick<RentalRecord, 'car_id' | 'status' | 'renter_name' | 'end_date' | 'end_time'>[]>(
         supabase.from('rental_records').select('car_id,status,renter_name,end_date,end_time').in('status', ['active', 'approved', 'overdue']).in('car_id', carIds)
       );
+      const session = getSession();
+      const isRestrictedRole = [3, 4].includes(session?.user.role ?? 0);
+      const investigationSelection = isRestrictedRole
+        ? 'car_id,status,start_date,start_time,end_date,end_time'
+        : 'car_id,created_name,status,start_date,start_time,end_date,end_time';
+      const investigations = await unwrap<(Pick<DailyNote, 'car_id' | 'status' | 'start_date' | 'start_time' | 'end_date' | 'end_time'> & { created_name?: string })[]>(
+        supabase.from('daily_notes').select(investigationSelection).eq('status', 'active').in('car_id', carIds)
+      );
+      const [ownRentals, ownInvestigations] = isRestrictedRole
+        ? await Promise.all([
+          this.rentals.getAll(),
+          this.notes.getAll(),
+        ])
+        : [[], []];
+      const rentalNames = new Map<string, string>();
+      for (const rental of [...rentals, ...ownRentals]) {
+        if (rental.renter_name) rentalNames.set(rental.car_id, rental.renter_name);
+      }
+      const investigationNames = new Map<string, string>();
+      for (const note of [...investigations, ...ownInvestigations]) {
+        if (note.status === 'active' && note.created_name) investigationNames.set(note.car_id, note.created_name);
+      }
       let services: Pick<ServiceRecord, 'car_id' | 'next_service_date' | 'reminder_enabled' | 'status' | 'is_recurring'>[] = [];
       let serviceDetailsAvailable = true;
       try {
@@ -234,6 +256,13 @@ class ApiClient {
           }));
         const delayedRental = carRentals.find((rental) => rental.status === 'overdue');
         const bookedRental = carRentals.find((rental) => rental.status === 'active' || rental.status === 'approved');
+        const carInvestigations = investigations.filter((note) => note.car_id === car.id)
+          .map((note) => ({
+            ...note,
+            status: getRentalStatus('active', note.end_date, note.end_time),
+          }));
+        const delayedInvestigation = carInvestigations.find((note) => note.status === 'overdue');
+        const bookedInvestigation = carInvestigations.find((note) => note.status === 'active');
         const serviceInProgress = services.some((service) => service.car_id === car.id && service.status === 'in_progress');
         const hasServiceDue = services.some((service) => service.car_id === car.id
           && service.status === 'scheduled'
@@ -248,9 +277,13 @@ class ApiClient {
         } else if (serviceInProgress) {
           result[car.id] = { status: 'Under Maintenance', renter_name: null };
         } else if (delayedRental) {
-          result[car.id] = { status: 'Delay', renter_name: delayedRental.renter_name };
+          result[car.id] = { status: 'Delay', renter_name: rentalNames.get(car.id) ?? null };
+        } else if (delayedInvestigation) {
+          result[car.id] = { status: 'Delay', renter_name: investigationNames.get(car.id) ?? null };
         } else if (bookedRental) {
-          result[car.id] = { status: 'Booked', renter_name: null };
+          result[car.id] = { status: 'Booked', renter_name: rentalNames.get(car.id) ?? null };
+        } else if (bookedInvestigation) {
+          result[car.id] = { status: 'Booked', renter_name: investigationNames.get(car.id) ?? null };
         } else if (hasServiceDue) {
           result[car.id] = { status: 'Time to Service', renter_name: null };
         } else {
