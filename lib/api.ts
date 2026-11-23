@@ -196,7 +196,7 @@ class ApiClient {
         supabase.from('rental_records').select('car_id,status,renter_name,end_date,end_time').in('status', ['active', 'approved', 'overdue']).in('car_id', carIds)
       );
       let services: Pick<ServiceRecord, 'car_id' | 'next_service_date' | 'reminder_enabled' | 'status' | 'is_recurring'>[] = [];
-      let servicesAvailable = true;
+      let serviceDetailsAvailable = true;
       try {
         const restrictedRole = [3, 4].includes(getSession()?.user.role ?? 0);
         services = await unwrap(
@@ -205,8 +205,22 @@ class ApiClient {
             : supabase.from('service_records').select('car_id,next_service_date,reminder_enabled,status,is_recurring').in('status', ['scheduled', 'in_progress']).in('car_id', carIds)
         );
       } catch (error) {
-        servicesAvailable = false;
-        console.warn('Gagal memuat status Service; status ketersediaan sebagian unit tidak dapat dipastikan.', error);
+        serviceDetailsAvailable = false;
+        console.warn('Gagal memuat detail pengingat Service; mencoba memuat status Service dasar.', error);
+        try {
+          const basicServices = await unwrap<Pick<ServiceRecord, 'car_id' | 'status' | 'service_date'>[]>(
+            supabase.from('service_records').select('car_id,status,service_date').in('status', ['scheduled', 'in_progress']).in('car_id', carIds)
+          );
+          services = basicServices.map((service) => ({
+            ...service,
+            next_service_date: null,
+            reminder_enabled: false,
+            is_recurring: false,
+          }));
+        } catch (fallbackError) {
+          console.error('Gagal memuat status Service dasar.', fallbackError);
+          throw new Error('Status Service tidak dapat dimuat. Periksa akses data Service dan deployment Worker.');
+        }
       }
       const today = todayISO();
       const result: Record<string, { status: CarDisplayStatus; renter_name: string | null }> = {};
@@ -239,13 +253,16 @@ class ApiClient {
           result[car.id] = { status: 'Booked', renter_name: null };
         } else if (hasServiceDue) {
           result[car.id] = { status: 'Time to Service', renter_name: null };
-        } else if (!servicesAvailable) {
-          result[car.id] = { status: 'Unknown', renter_name: null };
         } else {
           result[car.id] = { status: 'Ready', renter_name: null };
         }
       }
-      return { statuses: result, warning: servicesAvailable ? null : 'Status Transportation berhasil dimuat, tetapi data Service gagal dimuat. Status unit yang tidak sedang dipinjam mungkin belum lengkap.' };
+      return {
+        statuses: result,
+        warning: serviceDetailsAvailable
+          ? null
+          : 'Status mobil berhasil dimuat. Detail pengingat Service tidak tersedia, tetapi peminjaman dan Service yang sedang berjalan tetap dihitung.',
+      };
     },
     delete: async (id: string) => {
       const session = getSession();
