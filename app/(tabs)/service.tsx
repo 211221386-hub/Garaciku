@@ -74,6 +74,7 @@ export default function RentalScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
   const [sheet, setSheet] = useState(false);
+  const [selectedInvestigation, setSelectedInvestigation] = useState<InvestigationWithCar | null>(null);
   const [recordKind, setRecordKind] = useState<RecordKind>('rental');
   const [saving, setSaving] = useState(false);
   const [returningId, setReturningId] = useState<string | null>(null);
@@ -345,14 +346,17 @@ export default function RentalScreen() {
               <View style={styles.card}>
                 <View style={styles.rentalIcon}><RotateCcw size={16} color={Colors.primary} strokeWidth={2.2} /></View>
                 <View style={styles.cardBody}>
+                  <View style={styles.recordTypeBadge}><Text style={styles.recordTypeBadgeText}>Investigation</Text></View>
                   <Text style={styles.renterName} numberOfLines={1}>{note.created_name}</Text>
                   <Text style={styles.carName} numberOfLines={1}>{note.car_name || 'Mobil tidak diketahui'}</Text>
-                  <Text style={styles.emailText}>Investigation</Text>
                   <View style={styles.metaRow}><Text style={styles.metaText}>{formatDate(note.start_date)} {note.start_time || ''} - {formatDate(note.end_date)} {note.end_time || ''}</Text></View>
                   <Text style={styles.metaText}>Aktivitas: {note.content || note.section}</Text>
                   <View style={[styles.statusPill, { backgroundColor: returned ? Colors.surfaceAlt : Colors.primaryLight }]}>
                     <Text style={[styles.statusText, { color: returned ? Colors.textSecondary : Colors.primary }]}>{returned ? 'Selesai' : 'Menunggu pengembalian'}</Text>
                   </View>
+                  <TouchableOpacity style={styles.detailButton} onPress={() => setSelectedInvestigation(note)}>
+                    <Text style={styles.detailButtonText}>Lihat detail Investigation</Text>
+                  </TouchableOpacity>
                   {activeTab === 'return' && isAdmin && !returned ? <TouchableOpacity style={[styles.returnButton, returningId === note.id && styles.actionDisabled]} onPress={() => { void confirmInvestigationReturn(note); }} disabled={returningId === note.id}><Text style={styles.returnButtonText}>{returningId === note.id ? 'Memproses...' : 'Unit sudah diterima'}</Text></TouchableOpacity> : null}
                 </View>
                 <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2.2} />
@@ -366,6 +370,7 @@ export default function RentalScreen() {
           <TouchableOpacity style={styles.card} onPress={() => router.push(`/car/rental/${item.id}` as never)} activeOpacity={0.85}>
             <View style={styles.rentalIcon}><KeyRound size={16} color={Colors.primary} strokeWidth={2.2} /></View>
             <View style={styles.cardBody}>
+              <View style={styles.recordTypeBadge}><Text style={styles.recordTypeBadgeText}>Transportation</Text></View>
               <Text style={styles.renterName} numberOfLines={1}>{item.renter_name}</Text>
               <Text style={styles.carName} numberOfLines={1}>{item.car_name ?? 'Mobil tidak diketahui'}</Text>
               <Text style={styles.emailText} numberOfLines={1}>{item.renter_email}</Text>
@@ -381,6 +386,26 @@ export default function RentalScreen() {
         ListEmptyComponent={<EmptyState icon={activeTab === 'borrowing' ? <KeyRound size={32} color={Colors.primary} strokeWidth={2} /> : <RotateCcw size={32} color={Colors.primary} strokeWidth={2} />} title={activeTab === 'borrowing' ? 'Belum ada Transportation' : 'Belum ada pengembalian'} subtitle={activeTab === 'borrowing' ? 'Ajukan Transportation untuk mobil dengan tombol tambah.' : 'Transportation yang disetujui akan muncul di sini.'} />}
       />
       {activeTab === 'borrowing' ? <TouchableOpacity style={styles.fab} onPress={() => { if (hasOpenCycle) setRecordKind('duplicate'); setSheet(true); }} activeOpacity={0.85}><View style={styles.fabContent}><Plus size={26} color={Colors.white} strokeWidth={2.6} /><Text style={styles.fabLabel}>{hasOpenCycle ? 'Tambah Investigation' : 'Tambah Transportation/Investigation'}</Text></View></TouchableOpacity> : null}
+      <Sheet
+        visible={selectedInvestigation !== null}
+        onClose={() => setSelectedInvestigation(null)}
+        title="Detail Investigation"
+      >
+        {selectedInvestigation ? (
+          <>
+            <View style={styles.detailTypeBadge}><Text style={styles.detailTypeBadgeText}>Investigation</Text></View>
+            <ReturnDetailRow label="Pemesan" value={selectedInvestigation.created_name || '-'} />
+            <ReturnDetailRow label="Kendaraan" value={selectedInvestigation.car_name || 'Mobil tidak diketahui'} />
+            <ReturnDetailRow label="Periode" value={`${formatDate(selectedInvestigation.start_date)} ${selectedInvestigation.start_time || ''} - ${formatDate(selectedInvestigation.end_date)} ${selectedInvestigation.end_time || ''}`} />
+            <ReturnDetailRow label="Bagian" value={selectedInvestigation.section || '-'} />
+            <ReturnDetailRow label="Aktivitas" value={selectedInvestigation.content || '-'} />
+            <ReturnDetailRow label="Detail" value={selectedInvestigation.detail || '-'} />
+            <ReturnDetailRow label="Kilometer" value={`${selectedInvestigation.start_km ?? '-'} - ${selectedInvestigation.end_km ?? '-'}`} />
+            <ReturnDetailRow label="Bahan bakar" value={`${selectedInvestigation.start_fuel ?? '-'}% - ${selectedInvestigation.end_fuel ?? '-'}%`} />
+            <ReturnDetailRow label="Status pengembalian" value={selectedInvestigation.status === 'completed' ? 'Selesai' : 'Menunggu pengembalian'} />
+          </>
+        ) : null}
+      </Sheet>
       <Sheet visible={sheet} onClose={() => { setSheet(false); resetFormState(); }} title="Tambah Transportation/Investigation">
         {hasOpenCycle ? <Text style={styles.cycleNoticeText}>Siklus Transportation masih berjalan. Pengajuan baru tersedia setelah Admin mengonfirmasi semua unit sudah diterima.</Text> : null}
         <Text style={styles.label}>Jenis transaksi</Text>
@@ -464,6 +489,15 @@ export default function RentalScreen() {
   );
 }
 
+function ReturnDetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.detailRow}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{value}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   header: { backgroundColor: Colors.primary, paddingTop: Spacing.xl + 18, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, borderBottomLeftRadius: Radius.xl, borderBottomRightRadius: Radius.xl },
@@ -509,4 +543,13 @@ const styles = StyleSheet.create({
   recordTypeActive: { backgroundColor: Colors.primaryLight, borderColor: Colors.primarySoft },
   recordTypeText: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary },
   recordTypeTextActive: { color: Colors.primary, fontFamily: Typography.fontSemiBold },
+  recordTypeBadge: { alignSelf: 'flex-start', paddingHorizontal: Spacing.sm, paddingVertical: 3, borderRadius: Radius.pill, backgroundColor: Colors.primaryLight, marginBottom: Spacing.xs },
+  recordTypeBadgeText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.primary },
+  detailButton: { alignSelf: 'flex-start', marginTop: Spacing.sm, paddingVertical: Spacing.xs },
+  detailButtonText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.primary },
+  detailTypeBadge: { alignSelf: 'flex-start', paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, borderRadius: Radius.pill, backgroundColor: Colors.primaryLight, marginBottom: Spacing.md },
+  detailTypeBadgeText: { fontSize: Typography.sm, fontFamily: Typography.fontSemiBold, color: Colors.primary },
+  detailRow: { paddingVertical: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+  detailLabel: { fontSize: Typography.xs, fontFamily: Typography.fontMedium, color: Colors.textSecondary, marginBottom: 2 },
+  detailValue: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textPrimary, lineHeight: 20 },
 });

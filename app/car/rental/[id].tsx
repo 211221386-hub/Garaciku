@@ -86,6 +86,7 @@ export default function RentalDetailScreen() {
           <View style={styles.heroText}>
             <Text style={styles.renterName}>{rental.renter_name}</Text>
             <Text style={styles.vehicleName}>{car?.name ?? 'Mobil tidak diketahui'}</Text>
+            <View style={styles.recordTypeBadge}><Text style={styles.recordTypeBadgeText}>Transportation</Text></View>
           </View>
           <View style={[styles.statusPill, { backgroundColor: status.backgroundColor }]}>
             <Text style={[styles.statusText, { color: status.color }]}>{status.label}</Text>
@@ -139,6 +140,8 @@ const styles = StyleSheet.create({
   heroText: { flex: 1 },
   renterName: { fontSize: Typography.lg, fontFamily: Typography.fontBold, color: Colors.textPrimary },
   vehicleName: { marginTop: 3, fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.primary },
+  recordTypeBadge: { alignSelf: 'flex-start', marginTop: Spacing.xs, paddingHorizontal: Spacing.sm, paddingVertical: 3, borderRadius: Radius.pill, backgroundColor: Colors.primaryLight },
+  recordTypeBadgeText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.primary },
   statusPill: { borderRadius: Radius.pill, paddingHorizontal: Spacing.sm, paddingVertical: 5 },
   statusText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
   card: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.lg, borderWidth: 1, borderColor: Colors.borderLight, marginBottom: Spacing.md },
