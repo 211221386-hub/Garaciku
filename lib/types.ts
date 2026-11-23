@@ -59,6 +59,32 @@ export type DailyNote = {
   created_at: string;
 };
 
+export type DailyNoteReturnItinerary = {
+  note_id: string;
+  end_km: number;
+  end_fuel: number;
+  submitted_by: string;
+  submitted_at: string;
+  updated_at: string;
+};
+
+export type DailyNoteDismantledPart = {
+  id: string;
+  part_name: string;
+  sort_order: number;
+};
+
+export type DailyNoteReturnPhoto = {
+  id: string;
+  url: string;
+};
+
+export type DailyNoteReturnItineraryDetails = {
+  itinerary: DailyNoteReturnItinerary | null;
+  parts: DailyNoteDismantledPart[];
+  photos: DailyNoteReturnPhoto[];
+};
+
 export type ServiceRecord = {
   id: string;
   car_id: string;

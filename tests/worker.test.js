@@ -642,6 +642,8 @@ test('daily note creator and return status are controlled by the Worker', async 
       car_id: 'car-1',
       created_name: 'Test User',
       status: 'active',
+      end_km: null,
+      end_fuel: null,
     });
     assert.deepEqual(JSON.parse(updateCall.options.body), { content: 'Updated activity' });
   } finally {
@@ -674,10 +676,70 @@ test('roles 3 and 4 Investigation submissions wait for approval and cannot spoof
         car_id: 'car-1',
         created_name: 'Test User',
         status: 'pending_approval',
+        end_km: null,
+        end_fuel: null,
       });
     } finally {
       mock.restore();
     }
+  }
+});
+
+test('Investigation return itinerary requires its creator and validates the required parts', async () => {
+  const rows = {
+    daily_notes: [{ id: '11111111-1111-4111-8111-111111111111', created_by: profile.id, status: 'active', start_km: 12000 }],
+  };
+  const mock = mockFetch(4, rows);
+  try {
+    const token = await login(envFor(4), mock.calls);
+    const invalidResponse = await worker.fetch(makeRequest('/api/daily-notes/return-itinerary', {
+      action: 'save',
+      note_id: rows.daily_notes[0].id,
+      end_km: 11999,
+      end_fuel: 40,
+      parts: [],
+    }, token), envFor(4));
+    assert.equal(invalidResponse.status, 400);
+
+    const response = await worker.fetch(makeRequest('/api/daily-notes/return-itinerary', {
+      action: 'save',
+      note_id: rows.daily_notes[0].id,
+      end_km: 12100,
+      end_fuel: 40,
+      parts: ['Bumper depan'],
+    }, token), envFor(4));
+    const rpc = mock.calls.find((call) => call.url.pathname === '/rest/v1/rpc/save_daily_note_return_itinerary');
+    assert.equal(response.status, 200);
+    assert.deepEqual(JSON.parse(rpc.options.body), {
+      _note_id: rows.daily_notes[0].id,
+      _user_id: profile.id,
+      _end_km: 12100,
+      _end_fuel: 40,
+      _parts: ['Bumper depan'],
+    });
+  } finally {
+    mock.restore();
+  }
+});
+
+test('Investigation return itinerary cannot be edited by another user', async () => {
+  const rows = {
+    daily_notes: [{ id: '11111111-1111-4111-8111-111111111111', created_by: 'another-user', status: 'active', start_km: 12000 }],
+  };
+  const mock = mockFetch(3, rows);
+  try {
+    const token = await login(envFor(3), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/daily-notes/return-itinerary', {
+      action: 'save',
+      note_id: rows.daily_notes[0].id,
+      end_km: 12100,
+      end_fuel: 40,
+      parts: ['Bumper depan'],
+    }, token), envFor(3));
+    assert.equal(response.status, 403);
+    assert.equal(mock.calls.some((call) => call.url.pathname === '/rest/v1/rpc/save_daily_note_return_itinerary'), false);
+  } finally {
+    mock.restore();
   }
 });
 
@@ -786,6 +848,26 @@ test('daily note return confirmation uses the authenticated admin identity', asy
       _confirmed_by: profile.id,
       _user_role: 2,
     });
+  } finally {
+    mock.restore();
+  }
+});
+
+test('daily note return confirmation returns the database itinerary requirement', async () => {
+  const mock = mockFetch(1, [], {}, {
+    '/rest/v1/rpc/confirm_daily_note_return': {
+      status: 409,
+      body: { message: 'Itinerary pengembalian Investigation belum dikirim.' },
+    },
+  });
+  try {
+    const token = await login(envFor(1), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/daily-notes/confirm-return', {
+      note_id: '11111111-1111-4111-8111-111111111111',
+    }, token), envFor(1));
+    const result = await response.json();
+    assert.equal(response.status, 409);
+    assert.equal(result.error, 'Itinerary pengembalian Investigation belum dikirim.');
   } finally {
     mock.restore();
   }

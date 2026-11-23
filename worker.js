@@ -415,6 +415,8 @@ async function proxyMutation(env, user, body) {
         record.created_by = user.id;
         record.created_name = createdName;
         record.status = [3, 4].includes(user.role) ? 'pending_approval' : 'active';
+        record.end_km = null;
+        record.end_fuel = null;
         delete record.return_confirmed_by;
         delete record.return_confirmed_at;
         delete record.reviewed_by;
@@ -801,6 +803,147 @@ async function confirmDailyNoteReturn(request, env, user) {
   return { status: 200, data: result };
 }
 
+async function handleDailyNoteReturnItinerary(request, env, user) {
+  const baseUrl = env.SUPABASE_URL.replace(/\/$/, '');
+  const bucket = 'daily-note-return-photos';
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  let body;
+  try { body = await request.json(); } catch { return { status: 400, error: 'Invalid JSON body.' }; }
+  if (!body || typeof body.note_id !== 'string' || !uuidPattern.test(body.note_id)
+    || !['get', 'save', 'upload', 'delete-photo'].includes(body.action)) {
+    return { status: 400, error: 'Data itinerary pengembalian tidak valid.' };
+  }
+
+  const noteUrl = new URL(`${baseUrl}/rest/v1/daily_notes`);
+  noteUrl.searchParams.set('id', `eq.${body.note_id}`);
+  noteUrl.searchParams.set('select', 'id,created_by,status,start_km');
+  const noteResponse = await fetch(noteUrl, { headers: serviceHeaders(env) });
+  const [note] = await noteResponse.json().catch(() => []);
+  if (!noteResponse.ok) return { status: 503, error: 'Gagal memeriksa Investigation.' };
+  if (!note) return { status: 404, error: 'Investigation tidak ditemukan.' };
+  const canRead = note.created_by === user.id || [1, 2].includes(user.role);
+  if (!canRead) return { status: 403, error: 'Itinerary ini bukan milik akun Anda.' };
+  if (body.action !== 'get' && (note.created_by !== user.id || note.status !== 'active')) {
+    return { status: 403, error: 'Hanya pembuat Investigation aktif yang dapat mengubah itinerary.' };
+  }
+
+  if (body.action === 'save') {
+    if (!Number.isInteger(body.end_km) || body.end_km < 0
+      || (Number.isInteger(note.start_km) && body.end_km < note.start_km)
+      || !Number.isInteger(body.end_fuel) || body.end_fuel < 0 || body.end_fuel > 100
+      || !Array.isArray(body.parts) || body.parts.length < 1 || body.parts.length > 50
+      || body.parts.some((part) => typeof part !== 'string' || !part.trim() || part.trim().length > 160)) {
+      return { status: 400, error: 'KM akhir, fuel akhir, dan minimal satu nama part wajib diisi dengan benar.' };
+    }
+    const response = await fetch(`${baseUrl}/rest/v1/rpc/save_daily_note_return_itinerary`, {
+      method: 'POST',
+      headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        _note_id: note.id,
+        _user_id: user.id,
+        _end_km: body.end_km,
+        _end_fuel: body.end_fuel,
+        _parts: body.parts.map((part) => part.trim()),
+      }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) return { status: 409, error: typeof result?.message === 'string' ? result.message : 'Gagal menyimpan itinerary pengembalian.' };
+    return { status: 200, data: result };
+  }
+
+  if (body.action === 'upload') {
+    if (typeof body.base64 !== 'string' || body.content_type !== 'image/jpeg'
+      || body.base64.length > 2800000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(body.base64)) {
+      return { status: 413, error: 'Foto tidak valid atau melebihi batas ukuran 2 MB.' };
+    }
+    const photoCountUrl = new URL(`${baseUrl}/rest/v1/daily_note_return_photos`);
+    photoCountUrl.searchParams.set('note_id', `eq.${note.id}`);
+    photoCountUrl.searchParams.set('select', 'id');
+    const photoCountResponse = await fetch(photoCountUrl, { headers: serviceHeaders(env) });
+    const photos = await photoCountResponse.json().catch(() => null);
+    if (!photoCountResponse.ok || !Array.isArray(photos)) return { status: 503, error: 'Gagal memeriksa jumlah foto itinerary.' };
+    if (photos.length >= 5) return { status: 409, error: 'Maksimal 5 foto untuk satu itinerary.' };
+    const bytes = Uint8Array.from(atob(body.base64), (character) => character.charCodeAt(0));
+    if (bytes.byteLength > 2 * 1024 * 1024) return { status: 413, error: 'Ukuran foto melebihi batas 2 MB.' };
+    const objectPath = `${note.id}/${crypto.randomUUID()}.jpg`;
+    const uploadUrl = `${baseUrl}/storage/v1/object/${bucket}/${objectPath}`;
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: serviceHeaders(env, { 'Content-Type': body.content_type, 'x-upsert': 'false' }),
+      body: bytes,
+    });
+    if (!uploadResponse.ok) {
+      const result = await uploadResponse.json().catch(() => null);
+      return { status: uploadResponse.status, error: result?.message ?? 'Gagal mengunggah foto itinerary.' };
+    }
+    const recordResponse = await fetch(`${baseUrl}/rest/v1/daily_note_return_photos`, {
+      method: 'POST',
+      headers: serviceHeaders(env, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+      body: JSON.stringify({ note_id: note.id, object_path: objectPath }),
+    });
+    const [photo] = await recordResponse.json().catch(() => []);
+    if (!recordResponse.ok || !photo) {
+      await fetch(uploadUrl, { method: 'DELETE', headers: serviceHeaders(env) });
+      return { status: 503, error: 'Gagal menyimpan catatan foto itinerary.' };
+    }
+    return { status: 201, data: photo };
+  }
+
+  const photoUrl = new URL(`${baseUrl}/rest/v1/daily_note_return_photos`);
+  photoUrl.searchParams.set('note_id', `eq.${note.id}`);
+  photoUrl.searchParams.set('select', 'id,object_path,created_at');
+  const photoResponse = await fetch(photoUrl, { headers: serviceHeaders(env) });
+  const photos = await photoResponse.json().catch(() => null);
+  if (!photoResponse.ok || !Array.isArray(photos)) return { status: 503, error: 'Gagal memuat foto itinerary.' };
+
+  if (body.action === 'delete-photo') {
+    if (typeof body.photo_id !== 'string' || !uuidPattern.test(body.photo_id)) return { status: 400, error: 'ID foto tidak valid.' };
+    const photo = photos.find((entry) => entry.id === body.photo_id);
+    if (!photo || !photo.object_path.startsWith(`${note.id}/`)) return { status: 404, error: 'Foto itinerary tidak ditemukan.' };
+    const storageUrl = `${baseUrl}/storage/v1/object/${bucket}/${photo.object_path}`;
+    const storageResponse = await fetch(storageUrl, { method: 'DELETE', headers: serviceHeaders(env) });
+    if (!storageResponse.ok) return { status: 503, error: 'Gagal menghapus file foto itinerary.' };
+    const deleteUrl = new URL(`${baseUrl}/rest/v1/daily_note_return_photos`);
+    deleteUrl.searchParams.set('id', `eq.${photo.id}`);
+    const deleteResponse = await fetch(deleteUrl, { method: 'DELETE', headers: serviceHeaders(env) });
+    if (!deleteResponse.ok) return { status: 503, error: 'File foto terhapus tetapi catatan foto gagal diperbarui.' };
+    return { status: 200, data: { id: photo.id } };
+  }
+
+  const itineraryUrl = new URL(`${baseUrl}/rest/v1/daily_note_return_itineraries`);
+  itineraryUrl.searchParams.set('note_id', `eq.${note.id}`);
+  itineraryUrl.searchParams.set('select', 'note_id,end_km,end_fuel,submitted_by,submitted_at,updated_at');
+  const [itineraryResponse, partsResponse] = await Promise.all([
+    fetch(itineraryUrl, { headers: serviceHeaders(env) }),
+    fetch(`${baseUrl}/rest/v1/daily_note_dismantled_parts?note_id=eq.${note.id}&select=id,part_name,sort_order&order=sort_order.asc`, { headers: serviceHeaders(env) }),
+  ]);
+  const [itineraries, parts] = await Promise.all([
+    itineraryResponse.json().catch(() => null),
+    partsResponse.json().catch(() => null),
+  ]);
+  if (!itineraryResponse.ok || !partsResponse.ok || !Array.isArray(itineraries) || !Array.isArray(parts)) {
+    return { status: 503, error: 'Gagal memuat itinerary pengembalian.' };
+  }
+  const signedPhotos = await Promise.all(photos.map(async (photo) => {
+    if (typeof photo.object_path !== 'string' || !photo.object_path.startsWith(`${note.id}/`)) return null;
+    const response = await fetch(`${baseUrl}/storage/v1/object/sign/${bucket}/${photo.object_path}`, {
+      method: 'POST',
+      headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ expiresIn: 3600 }),
+    });
+    const signed = await response.json().catch(() => null);
+    if (!response.ok || typeof signed?.signedURL !== 'string') return null;
+    return {
+      id: photo.id,
+      url: signed.signedURL.startsWith('http') ? signed.signedURL : `${baseUrl}/storage/v1${signed.signedURL}`,
+    };
+  }));
+  if (signedPhotos.some((photo, index) => photos[index] && !photo)) {
+    return { status: 503, error: 'Gagal membuat tautan aman untuk foto itinerary.' };
+  }
+  return { status: 200, data: { itinerary: itineraries[0] ?? null, parts, photos: signedPhotos.filter(Boolean) } };
+}
+
 async function reviewDailyNote(request, env, user) {
   if (user.role !== 1) return { status: 403, error: 'Hanya Super Admin (Role 1) yang dapat mereview Investigation.' };
 
@@ -1053,6 +1196,7 @@ export default {
       '/api/rentals/create-cycle',
       '/api/rentals/confirm-return',
       '/api/daily-notes/confirm-return',
+      '/api/daily-notes/return-itinerary',
       '/api/daily-notes/review',
       '/api/rentals/approve-unit',
       '/api/inspections/approve',
@@ -1158,6 +1302,16 @@ export default {
       } catch (error) {
         console.error('Daily note return confirmation failed:', error);
         return Response.json({ error: 'Daily note return confirmation failed.' }, { status: 503, headers });
+      }
+    }
+
+    if (url.pathname === '/api/daily-notes/return-itinerary') {
+      try {
+        const result = await handleDailyNoteReturnItinerary(request, env, user);
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Daily note return itinerary failed:', error);
+        return Response.json({ error: 'Daily note return itinerary failed.' }, { status: 503, headers });
       }
     }
 

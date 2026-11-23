@@ -50,6 +50,8 @@ Jangan masukkan `SUPABASE_SERVICE_ROLE_KEY`, `APP_JWT_SECRET`, atau URL webhook 
 
 Gunakan proyek staging terlebih dahulu dan buat backup sebelum mengubah database. Terapkan file di `supabase/migrations/` menurut urutan timestamp, satu kali per file. Ikuti [panduan keamanan Worker-only](supabase/WORKER_ONLY_SECURITY_SETUP.md) untuk urutan deployment: migrasi penguncian akses `20261015100000_lock_app_tables_to_worker.sql` dijalankan setelah Worker siap, karena migrasi tersebut mencabut akses tabel langsung dari role `anon` dan `authenticated`.
 
+Alur itinerary pengembalian Investigation memerlukan migration `20261123120000_daily_note_return_itinerary.sql` sebelum Worker dan aplikasi yang memuat fitur tersebut di-deploy. Migration ini membuat penyimpanan itinerary, daftar part, foto privat, serta RPC yang mewajibkan itinerary sebelum konfirmasi penerimaan unit. Untuk Investigation aktif lama dengan `created_by` kosong, identifikasi dan perbaiki pemiliknya secara manual sebelum pengembalian; itinerary hanya dapat diisi oleh pembuat yang teridentifikasi.
+
 Migrasi awal menyertakan akun demo. Jangan memakai akun atau password demo untuk deployment produksi; siapkan kredensial produksi yang unik dan verifikasi login sebelum membuka aplikasi ke pengguna.
 
 ### Bulk Onboarding User

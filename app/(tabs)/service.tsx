@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Alert, Image } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
-import { KeyRound, Plus, ChevronRight, RotateCcw } from 'lucide-react-native';
+import { KeyRound, Plus, ChevronRight, RotateCcw, ImagePlus, X } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
 import { dateRangesOverlap, formatDate, formatCurrency } from '@/lib/format';
@@ -11,7 +11,7 @@ import { DateField } from '@/components/DateField';
 import { TimeField } from '@/components/TimeField';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
-import type { Car, DailyNote, RentalStatus } from '@/lib/types';
+import type { Car, DailyNote, DailyNoteReturnItineraryDetails, RentalStatus } from '@/lib/types';
 import type { UnitAvailability } from '@/lib/api';
 import { getSession } from '@/lib/auth';
 import { notifyOverdueRentals } from '@/lib/notifications';
@@ -36,6 +36,7 @@ type RentalWithCar = {
 };
 
 type InvestigationWithCar = DailyNote & { car_name: string };
+type ReturnPhotoDraft = { id?: string; base64?: string; preview: string };
 type ReturnListItem =
   | { kind: 'rental'; item: RentalWithCar }
   | { kind: 'investigation'; item: InvestigationWithCar };
@@ -53,6 +54,49 @@ function hasRentalConflict(reservations: RentalAvailability[], carId: string, st
   );
 }
 
+function pickCompressedReturnPhoto(): Promise<ReturnPhotoDraft | null> {
+  if (typeof document === 'undefined') return Promise.reject(new Error('Pilih foto hanya tersedia melalui browser.'));
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return resolve(null);
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Gagal membaca gambar.'));
+      reader.onload = () => {
+        const image = new window.Image();
+        image.onerror = () => reject(new Error('File yang dipilih bukan gambar yang valid.'));
+        image.onload = () => {
+          const scale = Math.min(1, 1440 / Math.max(image.width, image.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(image.width * scale));
+          canvas.height = Math.max(1, Math.round(image.height * scale));
+          const context = canvas.getContext('2d');
+          if (!context) return reject(new Error('Browser tidak dapat memproses gambar.'));
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob((blob) => {
+            if (!blob) return reject(new Error('Gagal mengompres gambar.'));
+            if (blob.size > 2 * 1024 * 1024) return reject(new Error('Ukuran gambar setelah kompresi masih lebih dari 2 MB.'));
+            const compressedReader = new FileReader();
+            compressedReader.onerror = () => reject(new Error('Gagal menyiapkan gambar.'));
+            compressedReader.onload = () => {
+              const preview = String(compressedReader.result ?? '');
+              resolve({ base64: preview.split(',')[1] ?? '', preview });
+            };
+            compressedReader.readAsDataURL(blob);
+          }, 'image/jpeg', 0.78);
+        };
+        image.src = String(reader.result ?? '');
+      };
+      reader.readAsDataURL(file);
+    };
+    input.oncancel = () => resolve(null);
+    input.click();
+  });
+}
+
 const statusConfig: Record<RentalStatus, { label: string; bg: string; text: string }> = {
   pending: { label: 'Menunggu persetujuan', bg: '#FEF3C7', text: '#92400E' },
   active: { label: 'Aktif', bg: Colors.primaryLight, text: Colors.primary },
@@ -67,6 +111,8 @@ const statusConfig: Record<RentalStatus, { label: string; bg: string; text: stri
 export default function RentalScreen() {
   const [rentals, setRentals] = useState<RentalWithCar[]>([]);
   const [investigations, setInvestigations] = useState<InvestigationWithCar[]>([]);
+  const [returnItineraries, setReturnItineraries] = useState<Record<string, DailyNoteReturnItineraryDetails | null>>({});
+  const [itineraryLoadErrors, setItineraryLoadErrors] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<'borrowing' | 'return'>('borrowing');
   const [cars, setCars] = useState<Pick<Car, 'id' | 'name' | 'plate_number'>[]>([]);
   const [availabilityRentals, setAvailabilityRentals] = useState<RentalAvailability[]>([]);
@@ -75,6 +121,15 @@ export default function RentalScreen() {
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
   const [sheet, setSheet] = useState(false);
   const [selectedInvestigation, setSelectedInvestigation] = useState<InvestigationWithCar | null>(null);
+  const [itineraryDetails, setItineraryDetails] = useState<DailyNoteReturnItineraryDetails | null>(null);
+  const [itineraryLoading, setItineraryLoading] = useState(false);
+  const [editingItineraryNote, setEditingItineraryNote] = useState<InvestigationWithCar | null>(null);
+  const [endKmDraft, setEndKmDraft] = useState('');
+  const [endFuelDraft, setEndFuelDraft] = useState('');
+  const [partDrafts, setPartDrafts] = useState<string[]>([]);
+  const [newPartDraft, setNewPartDraft] = useState('');
+  const [newReturnPhotos, setNewReturnPhotos] = useState<ReturnPhotoDraft[]>([]);
+  const [savingItinerary, setSavingItinerary] = useState(false);
   const [recordKind, setRecordKind] = useState<RecordKind>('rental');
   const [saving, setSaving] = useState(false);
   const [returningId, setReturningId] = useState<string | null>(null);
@@ -91,9 +146,7 @@ export default function RentalScreen() {
     end_date: '',
     end_time: '',
     start_km: '',
-    end_km: '',
     start_fuel: '',
-    end_fuel: '',
     content: '',
     detail: '',
   });
@@ -110,6 +163,20 @@ export default function RentalScreen() {
       setRentals(rentalData);
       setInvestigations(investigationData);
       setAvailabilityRentals(reservationData);
+      const itineraryResults = await Promise.all(investigationData
+        .filter((note) => note.status === 'active')
+        .map(async (note) => {
+          try {
+            return { id: note.id, details: await apiClient.notes.getReturnItinerary(note.id), error: null };
+          } catch (error) {
+            console.error(`Gagal memuat itinerary Investigation ${note.id}.`, error);
+            return { id: note.id, details: null, error: error instanceof Error ? error.message : 'Gagal memuat itinerary.' };
+          }
+        }));
+      setReturnItineraries(Object.fromEntries(itineraryResults.map(({ id, details }) => [id, details])));
+      setItineraryLoadErrors(Object.fromEntries(itineraryResults
+        .filter((result) => result.error)
+        .map(({ id, error }) => [id, error as string])));
       if ([1, 2].includes(getSession()?.user.role ?? 0)) void notifyOverdueRentals(rentalData);
       setCars(carData);
     } catch (error) { console.error('Error fetching rentals:', error); }
@@ -168,7 +235,7 @@ export default function RentalScreen() {
   const resetFormState = () => {
     setForm({ car_id: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
     setSelectedCarIds([]);
-    setDuplicateForm({ section: '', start_date: '', start_time: '', end_date: '', end_time: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '' });
+    setDuplicateForm({ section: '', start_date: '', start_time: '', end_date: '', end_time: '', start_km: '', start_fuel: '', content: '', detail: '' });
     setRecordKind('rental');
   };
 
@@ -189,25 +256,19 @@ export default function RentalScreen() {
 
     if (recordKind === 'duplicate') {
       const recorderName = getSession()?.user.full_name?.trim() ?? '';
-      if (!recorderName || !duplicateForm.section.trim() || !duplicateForm.start_date || !duplicateForm.start_time || !duplicateForm.end_date || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim()) {
+      if (!recorderName || !duplicateForm.section.trim() || !duplicateForm.start_date || !duplicateForm.start_time || !duplicateForm.end_date || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.start_fuel || !duplicateForm.content.trim()) {
         Alert.alert('Data belum lengkap', 'Isi semua field Investigation sebelum menyimpan.');
         return;
       }
 
       const startKm = Number(duplicateForm.start_km);
-      const endKm = Number(duplicateForm.end_km);
       const startFuel = Number(duplicateForm.start_fuel);
-      const endFuel = Number(duplicateForm.end_fuel);
-      if ([startKm, endKm, startFuel, endFuel].some((value) => !Number.isFinite(value) || value < 0)) {
-        Alert.alert('Angka tidak valid', 'KM dan fuel harus berupa angka nol atau lebih.');
+      if ([startKm, startFuel].some((value) => !Number.isInteger(value) || value < 0)) {
+        Alert.alert('Angka tidak valid', 'KM awal dan fuel awal harus berupa bilangan bulat nol atau lebih.');
         return;
       }
-      if (startFuel > 100 || endFuel > 100) {
-        Alert.alert('Persentase fuel tidak valid', 'Fuel awal dan akhir harus berada di antara 0% dan 100%.');
-        return;
-      }
-      if (endKm < startKm) {
-        Alert.alert('KM tidak valid', 'KM akhir harus sama atau lebih besar dari KM awal.');
+      if (startFuel > 100) {
+        Alert.alert('Persentase fuel tidak valid', 'Fuel awal harus berada di antara 0% dan 100%.');
         return;
       }
       if (duplicateForm.end_date < duplicateForm.start_date) {
@@ -234,9 +295,9 @@ export default function RentalScreen() {
           end_date: duplicateForm.end_date,
           end_time: duplicateForm.end_time,
           start_km: startKm,
-          end_km: endKm,
+          end_km: null,
           start_fuel: startFuel,
-          end_fuel: endFuel,
+          end_fuel: null,
           content: duplicateForm.content.trim(),
           detail: duplicateForm.detail.trim(),
         });
@@ -310,6 +371,11 @@ export default function RentalScreen() {
   };
 
   const confirmInvestigationReturn = async (note: InvestigationWithCar) => {
+    const itinerary = returnItineraries[note.id];
+    if (!itinerary?.itinerary || itinerary.parts.length === 0) {
+      Alert.alert('Itinerary belum lengkap', 'Pemesan harus mengirim KM akhir, fuel akhir, dan minimal satu part sebelum Admin mengonfirmasi pengembalian.');
+      return;
+    }
     if (returningId === note.id) return;
     setReturningId(note.id);
     try {
@@ -319,6 +385,137 @@ export default function RentalScreen() {
       Alert.alert('Gagal mengonfirmasi pengembalian Investigation', error instanceof Error ? error.message : 'Terjadi kesalahan.');
     } finally {
       setReturningId(null);
+    }
+  };
+
+  const loadItinerary = async (note: InvestigationWithCar, forceRefresh = false) => {
+    const cached = returnItineraries[note.id];
+    if (cached && !forceRefresh) {
+      setItineraryDetails(cached);
+      return cached;
+    }
+    setItineraryLoading(true);
+    try {
+      const details = await apiClient.notes.getReturnItinerary(note.id);
+      setReturnItineraries((current) => ({ ...current, [note.id]: details }));
+      setItineraryLoadErrors((current) => {
+        const { [note.id]: _error, ...remaining } = current;
+        return remaining;
+      });
+      setItineraryDetails(details);
+      return details;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Gagal memuat itinerary pengembalian.';
+      setItineraryLoadErrors((current) => ({ ...current, [note.id]: message }));
+      Alert.alert('Gagal memuat itinerary', message);
+      return null;
+    } finally {
+      setItineraryLoading(false);
+    }
+  };
+
+  const openInvestigationDetails = (note: InvestigationWithCar) => {
+    setSelectedInvestigation(note);
+    setItineraryDetails(null);
+    void loadItinerary(note, true);
+  };
+
+  const openItineraryEditor = async (note: InvestigationWithCar) => {
+    if (note.status !== 'active' || note.created_by !== userProfile?.id) return;
+    setEditingItineraryNote(note);
+    setNewReturnPhotos([]);
+    const details = await loadItinerary(note, true);
+    if (!details) {
+      setEditingItineraryNote(null);
+      return;
+    }
+    setEndKmDraft(details.itinerary ? String(details.itinerary.end_km) : '');
+    setEndFuelDraft(details.itinerary ? String(details.itinerary.end_fuel) : '');
+    setPartDrafts(details.parts.map((part) => part.part_name));
+    setNewPartDraft('');
+  };
+
+  const addReturnPhoto = async () => {
+    if (!editingItineraryNote || (itineraryDetails?.photos.length ?? 0) + newReturnPhotos.length >= 5) {
+      Alert.alert('Batas foto tercapai', 'Maksimal 5 foto untuk satu itinerary.');
+      return;
+    }
+    try {
+      const photo = await pickCompressedReturnPhoto();
+      if (photo) setNewReturnPhotos((current) => [...current, photo]);
+    } catch (error) {
+      Alert.alert('Gagal memilih foto', error instanceof Error ? error.message : 'Terjadi kesalahan saat memproses foto.');
+    }
+  };
+
+  const deleteExistingReturnPhoto = async (photoId: string) => {
+    if (!editingItineraryNote || savingItinerary) return;
+    setSavingItinerary(true);
+    try {
+      await apiClient.notes.deleteReturnPhoto(editingItineraryNote.id, photoId);
+      const details = await apiClient.notes.getReturnItinerary(editingItineraryNote.id);
+      setItineraryDetails(details);
+      setReturnItineraries((current) => ({ ...current, [editingItineraryNote.id]: details }));
+    } catch (error) {
+      Alert.alert('Gagal menghapus foto', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+    } finally {
+      setSavingItinerary(false);
+    }
+  };
+
+  const saveInvestigationItinerary = async () => {
+    if (!editingItineraryNote || savingItinerary) return;
+    const endKm = Number(endKmDraft);
+    const endFuel = Number(endFuelDraft);
+    const parts = [...partDrafts, newPartDraft].map((part) => part.trim()).filter(Boolean);
+    if (!Number.isInteger(endKm) || endKm < 0 || (editingItineraryNote.start_km !== null && endKm < editingItineraryNote.start_km)) {
+      Alert.alert('KM akhir tidak valid', 'KM akhir harus berupa bilangan bulat dan tidak boleh kurang dari KM awal.');
+      return;
+    }
+    if (!Number.isInteger(endFuel) || endFuel < 0 || endFuel > 100) {
+      Alert.alert('Fuel akhir tidak valid', 'Fuel akhir harus berupa bilangan bulat antara 0 dan 100.');
+      return;
+    }
+    if (parts.length === 0 || parts.length > 50 || parts.some((part) => part.length > 160)) {
+      Alert.alert('Daftar part tidak valid', 'Isi minimal satu part yang dibongkar. Maksimal 50 part dan 160 karakter per part.');
+      return;
+    }
+
+    setSavingItinerary(true);
+    const uploadedPhotoIds: string[] = [];
+    try {
+      for (const photo of newReturnPhotos) {
+        if (!photo.base64) throw new Error('Data foto tidak valid. Pilih ulang foto tersebut.');
+        const uploaded = await apiClient.notes.uploadReturnPhoto(editingItineraryNote.id, photo.base64);
+        uploadedPhotoIds.push(uploaded.id);
+      }
+      await apiClient.notes.saveReturnItinerary(editingItineraryNote.id, endKm, endFuel, parts);
+      const details = await apiClient.notes.getReturnItinerary(editingItineraryNote.id);
+      setItineraryDetails(details);
+      setReturnItineraries((current) => ({ ...current, [editingItineraryNote.id]: details }));
+      setItineraryLoadErrors((current) => {
+        const { [editingItineraryNote.id]: _error, ...remaining } = current;
+        return remaining;
+      });
+      setNewReturnPhotos([]);
+      setEditingItineraryNote(null);
+      Alert.alert('Itinerary tersimpan', 'Itinerary pengembalian Investigation berhasil disimpan.');
+      await fetchRentals();
+    } catch (error) {
+      const cleanupErrors: string[] = [];
+      for (const photoId of uploadedPhotoIds) {
+        try {
+          await apiClient.notes.deleteReturnPhoto(editingItineraryNote.id, photoId);
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError instanceof Error ? cleanupError.message : 'Gagal membersihkan foto yang sudah terunggah.');
+        }
+      }
+      const message = error instanceof Error ? error.message : 'Terjadi kesalahan.';
+      Alert.alert('Gagal menyimpan itinerary', cleanupErrors.length
+        ? `${message}\n\nSebagian foto sementara tidak dapat dibersihkan: ${cleanupErrors.join('; ')}`
+        : message);
+    } finally {
+      setSavingItinerary(false);
     }
   };
 
@@ -342,6 +539,9 @@ export default function RentalScreen() {
           if (entry.kind === 'investigation') {
             const note = entry.item;
             const returned = note.status === 'completed';
+            const itinerary = returnItineraries[note.id];
+            const itineraryReady = Boolean(itinerary?.itinerary && itinerary.parts.length > 0);
+            const canSubmitItinerary = !returned && note.created_by === userProfile?.id;
             return (
               <View style={styles.card}>
                 <View style={styles.rentalIcon}><RotateCcw size={16} color={Colors.primary} strokeWidth={2.2} /></View>
@@ -354,10 +554,26 @@ export default function RentalScreen() {
                   <View style={[styles.statusPill, { backgroundColor: returned ? Colors.surfaceAlt : Colors.primaryLight }]}>
                     <Text style={[styles.statusText, { color: returned ? Colors.textSecondary : Colors.primary }]}>{returned ? 'Selesai' : 'Menunggu pengembalian'}</Text>
                   </View>
-                  <TouchableOpacity style={styles.detailButton} onPress={() => setSelectedInvestigation(note)}>
+                  {!returned ? <Text style={styles.metaText}>
+                    Itinerary: {!note.created_by ? 'pemilik belum teridentifikasi' : itineraryLoadErrors[note.id] ? 'gagal dimuat' : itineraryReady ? 'sudah dikirim' : 'belum dikirim'}
+                  </Text> : null}
+                  <TouchableOpacity style={styles.detailButton} onPress={() => openInvestigationDetails(note)}>
                     <Text style={styles.detailButtonText}>Lihat detail Investigation</Text>
                   </TouchableOpacity>
-                  {activeTab === 'return' && isAdmin && !returned ? <TouchableOpacity style={[styles.returnButton, returningId === note.id && styles.actionDisabled]} onPress={() => { void confirmInvestigationReturn(note); }} disabled={returningId === note.id}><Text style={styles.returnButtonText}>{returningId === note.id ? 'Memproses...' : 'Unit sudah diterima'}</Text></TouchableOpacity> : null}
+                  {activeTab === 'return' && canSubmitItinerary ? <TouchableOpacity style={styles.detailButton} onPress={() => { void openItineraryEditor(note); }}>
+                    <Text style={styles.detailButtonText}>{itineraryReady ? 'Ubah itinerary pengembalian' : 'Isi itinerary pengembalian'}</Text>
+                  </TouchableOpacity> : null}
+                  {activeTab === 'return' && isAdmin && !returned ? (
+                    <TouchableOpacity
+                      style={[styles.returnButton, (!itineraryReady || returningId === note.id) && styles.actionDisabled]}
+                      onPress={() => { void confirmInvestigationReturn(note); }}
+                      disabled={!itineraryReady || returningId === note.id}
+                    >
+                      <Text style={styles.returnButtonText}>
+                        {returningId === note.id ? 'Memproses...' : itineraryReady ? 'Unit sudah diterima' : note.created_by ? 'Menunggu itinerary' : 'Perlu identifikasi pemilik'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
                 <ChevronRight size={18} color={Colors.textTertiary} strokeWidth={2.2} />
               </View>
@@ -400,9 +616,110 @@ export default function RentalScreen() {
             <ReturnDetailRow label="Bagian" value={selectedInvestigation.section || '-'} />
             <ReturnDetailRow label="Aktivitas" value={selectedInvestigation.content || '-'} />
             <ReturnDetailRow label="Detail" value={selectedInvestigation.detail || '-'} />
-            <ReturnDetailRow label="Kilometer" value={`${selectedInvestigation.start_km ?? '-'} - ${selectedInvestigation.end_km ?? '-'}`} />
-            <ReturnDetailRow label="Bahan bakar" value={`${selectedInvestigation.start_fuel ?? '-'}% - ${selectedInvestigation.end_fuel ?? '-'}%`} />
+            <ReturnDetailRow label="KM awal" value={String(selectedInvestigation.start_km ?? '-')} />
+            <ReturnDetailRow label="Fuel awal" value={`${selectedInvestigation.start_fuel ?? '-'}%`} />
+            <ReturnDetailRow
+              label="Status itinerary"
+              value={itineraryLoading ? 'Memuat...' : itineraryLoadErrors[selectedInvestigation.id]
+                ? 'Gagal dimuat'
+                : itineraryDetails?.itinerary
+                  ? 'Sudah dikirim'
+                  : !selectedInvestigation.created_by
+                    ? 'Pemilik belum teridentifikasi'
+                  : selectedInvestigation.status === 'completed'
+                    ? 'Selesai sebelum itinerary diwajibkan'
+                    : 'Belum dikirim'}
+            />
+            {itineraryDetails?.itinerary ? (
+              <>
+                <ReturnDetailRow label="KM akhir" value={String(itineraryDetails.itinerary.end_km)} />
+                <ReturnDetailRow label="Fuel akhir" value={`${itineraryDetails.itinerary.end_fuel}%`} />
+                <Text style={styles.detailLabel}>Part yang dibongkar</Text>
+                {itineraryDetails.parts.map((part) => <Text key={part.id} style={styles.partReadOnly}>• {part.part_name}</Text>)}
+                <Text style={styles.detailLabel}>Foto part</Text>
+                {itineraryDetails.photos.length ? (
+                  <View style={styles.photoRow}>
+                    {itineraryDetails.photos.map((photo) => <Image key={photo.id} source={{ uri: photo.url }} style={styles.photoPreview} />)}
+                  </View>
+                ) : <Text style={styles.metaText}>Tidak ada foto.</Text>}
+              </>
+            ) : selectedInvestigation.status === 'completed' && (selectedInvestigation.end_km !== null || selectedInvestigation.end_fuel !== null) ? (
+              <>
+                <ReturnDetailRow label="KM akhir (data lama)" value={String(selectedInvestigation.end_km ?? '-')} />
+                <ReturnDetailRow label="Fuel akhir (data lama)" value={`${selectedInvestigation.end_fuel ?? '-'}%`} />
+              </>
+            ) : null}
             <ReturnDetailRow label="Status pengembalian" value={selectedInvestigation.status === 'completed' ? 'Selesai' : 'Menunggu pengembalian'} />
+          </>
+        ) : null}
+      </Sheet>
+      <Sheet
+        visible={editingItineraryNote !== null}
+        onClose={() => {
+          if (savingItinerary) return;
+          setEditingItineraryNote(null);
+          setNewReturnPhotos([]);
+        }}
+        title="Itinerary Pengembalian"
+      >
+        {editingItineraryNote ? (
+          <>
+            <Text style={styles.cycleNoticeText}>Isi KM akhir, fuel akhir, dan minimal satu part yang dibongkar. Foto bersifat opsional dan itinerary masih dapat diubah sampai Admin mengonfirmasi penerimaan unit.</Text>
+            <Field label="Kilometer Akhir*" value={endKmDraft} onChangeText={setEndKmDraft} placeholder="Contoh: 12150" keyboardType="numeric" />
+            <Field label="Fuel Akhir (%) *" value={endFuelDraft} onChangeText={setEndFuelDraft} placeholder="0-100" keyboardType="numeric" />
+            <Text style={styles.label}>Part yang dibongkar*</Text>
+            {partDrafts.map((part, index) => (
+              <View key={`part-${index}`} style={styles.partRow}>
+                <View style={styles.partField}><Field label={`Part ${index + 1}`} value={part} onChangeText={(value) => setPartDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? value : item))} placeholder="Nama part yang dibongkar" /></View>
+                <TouchableOpacity style={styles.removePartButton} onPress={() => setPartDrafts((current) => current.filter((_, itemIndex) => itemIndex !== index))} accessibilityLabel={`Hapus part ${index + 1}`}>
+                  <X size={18} color={Colors.error} />
+                </TouchableOpacity>
+              </View>
+            ))}
+            <View style={styles.partRow}>
+              <View style={styles.partField}><Field label="Tambah part" value={newPartDraft} onChangeText={setNewPartDraft} placeholder="Nama part yang dibongkar" /></View>
+              <TouchableOpacity
+                style={styles.addPartButton}
+                onPress={() => {
+                  const part = newPartDraft.trim();
+                  if (!part || part.length > 160 || partDrafts.length >= 50) {
+                    Alert.alert('Part tidak valid', 'Nama part wajib diisi, maksimal 160 karakter, dan jumlah part maksimal 50.');
+                    return;
+                  }
+                  setPartDrafts((current) => [...current, part]);
+                  setNewPartDraft('');
+                }}
+              >
+                <Plus size={20} color={Colors.white} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.label}>Foto part (opsional, maksimal 5)</Text>
+            <View style={styles.photoRow}>
+              {itineraryDetails?.photos.map((photo) => (
+                <View key={photo.id} style={styles.photoContainer}>
+                  <Image source={{ uri: photo.url }} style={styles.photoPreview} />
+                  <TouchableOpacity style={styles.removePhotoButton} onPress={() => { void deleteExistingReturnPhoto(photo.id); }} disabled={savingItinerary} accessibilityLabel="Hapus foto">
+                    <X size={14} color={Colors.white} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              {newReturnPhotos.map((photo, index) => (
+                <View key={`new-photo-${index}`} style={styles.photoContainer}>
+                  <Image source={{ uri: photo.preview }} style={styles.photoPreview} />
+                  <TouchableOpacity style={styles.removePhotoButton} onPress={() => setNewReturnPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))} accessibilityLabel="Hapus foto baru">
+                    <X size={14} color={Colors.white} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              {(itineraryDetails?.photos.length ?? 0) + newReturnPhotos.length < 5 ? (
+                <TouchableOpacity style={styles.addPhotoButton} onPress={() => { void addReturnPhoto(); }} disabled={savingItinerary}>
+                  <ImagePlus size={22} color={Colors.primary} />
+                  <Text style={styles.addPhotoText}>Tambah foto</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <View style={{ height: Spacing.md }} />
+            <Button label="Simpan itinerary" onPress={() => { void saveInvestigationItinerary(); }} loading={savingItinerary} disabled={itineraryLoading || savingItinerary} />
           </>
         ) : null}
       </Sheet>
@@ -474,16 +791,14 @@ export default function RentalScreen() {
             <TimeField label="Jam Mulai (WIB)*" value={duplicateForm.start_time} onChange={(value) => setDuplicateForm({ ...duplicateForm, start_time: value })} />
             <TimeField label="Jam Selesai (WIB)*" value={duplicateForm.end_time} onChange={(value) => setDuplicateForm({ ...duplicateForm, end_time: value })} />
             <Field label="KM Awal*" value={duplicateForm.start_km} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, start_km: t })} placeholder="Contoh: 12000" keyboardType="numeric" />
-            <Field label="KM Akhir*" value={duplicateForm.end_km} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, end_km: t })} placeholder="Contoh: 12150" keyboardType="numeric" />
             <Field label="Fuel Awal*" value={duplicateForm.start_fuel} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, start_fuel: t })} placeholder="0-100" keyboardType="numeric" />
-            <Field label="Fuel Akhir*" value={duplicateForm.end_fuel} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, end_fuel: t })} placeholder="0-100" keyboardType="numeric" />
             <Field label="Aktivitas*" value={duplicateForm.content} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, content: t })} placeholder="Aktivitas yang dilakukan..." multiline />
             <Field label="Detail" value={duplicateForm.detail} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, detail: t })} placeholder="Detail atau keterangan tambahan..." multiline />
           </>
         )}
 
         <View style={{ height: Spacing.sm }} />
-        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigation'} onPress={addRecord} loading={saving} disabled={hasOpenCycle || !selectedCarAvailable || (recordKind === 'rental' ? !rentalContactComplete || !form.start_time || !form.end_time : !userProfile?.full_name?.trim() || !duplicateForm.section.trim() || !duplicateForm.start_time || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.end_km || !duplicateForm.start_fuel || !duplicateForm.end_fuel || !duplicateForm.content.trim())} />
+        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigation'} onPress={addRecord} loading={saving} disabled={hasOpenCycle || !selectedCarAvailable || (recordKind === 'rental' ? !rentalContactComplete || !form.start_time || !form.end_time : !userProfile?.full_name?.trim() || !duplicateForm.section.trim() || !duplicateForm.start_time || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.start_fuel || !duplicateForm.content.trim())} />
       </Sheet>
     </View>
   );
@@ -552,4 +867,15 @@ const styles = StyleSheet.create({
   detailRow: { paddingVertical: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
   detailLabel: { fontSize: Typography.xs, fontFamily: Typography.fontMedium, color: Colors.textSecondary, marginBottom: 2 },
   detailValue: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textPrimary, lineHeight: 20 },
+  partRow: { flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.xs },
+  partField: { flex: 1 },
+  removePartButton: { width: 40, height: 40, marginBottom: Spacing.sm, alignItems: 'center', justifyContent: 'center', borderRadius: Radius.md, backgroundColor: '#FEE2E2' },
+  addPartButton: { width: 40, height: 40, marginBottom: Spacing.sm, alignItems: 'center', justifyContent: 'center', borderRadius: Radius.md, backgroundColor: Colors.primary },
+  partReadOnly: { paddingVertical: 3, fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textPrimary },
+  photoRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginVertical: Spacing.xs },
+  photoContainer: { position: 'relative' },
+  photoPreview: { width: 88, height: 88, borderRadius: Radius.md, backgroundColor: Colors.surfaceAlt },
+  removePhotoButton: { position: 'absolute', top: 4, right: 4, width: 22, height: 22, alignItems: 'center', justifyContent: 'center', borderRadius: Radius.pill, backgroundColor: Colors.error },
+  addPhotoButton: { width: 88, height: 88, alignItems: 'center', justifyContent: 'center', gap: 4, borderWidth: 1, borderStyle: 'dashed', borderColor: Colors.primary, borderRadius: Radius.md, backgroundColor: Colors.primaryLight },
+  addPhotoText: { fontSize: Typography.xs, fontFamily: Typography.fontMedium, color: Colors.primary },
 });

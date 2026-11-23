@@ -1,5 +1,5 @@
 import { supabase, workerApiUrl } from '@/lib/supabase';
-import type { AppUser, Car, CarDisplayStatus, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStatus, ServiceRecord, VehicleInspection, VehicleInspectionItem, VehicleInspectionPhoto } from '@/lib/types';
+import type { AppUser, Car, CarDisplayStatus, DailyNote, DailyNoteReturnItineraryDetails, CompletenessItem, Damage, RentalRecord, RentalStatus, ServiceRecord, VehicleInspection, VehicleInspectionItem, VehicleInspectionPhoto } from '@/lib/types';
 import { addDaysToISO, getRentalStatus, todayISO } from '@/lib/format';
 import { getSession } from '@/lib/auth';
 
@@ -456,6 +456,53 @@ class ApiClient {
   notes = {
     getAll: async () => (await unwrap<(DailyNote & { cars: { name: string } | null })[]>(supabase.from('daily_notes').select('*, cars(name)').order('note_date', { ascending: false }))).map(withCarName) as (DailyNote & { car_name: string })[],
     getByCar: (carId: string) => unwrap<DailyNote[]>(supabase.from('daily_notes').select('*').eq('car_id', carId).order('note_date', { ascending: false })),
+    getReturnItinerary: async (id: string): Promise<DailyNoteReturnItineraryDetails> => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/daily-notes/return-itinerary'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ action: 'get', note_id: id }),
+      });
+      const result = await response.json().catch(() => null) as { data?: DailyNoteReturnItineraryDetails; error?: string } | null;
+      if (!response.ok || !result?.data) throw new Error(result?.error ?? 'Gagal memuat itinerary pengembalian.');
+      return result.data;
+    },
+    saveReturnItinerary: async (id: string, endKm: number, endFuel: number, parts: string[]) => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/daily-notes/return-itinerary'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ action: 'save', note_id: id, end_km: endKm, end_fuel: endFuel, parts }),
+      });
+      const result = await response.json().catch(() => null) as { data?: unknown; error?: string } | null;
+      if (!response.ok || !result?.data) throw new Error(result?.error ?? 'Gagal menyimpan itinerary pengembalian.');
+      return result.data;
+    },
+    uploadReturnPhoto: async (id: string, base64: string): Promise<{ id: string; object_path: string }> => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/daily-notes/return-itinerary'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ action: 'upload', note_id: id, base64, content_type: 'image/jpeg' }),
+      });
+      const result = await response.json().catch(() => null) as { data?: { id: string; object_path: string }; error?: string } | null;
+      if (!response.ok || !result?.data?.id || !result.data.object_path) throw new Error(result?.error ?? 'Gagal mengunggah foto itinerary.');
+      return result.data;
+    },
+    deleteReturnPhoto: async (id: string, photoId: string) => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/daily-notes/return-itinerary'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ action: 'delete-photo', note_id: id, photo_id: photoId }),
+      });
+      const result = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) throw new Error(result?.error ?? 'Gagal menghapus foto itinerary.');
+    },
     create: async (data: Record<string, unknown>) => {
       const session = getSession();
       const role = session?.user.role ?? 0;
