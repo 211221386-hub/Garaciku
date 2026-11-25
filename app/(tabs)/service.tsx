@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Alert, Image } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
-import { KeyRound, Plus, ChevronRight, RotateCcw, ImagePlus, X } from 'lucide-react-native';
+import { KeyRound, Plus, ChevronRight, ChevronDown, RotateCcw, ImagePlus, X } from 'lucide-react-native';
 import { apiClient } from '@/lib/api';
 import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
 import { dateRangesOverlap, formatDate, formatCurrency } from '@/lib/format';
@@ -120,6 +120,7 @@ export default function RentalScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
   const [sheet, setSheet] = useState(false);
+  const [trialDropdownOpen, setTrialDropdownOpen] = useState(false);
   const [selectedInvestigation, setSelectedInvestigation] = useState<InvestigationWithCar | null>(null);
   const [itineraryDetails, setItineraryDetails] = useState<DailyNoteReturnItineraryDetails | null>(null);
   const [itineraryLoading, setItineraryLoading] = useState(false);
@@ -149,6 +150,7 @@ export default function RentalScreen() {
     start_fuel: '',
     content: '',
     detail: '',
+    need_trial_outside: null as boolean | null,
   });
 
   const fetchRentals = useCallback(async () => {
@@ -235,8 +237,9 @@ export default function RentalScreen() {
   const resetFormState = () => {
     setForm({ car_id: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
     setSelectedCarIds([]);
-    setDuplicateForm({ section: '', start_date: '', start_time: '', end_date: '', end_time: '', start_km: '', start_fuel: '', content: '', detail: '' });
+    setDuplicateForm({ section: '', start_date: '', start_time: '', end_date: '', end_time: '', start_km: '', start_fuel: '', content: '', detail: '', need_trial_outside: null });
     setRecordKind('rental');
+    setTrialDropdownOpen(false);
   };
 
   const addRecord = async () => {
@@ -256,7 +259,7 @@ export default function RentalScreen() {
 
     if (recordKind === 'duplicate') {
       const recorderName = getSession()?.user.full_name?.trim() ?? '';
-      if (!recorderName || !duplicateForm.section.trim() || !duplicateForm.start_date || !duplicateForm.start_time || !duplicateForm.end_date || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.start_fuel || !duplicateForm.content.trim()) {
+      if (!recorderName || !duplicateForm.section.trim() || !duplicateForm.start_date || !duplicateForm.start_time || !duplicateForm.end_date || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.start_fuel || !duplicateForm.content.trim() || duplicateForm.need_trial_outside === null) {
         Alert.alert('Data belum lengkap', 'Isi semua field Investigation sebelum menyimpan.');
         return;
       }
@@ -300,6 +303,7 @@ export default function RentalScreen() {
           end_fuel: null,
           content: duplicateForm.content.trim(),
           detail: duplicateForm.detail.trim(),
+          need_trial_outside: duplicateForm.need_trial_outside,
         });
         resetFormState();
         setSheet(false);
@@ -797,13 +801,41 @@ export default function RentalScreen() {
             <TimeField label="Jam Selesai (WIB)*" value={duplicateForm.end_time} onChange={(value) => setDuplicateForm({ ...duplicateForm, end_time: value })} />
             <Field label="KM Awal*" value={duplicateForm.start_km} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, start_km: t })} placeholder="Contoh: 12000" keyboardType="numeric" />
             <Field label="Fuel Awal*" value={duplicateForm.start_fuel} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, start_fuel: t })} placeholder="0-100" keyboardType="numeric" />
+            <Text style={styles.label}>Need trial Outside?*</Text>
+            <TouchableOpacity
+              style={styles.trialDropdown}
+              onPress={() => setTrialDropdownOpen(!trialDropdownOpen)}
+              accessibilityRole="button"
+              accessibilityLabel="Need trial Outside?"
+            >
+              <Text style={[styles.trialDropdownValue, duplicateForm.need_trial_outside === null && styles.trialDropdownPlaceholder]}>
+                {duplicateForm.need_trial_outside === null ? 'Pilih Yes atau No' : duplicateForm.need_trial_outside ? 'Yes' : 'No'}
+              </Text>
+              <ChevronDown size={18} color={Colors.primary} />
+            </TouchableOpacity>
+            {trialDropdownOpen ? (
+              <View style={styles.trialDropdownOptions}>
+                {([false, true] as const).map((needTrialOutside) => (
+                  <TouchableOpacity
+                    key={String(needTrialOutside)}
+                    onPress={() => {
+                      setDuplicateForm({ ...duplicateForm, need_trial_outside: needTrialOutside });
+                      setTrialDropdownOpen(false);
+                    }}
+                    style={styles.trialDropdownOption}
+                  >
+                    <Text style={styles.trialDropdownOptionText}>{needTrialOutside ? 'Yes' : 'No'}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
             <Field label="Aktivitas*" value={duplicateForm.content} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, content: t })} placeholder="Aktivitas yang dilakukan..." multiline />
             <Field label="Detail" value={duplicateForm.detail} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, detail: t })} placeholder="Detail atau keterangan tambahan..." multiline />
           </>
         )}
 
         <View style={{ height: Spacing.sm }} />
-        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigation'} onPress={addRecord} loading={saving} disabled={hasOpenCycle || !selectedCarAvailable || (recordKind === 'rental' ? !rentalContactComplete || !form.start_time || !form.end_time : !userProfile?.full_name?.trim() || !duplicateForm.section.trim() || !duplicateForm.start_time || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.start_fuel || !duplicateForm.content.trim())} />
+        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigation'} onPress={addRecord} loading={saving} disabled={hasOpenCycle || !selectedCarAvailable || (recordKind === 'rental' ? !rentalContactComplete || !form.start_time || !form.end_time : !userProfile?.full_name?.trim() || !duplicateForm.section.trim() || !duplicateForm.start_time || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.start_fuel || !duplicateForm.content.trim() || duplicateForm.need_trial_outside === null)} />
       </Sheet>
     </View>
   );
@@ -863,6 +895,12 @@ const styles = StyleSheet.create({
   recordTypeActive: { backgroundColor: Colors.primaryLight, borderColor: Colors.primarySoft },
   recordTypeText: { fontSize: Typography.sm, fontFamily: Typography.fontMedium, color: Colors.textSecondary },
   recordTypeTextActive: { color: Colors.primary, fontFamily: Typography.fontSemiBold },
+  trialDropdown: { minHeight: 52, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, paddingHorizontal: Spacing.md, marginBottom: Spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface },
+  trialDropdownValue: { fontSize: Typography.base, fontFamily: Typography.fontRegular, color: Colors.textPrimary },
+  trialDropdownPlaceholder: { color: Colors.textTertiary },
+  trialDropdownOptions: { marginTop: -Spacing.md, marginBottom: Spacing.md, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, overflow: 'hidden', backgroundColor: Colors.surface },
+  trialDropdownOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.md },
+  trialDropdownOptionText: { fontSize: Typography.base, fontFamily: Typography.fontRegular, color: Colors.textPrimary },
   recordTypeBadge: { alignSelf: 'flex-start', paddingHorizontal: Spacing.sm, paddingVertical: 3, borderRadius: Radius.pill, backgroundColor: Colors.primaryLight, marginBottom: Spacing.xs },
   recordTypeBadgeText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.primary },
   cardActionButton: { height: 42, marginTop: Spacing.sm },
