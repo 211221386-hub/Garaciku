@@ -13,7 +13,7 @@ type ApprovalInvestigation = DailyNote & { car_name: string };
 type ApprovalQueueItem =
   | { kind: 'transportation'; item: ApprovalRental }
   | { kind: 'investigation'; item: ApprovalInvestigation };
-const isSuperAdmin = () => getSession()?.user.role === 1;
+const canApprove = () => [1, 2].includes(getSession()?.user.role ?? 0);
 const investigationStatusConfig: Record<DailyNote['status'], { label: string; backgroundColor: string; color: string }> = {
   pending_approval: { label: 'Menunggu persetujuan', backgroundColor: '#FEF3C7', color: '#92400E' },
   active: { label: 'Disetujui', backgroundColor: '#DCFCE7', color: '#15803D' },
@@ -53,8 +53,8 @@ export default function ApprovalScreen() {
         apiClient.cars.getAll(),
         apiClient.notes.getAll(),
       ]);
-      setRentals(isSuperAdmin() ? rentalData.filter((rental) => rental.status === 'pending') : rentalData);
-      setInvestigations(isSuperAdmin() ? investigationData.filter((note) => note.status === 'pending_approval') : investigationData);
+      setRentals(canApprove() ? rentalData.filter((rental) => rental.status === 'pending') : rentalData);
+      setInvestigations(canApprove() ? investigationData.filter((note) => note.status === 'pending_approval') : investigationData);
       setCars(carData);
       setSelectedCars((current) => Object.fromEntries(rentalData.map((rental) => [rental.id, current[rental.id] ?? rental.car_id])));
     } catch (error) {
@@ -68,7 +68,7 @@ export default function ApprovalScreen() {
 
   const decide = async (rental: ApprovalRental, status: 'approved' | 'rejected') => {
     const session = getSession();
-    if (!session || session.user.role !== 1) return;
+    if (!session || ![1, 2].includes(session.user.role)) return;
     setProcessingId(rental.id);
     setErrorMessage(null);
     setNotificationError(null);
@@ -114,7 +114,7 @@ export default function ApprovalScreen() {
   };
 
   const reviewInvestigation = async (note: ApprovalInvestigation, status: 'approved' | 'rejected') => {
-    if (!isSuperAdmin()) return;
+    if (!canApprove()) return;
     setProcessingInvestigationId(note.id);
     setErrorMessage(null);
     try {
@@ -140,7 +140,7 @@ export default function ApprovalScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.greeting}>Persetujuan Transportation dan Investigation</Text>
-        <Text style={styles.title}>{isSuperAdmin() ? 'Review Permintaan' : `Riwayat ${activeTab === 'transportation' ? 'Transportation' : 'Investigation'}`}</Text>
+        <Text style={styles.title}>{canApprove() ? 'Review Permintaan' : `Riwayat ${activeTab === 'transportation' ? 'Transportation' : 'Investigation'}`}</Text>
       </View>
       {notificationError ? (
         <View style={styles.notificationError}>
@@ -182,7 +182,7 @@ export default function ApprovalScreen() {
             </View>
             <Text style={styles.meta}>{formatDate(entry.item.start_date)}{entry.item.end_date ? ` - ${formatDate(entry.item.end_date)}` : ''}</Text>
             <Text style={styles.purpose}>{entry.item.purpose || 'Tanpa tujuan Transportation'}</Text>
-            {isSuperAdmin() ? (
+            {canApprove() ? (
               <>
                 <Text style={styles.label}>Mobil yang disetujui</Text>
                 <View style={styles.carPicker}>
@@ -196,7 +196,7 @@ export default function ApprovalScreen() {
                   <TouchableOpacity style={[styles.action, styles.approve, processingId === entry.item.id && styles.actionDisabled]} onPress={() => confirmDecision(entry.item, 'approved')} disabled={processingId === entry.item.id}><Check size={17} color={Colors.white} /><Text style={[styles.actionText, { color: Colors.white }]}>{processingId === entry.item.id ? 'Memproses...' : 'Approve'}</Text></TouchableOpacity>
                 </View>
               </>
-            ) : <Text style={styles.waiting}>{entry.item.status === 'pending' ? 'Menunggu Super Admin memilih dan menyetujui mobil.' : entry.item.status === 'approved' || entry.item.status === 'completed' ? 'Permintaan Anda sudah disetujui.' : 'Permintaan Anda ditolak.'}</Text>}
+            ) : <Text style={styles.waiting}>{entry.item.status === 'pending' ? 'Menunggu Admin memilih dan menyetujui mobil.' : entry.item.status === 'approved' || entry.item.status === 'completed' ? 'Permintaan Anda sudah disetujui.' : 'Permintaan Anda ditolak.'}</Text>}
           </View>
         ) : (
           <View style={styles.card}>
@@ -214,7 +214,7 @@ export default function ApprovalScreen() {
             <Text style={styles.meta}>{formatDate(entry.item.start_date)}{entry.item.end_date ? ` - ${formatDate(entry.item.end_date)}` : ''}</Text>
             <Text style={styles.purpose}>{entry.item.content || entry.item.section || 'Investigation'}</Text>
             {entry.item.detail ? <Text style={styles.waiting}>{entry.item.detail}</Text> : null}
-            {isSuperAdmin() && entry.item.status === 'pending_approval' ? (
+            {canApprove() && entry.item.status === 'pending_approval' ? (
               <View style={styles.actions}>
                 <TouchableOpacity
                   style={[styles.action, styles.reject]}
@@ -243,9 +243,9 @@ export default function ApprovalScreen() {
           <View style={styles.emptyList}>
             <ClipboardCheck size={22} color={Colors.primary} strokeWidth={2} />
             <Text style={styles.emptyTitle}>{activeTab === 'investigation'
-              ? isSuperAdmin() ? 'Tidak ada Investigation yang menunggu persetujuan.' : 'Belum ada riwayat Investigation.'
-              : isSuperAdmin() ? 'Tidak ada Transportation yang menunggu persetujuan.' : 'Belum ada riwayat Transportation.'}</Text>
-            {isSuperAdmin() ? <Text style={styles.emptySubtitle}>Permintaan {activeTab === 'transportation' ? 'Transportation' : 'Investigation'} dari role 3 dan 4 akan muncul di sini.</Text> : null}
+              ? canApprove() ? 'Tidak ada Investigation yang menunggu persetujuan.' : 'Belum ada riwayat Investigation.'
+              : canApprove() ? 'Tidak ada Transportation yang menunggu persetujuan.' : 'Belum ada riwayat Transportation.'}</Text>
+            {canApprove() ? <Text style={styles.emptySubtitle}>Permintaan {activeTab === 'transportation' ? 'Transportation' : 'Investigation'} dari role 3 dan 4 akan muncul di sini.</Text> : null}
           </View>
         )}
       />

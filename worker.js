@@ -661,8 +661,8 @@ async function completeFirstLogin(request, env, user) {
 }
 
 async function proxyNotification(request, env, user, path, headers) {
-  if (path !== '/api/rental-approved' || user.role !== 1) {
-    return Response.json({ error: 'Only role 1 can send approval notifications.' }, { status: 403, headers });
+  if (path !== '/api/rental-approved' || ![1, 2].includes(user.role)) {
+    return Response.json({ error: 'Only role 1 or 2 can send approval notifications.' }, { status: 403, headers });
   }
   if (!env.RENTAL_AUTOMATION_URL) return Response.json({ error: 'Rental automation is not configured.' }, { status: 503, headers });
 
@@ -975,7 +975,7 @@ async function handleDailyNoteReturnItinerary(request, env, user) {
 }
 
 async function reviewDailyNote(request, env, user) {
-  if (user.role !== 1) return { status: 403, error: 'Hanya Super Admin (Role 1) yang dapat mereview Investigation.' };
+  if (![1, 2].includes(user.role)) return { status: 403, error: 'Hanya Role 1 atau 2 yang dapat mereview Investigation.' };
 
   let body;
   try {
@@ -1066,7 +1066,7 @@ async function sendInvestigationApprovalNotification(env, note) {
 }
 
 async function approveRentalCycleUnit(request, env, user) {
-  if (user.role !== 1) return { status: 403, error: 'Hanya Super Admin (Role 1) yang dapat menyetujui rental.' };
+  if (![1, 2].includes(user.role)) return { status: 403, error: 'Hanya Role 1 atau 2 yang dapat menyetujui rental.' };
 
   let body;
   try {
@@ -1088,6 +1088,31 @@ async function approveRentalCycleUnit(request, env, user) {
   });
   const result = await response.json().catch(() => null);
   if (!response.ok) return { status: 409, error: typeof result?.message === 'string' ? result.message : 'Approval rental gagal.' };
+  return { status: 200, data: result };
+}
+
+async function rejectRentalCycleUnit(request, env, user) {
+  if (![1, 2].includes(user.role)) return { status: 403, error: 'Hanya Role 1 atau 2 yang dapat menolak rental.' };
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return { status: 400, error: 'Invalid JSON body.' };
+  }
+
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!body || typeof body.rental_id !== 'string' || !uuidPattern.test(body.rental_id)) {
+    return { status: 400, error: 'ID rental tidak valid.' };
+  }
+
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/reject_rental_cycle_unit`, {
+    method: 'POST',
+    headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ _rental_id: body.rental_id, _rejected_by: user.id, _user_role: user.role }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) return { status: 409, error: typeof result?.message === 'string' ? result.message : 'Penolakan rental gagal.' };
   return { status: 200, data: result };
 }
 
@@ -1225,6 +1250,7 @@ export default {
       '/api/data/delete',
       '/api/rentals/create-cycle',
       '/api/rentals/confirm-return',
+      '/api/rentals/reject-unit',
       '/api/cars/confirm-tax',
       '/api/daily-notes/confirm-return',
       '/api/daily-notes/return-itinerary',
@@ -1376,6 +1402,16 @@ export default {
       } catch (error) {
         console.error('Rental approval failed:', error);
         return Response.json({ error: 'Rental approval failed.' }, { status: 503, headers });
+      }
+    }
+
+    if (url.pathname === '/api/rentals/reject-unit') {
+      try {
+        const result = await rejectRentalCycleUnit(request, env, user);
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Rental rejection failed:', error);
+        return Response.json({ error: 'Rental rejection failed.' }, { status: 503, headers });
       }
     }
 

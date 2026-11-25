@@ -461,9 +461,7 @@ class ApiClient {
     },
     decideApproval: async (id: string, data: { status: 'approved' | 'rejected'; car_id: string; approved_by: string; approved_at: string }) => {
       const session = getSession();
-      if (!session || session.user.role !== 1) {
-        throw new Error('Hanya Super Admin (Role 1) yang dapat memproses approval.');
-      }
+      if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya Role 1 atau 2 yang dapat memproses approval.');
 
       const rental = await unwrap<RentalRecord>(
         supabase.from('rental_records').select('*').eq('id', id).eq('status', 'pending').single()
@@ -481,10 +479,15 @@ class ApiClient {
         return result.data;
       }
 
-      await unwrap(
-        supabase.from('rental_records').update(data).eq('id', id).eq('status', 'pending')
-      );
-      return { ...rental, ...data } as RentalRecord;
+      const response = await fetch(workerApiUrl('/api/rentals/reject-unit'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ rental_id: id }),
+      });
+      const result = await response.json().catch(() => null) as { data?: RentalRecord; error?: string } | null;
+      if (!response.ok) throw new Error(result?.error ?? `Worker mengembalikan status ${response.status}.`);
+      if (!result?.data) throw new Error('Worker mengembalikan data penolakan yang tidak valid.');
+      return result.data;
     },
     confirmReturn: async (id: string) => {
       const session = getSession();
@@ -618,7 +621,7 @@ class ApiClient {
     },
     review: async (id: string, decision: 'approved' | 'rejected') => {
       const session = getSession();
-      if (!session || session.user.role !== 1) throw new Error('Hanya Role 1 yang dapat mereview Investigation.');
+      if (!session || ![1, 2].includes(session.user.role)) throw new Error('Hanya Role 1 atau 2 yang dapat mereview Investigation.');
       const response = await fetch(workerApiUrl('/api/daily-notes/review'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },

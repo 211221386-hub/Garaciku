@@ -54,6 +54,8 @@ Alur itinerary pengembalian Investigation memerlukan migration `20261123120000_d
 
 Reminder pajak kendaraan memerlukan migration `20261123160000_vehicle_tax_reminders.sql` sebelum Worker dan aplikasi yang memuat fitur ini di-deploy. Admin mengisi tanggal jatuh tempo pajak tahunan dan pajak 5 tahunan di data mobil. Pengingat muncul mulai H-7 di tab Service; konfirmasi hanya dapat dilakukan oleh Role 1 atau 2 dan memajukan jatuh tempo satu atau lima tahun. Mulai hari jatuh tempo, mobil berstatus Under Maintenance dan tidak tersedia untuk peminjaman sampai pajak dikonfirmasi.
 
+Role 1 dan 2 dapat menyetujui atau menolak pengajuan Transportation dan Investigation. Terapkan migration `20261125120000_allow_role_2_approvals.sql` sebelum men-deploy versi Worker dan aplikasi yang memuat perubahan izin tersebut; Role 3 dan 4 tetap tidak memiliki izin approval.
+
 Migrasi awal menyertakan akun demo. Jangan memakai akun atau password demo untuk deployment produksi; siapkan kredensial produksi yang unik dan verifikasi login sebelum membuka aplikasi ke pengguna.
 
 ### Bulk Onboarding User

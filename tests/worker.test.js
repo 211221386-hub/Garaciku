@@ -70,6 +70,7 @@ function mockFetch(role, databaseRows = [], userOverrides = {}, responseOverride
       '/rest/v1/rpc/create_rental_cycle',
       '/rest/v1/rpc/confirm_rental_return',
       '/rest/v1/rpc/approve_rental_cycle_unit',
+      '/rest/v1/rpc/reject_rental_cycle_unit',
     ].includes(url.pathname)) {
       return Response.json(databaseRows);
     }
@@ -538,6 +539,31 @@ test('rental submission notification endpoint is disabled', async () => {
   }
 });
 
+test('role 2 can send the approval notification and roles 3 and 4 cannot', async () => {
+  const roleTwoMock = mockFetch(2);
+  try {
+    const token = await login(envFor(2), roleTwoMock.calls);
+    const response = await worker.fetch(makeRequest('/api/rental-approved', { namaPemesan: 'Test User' }, token), envFor(2));
+    assert.equal(response.status, 200);
+    assert.equal(roleTwoMock.calls.some((call) => call.url.href === 'https://automation.example.test/hook'), true);
+  } finally {
+    roleTwoMock.restore();
+  }
+
+  for (const role of [3, 4]) {
+    const mock = mockFetch(role);
+    try {
+      const token = await login(envFor(role), mock.calls);
+      const before = mock.calls.length;
+      const response = await worker.fetch(makeRequest('/api/rental-approved', { namaPemesan: 'Test User' }, token), envFor(role));
+      assert.equal(response.status, 403);
+      assert.equal(mock.calls.slice(before).some((call) => call.url.href === 'https://automation.example.test/hook'), false);
+    } finally {
+      mock.restore();
+    }
+  }
+});
+
 test('roles 1 and 2 can create a car without a periodic service date and set it later', async () => {
   const mock = mockFetch(2, [{ id: 'car-1' }]);
   try {
@@ -815,70 +841,58 @@ test('roles 3 and 4 cannot submit Investigation while a Transportation cycle is 
   }
 });
 
-test('only role 1 can approve or reject Investigation submissions', async () => {
+test('roles 1 and 2 can approve or reject Investigation submissions', async () => {
   const noteId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-  const adminMock = mockFetch(1, [], {}, {
-    '/rest/v1/rpc/review_daily_note': {
-      status: 200,
-      body: {
-        id: 'note-1',
-        car_id: 'car-1',
-        created_by: profile.id,
-        start_date: '2026-11-20',
-        end_date: '2026-11-22',
-        content: 'Trial',
-        status: 'active',
+  for (const role of [1, 2]) {
+    const mock = mockFetch(role, [], {}, {
+      '/rest/v1/rpc/review_daily_note': {
+        status: 200,
+        body: {
+          id: 'note-1',
+          car_id: 'car-1',
+          created_by: profile.id,
+          start_date: '2026-11-20',
+          end_date: '2026-11-22',
+          content: 'Trial',
+          status: 'active',
+        },
       },
-    },
-    '/rest/v1/cars': {
-      status: 200,
-      body: [{ id: 'car-1', name: 'Avanza', plate_number: 'B 1234 ABC' }],
-    },
-  });
-  try {
-    const token = await login(envFor(1), adminMock.calls);
-    const response = await worker.fetch(makeRequest('/api/daily-notes/review', {
-      note_id: noteId,
-      decision: 'approved',
-    }, token), envFor(1));
-    assert.equal(response.status, 200);
-    const call = adminMock.calls.find((item) => item.url.pathname === '/rest/v1/rpc/review_daily_note');
-    assert.deepEqual(JSON.parse(call.options.body), {
-      _note_id: noteId,
-      _reviewed_by: profile.id,
-      _user_role: 1,
-      _decision: 'approved',
+      '/rest/v1/cars': {
+        status: 200,
+        body: [{ id: 'car-1', name: 'Avanza', plate_number: 'B 1234 ABC' }],
+      },
     });
-    const webhook = adminMock.calls.find((item) => item.url.href === 'https://investigation.example.test/hook');
-    assert.ok(webhook);
-    assert.equal(webhook.options.method, 'POST');
-    assert.deepEqual(JSON.parse(webhook.options.body), {
-      namaPemesan: profile.full_name,
-      emailpemesan: profile.email,
-      nomorTelepon: profile.phone,
-      jenisKendaraan: 'Avanza',
-      platNomor: 'B 1234 ABC',
-      tanggalMulaiInvestigation: '2026-11-20',
-      tanggalSelesaiInvestigation: '2026-11-22',
-      jumlahHariInestigation: 2,
-      Aktivitas: 'Trial',
-    });
-  } finally {
-    adminMock.restore();
-  }
-
-  const roleTwoMock = mockFetch(2);
-  try {
-    const token = await login(envFor(2), roleTwoMock.calls);
-    const before = roleTwoMock.calls.length;
-    const response = await worker.fetch(makeRequest('/api/daily-notes/review', {
-      note_id: noteId,
-      decision: 'rejected',
-    }, token), envFor(2));
-    assert.equal(response.status, 403);
-    assert.equal(roleTwoMock.calls.slice(before).some((item) => item.url.pathname === '/rest/v1/rpc/review_daily_note'), false);
-  } finally {
-    roleTwoMock.restore();
+    try {
+      const token = await login(envFor(role), mock.calls);
+      const response = await worker.fetch(makeRequest('/api/daily-notes/review', {
+        note_id: noteId,
+        decision: 'approved',
+      }, token), envFor(role));
+      assert.equal(response.status, 200);
+      const call = mock.calls.find((item) => item.url.pathname === '/rest/v1/rpc/review_daily_note');
+      assert.deepEqual(JSON.parse(call.options.body), {
+        _note_id: noteId,
+        _reviewed_by: profile.id,
+        _user_role: role,
+        _decision: 'approved',
+      });
+      const webhook = mock.calls.find((item) => item.url.href === 'https://investigation.example.test/hook');
+      assert.ok(webhook);
+      assert.equal(webhook.options.method, 'POST');
+      assert.deepEqual(JSON.parse(webhook.options.body), {
+        namaPemesan: profile.full_name,
+        emailpemesan: profile.email,
+        nomorTelepon: profile.phone,
+        jenisKendaraan: 'Avanza',
+        platNomor: 'B 1234 ABC',
+        tanggalMulaiInvestigation: '2026-11-20',
+        tanggalSelesaiInvestigation: '2026-11-22',
+        jumlahHariInestigation: 2,
+        Aktivitas: 'Trial',
+      });
+    } finally {
+      mock.restore();
+    }
   }
 });
 
@@ -1127,40 +1141,76 @@ test('roles 3 and 4 cannot confirm returned units', async () => {
   }
 });
 
-test('only role 1 can approve a rental cycle unit through the dedicated endpoint', async () => {
-  const mock = mockFetch(1, { id: 'rental-1', status: 'approved', car_id: '11111111-1111-4111-8111-111111111111' });
-  try {
-    const token = await login(envFor(1), mock.calls);
-    const response = await worker.fetch(makeRequest('/api/rentals/approve-unit', {
-      rental_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      car_id: '11111111-1111-4111-8111-111111111111',
-      approved_by: 'another-user',
-    }, token), envFor(1));
-    const result = await response.json();
-    const rpc = mock.calls.find((call) => call.url.pathname === '/rest/v1/rpc/approve_rental_cycle_unit');
-    const parameters = JSON.parse(rpc.options.body);
-    assert.equal(response.status, 200);
-    assert.equal(result.data.status, 'approved');
-    assert.equal(parameters._approved_by, profile.id);
-    assert.equal(parameters._user_role, 1);
-  } finally {
-    mock.restore();
+test('roles 1 and 2 can approve a rental cycle unit through the dedicated endpoint', async () => {
+  for (const role of [1, 2]) {
+    const mock = mockFetch(role, { id: 'rental-1', status: 'approved', car_id: '11111111-1111-4111-8111-111111111111' });
+    try {
+      const token = await login(envFor(role), mock.calls);
+      const response = await worker.fetch(makeRequest('/api/rentals/approve-unit', {
+        rental_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        car_id: '11111111-1111-4111-8111-111111111111',
+        approved_by: 'another-user',
+      }, token), envFor(role));
+      const result = await response.json();
+      const rpc = mock.calls.find((call) => call.url.pathname === '/rest/v1/rpc/approve_rental_cycle_unit');
+      const parameters = JSON.parse(rpc.options.body);
+      assert.equal(response.status, 200);
+      assert.equal(result.data.status, 'approved');
+      assert.equal(parameters._approved_by, profile.id);
+      assert.equal(parameters._user_role, role);
+    } finally {
+      mock.restore();
+    }
   }
 });
 
-test('role 2 cannot approve rental cycle units', async () => {
-  const mock = mockFetch(2);
-  try {
-    const token = await login(envFor(2), mock.calls);
-    const before = mock.calls.length;
-    const response = await worker.fetch(makeRequest('/api/rentals/approve-unit', {
-      rental_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      car_id: '11111111-1111-4111-8111-111111111111',
-    }, token), envFor(2));
-    assert.equal(response.status, 403);
-    assert.equal(mock.calls.slice(before).some((call) => call.url.pathname === '/rest/v1/rpc/approve_rental_cycle_unit'), false);
-  } finally {
-    mock.restore();
+test('roles 1 and 2 can reject a rental cycle unit through the dedicated endpoint', async () => {
+  for (const role of [1, 2]) {
+    const mock = mockFetch(role, { id: 'rental-1', status: 'rejected' });
+    try {
+      const token = await login(envFor(role), mock.calls);
+      const response = await worker.fetch(makeRequest('/api/rentals/reject-unit', {
+        rental_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }, token), envFor(role));
+      const result = await response.json();
+      const rpc = mock.calls.find((call) => call.url.pathname === '/rest/v1/rpc/reject_rental_cycle_unit');
+      const parameters = JSON.parse(rpc.options.body);
+      assert.equal(response.status, 200);
+      assert.equal(result.data.status, 'rejected');
+      assert.equal(parameters._rejected_by, profile.id);
+      assert.equal(parameters._user_role, role);
+    } finally {
+      mock.restore();
+    }
+  }
+});
+
+test('roles 3 and 4 cannot approve, reject, or review requests', async () => {
+  for (const role of [3, 4]) {
+    const mock = mockFetch(role);
+    try {
+      const token = await login(envFor(role), mock.calls);
+      const before = mock.calls.length;
+      const approveResponse = await worker.fetch(makeRequest('/api/rentals/approve-unit', {
+        rental_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        car_id: '11111111-1111-4111-8111-111111111111',
+      }, token), envFor(role));
+      const rejectResponse = await worker.fetch(makeRequest('/api/rentals/reject-unit', {
+        rental_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }, token), envFor(role));
+      const reviewResponse = await worker.fetch(makeRequest('/api/daily-notes/review', {
+        note_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        decision: 'approved',
+      }, token), envFor(role));
+      assert.equal(approveResponse.status, 403);
+      assert.equal(rejectResponse.status, 403);
+      assert.equal(reviewResponse.status, 403);
+      assert.equal(mock.calls.slice(before).some((call) => call.url.pathname.includes('/rpc/approve_rental_cycle_unit')), false);
+      assert.equal(mock.calls.slice(before).some((call) => call.url.pathname.includes('/rpc/reject_rental_cycle_unit')), false);
+      assert.equal(mock.calls.slice(before).some((call) => call.url.pathname.includes('/rpc/review_daily_note')), false);
+    } finally {
+      mock.restore();
+    }
   }
 });
 
