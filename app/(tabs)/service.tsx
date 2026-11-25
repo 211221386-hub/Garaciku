@@ -788,7 +788,7 @@ export default function RentalScreen() {
             <TimeField label="Jam Mulai (WIB)" value={form.start_time} onChange={(value) => setForm({ ...form, start_time: value })} />
             <TimeField label="Jam Selesai (WIB)" value={form.end_time} onChange={(value) => setForm({ ...form, end_time: value })} />
             <Field label="Tujuan Transportation" value={form.purpose} onChangeText={(t) => setForm({ ...form, purpose: t })} placeholder="Contoh: Perjalanan dinas, liburan keluarga" />
-            <Field label="Catatan" value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} placeholder="Catatan tambahan..." multiline />
+            <Field label="Detail Activity" value={form.notes} onChangeText={(t) => setForm({ ...form, notes: t })} placeholder="Genba ke supplier..." multiline />
           </>
         ) : (
           <>
