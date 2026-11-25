@@ -66,7 +66,7 @@ export default function CarsScreen() {
         <View style={styles.headerTop}>
           <View>
             <Text style={styles.greeting}>Garasi Saya</Text>
-            <Text style={styles.title}>Perawatan Mobil</Text>
+            <Text style={styles.title}>List Mobil</Text>
           </View>
           <TouchableOpacity style={styles.refreshBtn} onPress={onRefresh} hitSlop={12}>
             <RefreshCw size={20} color={Colors.primary} strokeWidth={2.2} />
