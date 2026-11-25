@@ -281,7 +281,7 @@ class ApiClient {
       for (const car of cars) {
         const taxDueDates = [car.annual_tax_due_date, car.plate_tax_due_date].filter((date): date is string => date !== null);
         const taxUnderMaintenance = taxDueDates.some((date) => today >= date);
-        const taxReminderDue = taxDueDates.some((date) => today >= addDaysToISO(date, -7));
+        const taxReminderDue = taxDueDates.some((date) => today >= addDaysToISO(date, -21));
         const carRentals = rentals.filter((rental) => rental.car_id === car.id)
           .map((rental) => ({
             ...rental,

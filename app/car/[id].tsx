@@ -1056,10 +1056,10 @@ export default function CarDetailScreen() {
           placeholder="Contoh: Perjalanan dinas, liburan keluarga"
         />
         <Field
-          label="Catatan"
+          label="Detail aktivitas"
           value={newRental.notes}
           onChangeText={(t) => setNewRental({ ...newRental, notes: t })}
-          placeholder="Catatan tambahan..."
+          placeholder="Genba ke supplier..."
           multiline
         />
         <View style={{ height: Spacing.sm }} />
