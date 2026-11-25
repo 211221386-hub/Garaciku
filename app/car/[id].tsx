@@ -1056,7 +1056,7 @@ export default function CarDetailScreen() {
           placeholder="Contoh: Perjalanan dinas, liburan keluarga"
         />
         <Field
-          label="Detail aktivitas"
+          label="Detail activity"
           value={newRental.notes}
           onChangeText={(t) => setNewRental({ ...newRental, notes: t })}
           placeholder="Genba ke supplier..."
