@@ -896,6 +896,51 @@ test('roles 1 and 2 can approve or reject Investigation submissions', async () =
   }
 });
 
+test('approved Investigation with an outside trial uses only the Transportation webhook payload', async () => {
+  const mock = mockFetch(2, [], {}, {
+    '/rest/v1/rpc/review_daily_note': {
+      status: 200,
+      body: {
+        id: 'note-1',
+        car_id: 'car-1',
+        created_by: profile.id,
+        start_date: '2026-11-20',
+        end_date: '2026-11-22',
+        content: 'Trial',
+        need_trial_outside: true,
+        status: 'active',
+      },
+    },
+    '/rest/v1/cars': {
+      status: 200,
+      body: [{ id: 'car-1', name: 'Avanza', plate_number: 'B 1234 ABC' }],
+    },
+  });
+  try {
+    const token = await login(envFor(2), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/daily-notes/review', {
+      note_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      decision: 'approved',
+    }, token), envFor(2));
+    assert.equal(response.status, 200);
+    const rentalWebhook = mock.calls.find((call) => call.url.href === 'https://automation.example.test/hook');
+    assert.ok(rentalWebhook);
+    assert.deepEqual(JSON.parse(rentalWebhook.options.body), {
+      namaPemesan: profile.full_name,
+      emailPemesan: profile.email,
+      nomorTelepon: profile.phone,
+      jenisKendaraan: 'Avanza',
+      platNomor: 'B 1234 ABC',
+      tanggalMulaiSewa: '2026-11-20',
+      tanggalSelesaiSewa: '2026-11-22',
+      jumlahHariSewa: 2,
+    });
+    assert.equal(mock.calls.some((call) => call.url.href === 'https://investigation.example.test/hook'), false);
+  } finally {
+    mock.restore();
+  }
+});
+
 test('daily note return confirmation uses the authenticated admin identity', async () => {
   const mock = mockFetch(2, [{ id: 'note-1', status: 'completed' }]);
   try {

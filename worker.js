@@ -1010,11 +1010,12 @@ async function reviewDailyNote(request, env, user) {
 }
 
 async function sendInvestigationApprovalNotification(env, note) {
-  if (!env.INVESTIGATION_AUTOMATION_URL) {
-    return 'Notifikasi Investigation belum dikonfigurasi pada Worker.';
-  }
+  const isOutsideTrial = note?.need_trial_outside === true;
+  const webhookUrl = isOutsideTrial ? env.RENTAL_AUTOMATION_URL : env.INVESTIGATION_AUTOMATION_URL;
+  const flowName = isOutsideTrial ? 'Transportation' : 'Investigation';
+  if (!webhookUrl) return `Notifikasi ${flowName} belum dikonfigurasi pada Worker.`;
   if (!note || typeof note.created_by !== 'string' || typeof note.car_id !== 'string') {
-    return 'Data pemesan atau unit Investigation tidak lengkap.';
+    return `Data pemesan atau unit ${flowName} tidak lengkap.`;
   }
 
   try {
@@ -1031,37 +1032,48 @@ async function sendInvestigationApprovalNotification(env, note) {
       carResponse.json().catch(() => null),
     ]);
     if (!userResponse.ok || !carResponse.ok || !Array.isArray(users) || !users[0] || !Array.isArray(cars) || !cars[0]) {
-      return 'Gagal memuat data pemesan atau unit untuk notifikasi Investigation.';
+      return `Gagal memuat data pemesan atau unit untuk notifikasi ${flowName}.`;
     }
 
     const datePattern = /^\d{4}-\d{2}-\d{2}$/;
     if (!datePattern.test(note.start_date ?? '') || !datePattern.test(note.end_date ?? '')) {
-      return 'Tanggal Investigation tidak valid untuk notifikasi.';
+      return `Tanggal ${flowName} tidak valid untuk notifikasi.`;
     }
     const days = Math.max(1, Math.round(
       (Date.parse(`${note.end_date}T00:00:00Z`) - Date.parse(`${note.start_date}T00:00:00Z`)) / 86_400_000,
     ));
-    const payload = {
-      namaPemesan: users[0].full_name ?? '',
-      emailpemesan: users[0].email ?? '',
-      nomorTelepon: users[0].phone ?? '',
-      jenisKendaraan: cars[0].name ?? '',
-      platNomor: cars[0].plate_number ?? '',
-      tanggalMulaiInvestigation: note.start_date,
-      tanggalSelesaiInvestigation: note.end_date,
-      jumlahHariInestigation: days,
-      Aktivitas: note.content ?? '',
-    };
+    const payload = isOutsideTrial
+      ? {
+          namaPemesan: users[0].full_name ?? '',
+          emailPemesan: users[0].email ?? '',
+          nomorTelepon: users[0].phone ?? '',
+          jenisKendaraan: cars[0].name ?? '',
+          platNomor: cars[0].plate_number ?? '',
+          tanggalMulaiSewa: note.start_date,
+          tanggalSelesaiSewa: note.end_date,
+          jumlahHariSewa: days,
+        }
+      : {
+          namaPemesan: users[0].full_name ?? '',
+          emailpemesan: users[0].email ?? '',
+          nomorTelepon: users[0].phone ?? '',
+          jenisKendaraan: cars[0].name ?? '',
+          platNomor: cars[0].plate_number ?? '',
+          tanggalMulaiInvestigation: note.start_date,
+          tanggalSelesaiInvestigation: note.end_date,
+          jumlahHariInestigation: days,
+          Aktivitas: note.content ?? '',
+        };
 
-    const webhookResponse = await fetch(env.INVESTIGATION_AUTOMATION_URL, {
+    const webhookResponse = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!webhookResponse.ok) return `Webhook notifikasi Investigation mengembalikan status ${webhookResponse.status}.`;
+    if (!webhookResponse.ok) return `Webhook notifikasi ${flowName} mengembalikan status ${webhookResponse.status}.`;
     return null;
   } catch {
-    return 'Notifikasi Investigation gagal dikirim karena layanan database atau webhook tidak dapat dihubungi.';
+    return `Notifikasi ${flowName} gagal dikirim karena layanan database atau webhook tidak dapat dihubungi.`;
   }
 }
 

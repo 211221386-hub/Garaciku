@@ -53,6 +53,7 @@ export type DailyNote = {
   end_fuel: number | null;
   content: string;
   detail: string;
+  need_trial_outside: boolean;
   status: 'pending_approval' | 'active' | 'completed' | 'rejected';
   return_confirmed_by: string | null;
   return_confirmed_at: string | null;

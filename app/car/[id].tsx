@@ -13,6 +13,7 @@ import {
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import {
   ChevronLeft,
+  ChevronDown,
   Pencil,
   Trash2,
   NotebookPen,
@@ -137,7 +138,8 @@ export default function CarDetailScreen() {
   // Sheet state
   const [noteSheet, setNoteSheet] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
-  const [newNote, setNewNote] = useState({ section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '' });
+  const [trialDropdownOpen, setTrialDropdownOpen] = useState(false);
+  const [newNote, setNewNote] = useState({ section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '', need_trial_outside: null as boolean | null });
   const [completenessSheet, setCompletenessSheet] = useState(false);
   const [newItem, setNewItem] = useState('');
   const [newReminderType, setNewReminderType] = useState<CompletenessReminderType>('general');
@@ -317,7 +319,7 @@ export default function CarDetailScreen() {
   // --- Notes CRUD ---
   const addNote = async () => {
     if (submitting) return;
-    if (!newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.start_km || !newNote.end_km || !newNote.start_fuel || !newNote.end_fuel || !newNote.content.trim()) {
+    if (!newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.start_km || !newNote.end_km || !newNote.start_fuel || !newNote.end_fuel || !newNote.content.trim() || newNote.need_trial_outside === null) {
       Alert.alert('Data belum lengkap', 'Isi semua field catatan sebelum menyimpan.');
       return;
     }
@@ -357,11 +359,12 @@ export default function CarDetailScreen() {
         end_fuel: endFuel,
         content: newNote.content.trim(),
         detail: newNote.detail.trim(),
+        need_trial_outside: newNote.need_trial_outside,
       };
       if (editingNoteId) await apiClient.notes.update(editingNoteId, noteData);
       else await apiClient.notes.create(noteData);
       setEditingNoteId(null);
-      setNewNote({ section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '' });
+      setNewNote({ section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '', need_trial_outside: null });
       setNoteSheet(false);
       await fetchAll();
     } catch (error) { Alert.alert('Gagal menyimpan catatan', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
@@ -398,6 +401,7 @@ export default function CarDetailScreen() {
       end_fuel: note.end_fuel === null ? '' : String(note.end_fuel),
       content: note.content ?? '',
       detail: note.detail ?? '',
+      need_trial_outside: note.need_trial_outside ?? false,
     });
     setNoteSheet(true);
   };
@@ -934,10 +938,40 @@ export default function CarDetailScreen() {
       ) : null}
 
       {/* Note Sheet */}
-      <Sheet visible={noteSheet} onClose={() => { setNoteSheet(false); setEditingNoteId(null); }} title={editingNoteId ? 'Ubah Investigation' : 'Investigation Baru'}>
+      <Sheet visible={noteSheet} onClose={() => { setNoteSheet(false); setEditingNoteId(null); setTrialDropdownOpen(false); }} title={editingNoteId ? 'Ubah Investigation' : 'Investigation Baru'}>
         <Field label="Section*" value={newNote.section} onChangeText={(value) => setNewNote({ ...newNote, section: value })} placeholder="Section" />
         <DateField label="Tanggal Mulai*" value={newNote.start_date} onChange={(value) => setNewNote({ ...newNote, start_date: value })} />
         <DateField label="Tanggal Selesai*" value={newNote.end_date} onChange={(value) => setNewNote({ ...newNote, end_date: value })} minimumDate={newNote.start_date ? new Date(`${newNote.start_date}T00:00:00`) : undefined} />
+        <Text style={styles.sevLabel}>Need trial Outside?*</Text>
+        <TouchableOpacity
+          style={styles.trialDropdown}
+          onPress={() => setTrialDropdownOpen(!trialDropdownOpen)}
+          accessibilityRole="button"
+          accessibilityLabel="Need trial Outside?"
+        >
+          <Text style={[styles.trialDropdownValue, newNote.need_trial_outside === null && styles.trialDropdownPlaceholder]}>
+            {newNote.need_trial_outside === null ? 'Pilih Yes atau No' : newNote.need_trial_outside ? 'Yes' : 'No'}
+          </Text>
+          <ChevronDown size={18} color={Colors.primary} />
+        </TouchableOpacity>
+        {trialDropdownOpen ? (
+          <View style={styles.trialDropdownOptions}>
+          {([false, true] as const).map((needTrialOutside) => {
+            return (
+              <TouchableOpacity
+                key={String(needTrialOutside)}
+                onPress={() => {
+                  setNewNote({ ...newNote, need_trial_outside: needTrialOutside });
+                  setTrialDropdownOpen(false);
+                }}
+                style={styles.trialDropdownOption}
+              >
+                <Text style={styles.trialDropdownOptionText}>{needTrialOutside ? 'Yes' : 'No'}</Text>
+              </TouchableOpacity>
+            );
+          })}
+          </View>
+        ) : null}
         <Field label="KM Awal*" value={newNote.start_km} onChangeText={(value) => setNewNote({ ...newNote, start_km: value })} placeholder="Contoh: 12000" keyboardType="numeric" />
         <Field label="KM Akhir*" value={newNote.end_km} onChangeText={(value) => setNewNote({ ...newNote, end_km: value })} placeholder="Contoh: 12150" keyboardType="numeric" />
         <Field label="Fuel Awal (%)*" value={newNote.start_fuel} onChangeText={(value) => updateFuelPercentage('start_fuel', value)} placeholder="0-100" keyboardType="numeric" />
@@ -950,7 +984,7 @@ export default function CarDetailScreen() {
           multiline
         />
         <Field label="Detail" value={newNote.detail} onChangeText={(value) => setNewNote({ ...newNote, detail: value })} placeholder="Detail atau keterangan tambahan..." multiline />
-        <Button label={editingNoteId ? 'Simpan Perubahan' : 'Simpan Catatan'} onPress={addNote} loading={submitting} disabled={!newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.start_km || !newNote.end_km || !newNote.start_fuel || !newNote.end_fuel || !newNote.content.trim()} />
+        <Button label={editingNoteId ? 'Simpan Perubahan' : 'Simpan Catatan'} onPress={addNote} loading={submitting} disabled={!newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.start_km || !newNote.end_km || !newNote.start_fuel || !newNote.end_fuel || !newNote.content.trim() || newNote.need_trial_outside === null} />
       </Sheet>
 
       {/* Completeness Sheet */}
@@ -1499,5 +1533,44 @@ const styles = StyleSheet.create({
     fontSize: Typography.sm,
     fontFamily: Typography.fontMedium,
     color: Colors.textSecondary,
+  },
+  trialDropdown: {
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.md,
+    marginBottom: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.surface,
+  },
+  trialDropdownValue: {
+    fontSize: Typography.base,
+    fontFamily: Typography.fontRegular,
+    color: Colors.textPrimary,
+  },
+  trialDropdownPlaceholder: {
+    color: Colors.textTertiary,
+  },
+  trialDropdownOptions: {
+    marginTop: -Spacing.md,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    overflow: 'hidden',
+    backgroundColor: Colors.surface,
+  },
+  trialDropdownOption: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.md,
+  },
+  trialDropdownOptionText: {
+    fontSize: Typography.base,
+    fontFamily: Typography.fontRegular,
+    color: Colors.textPrimary,
   },
 });
