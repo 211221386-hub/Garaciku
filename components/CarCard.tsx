@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
   delayBadge: { backgroundColor: 'rgba(220, 38, 38, 0.92)' },
   inactiveBadge: { backgroundColor: 'rgba(75, 85, 99, 0.95)' },
   statusText: { fontSize: Typography.xs, fontFamily: Typography.fontSemiBold, color: Colors.white, textAlign: 'center' },
-  statusDetail: { alignSelf: 'stretch', marginTop: 2, fontSize: Typography.xs, fontFamily: Typography.fontMedium, color: Colors.textSecondary, textAlign: 'center' },
+  statusDetail: { width: '100%', alignSelf: 'center', marginTop: Spacing.xs, fontSize: Typography.xs, fontFamily: Typography.fontMedium, color: Colors.textSecondary, textAlign: 'center' },
   plateRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
   info: { padding: Spacing.sm },
   name: {
