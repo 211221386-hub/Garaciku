@@ -7,6 +7,7 @@ import { getSession } from '@/lib/auth';
 import { differenceInCalendarDays, formatDate } from '@/lib/format';
 import { Colors, Radius, Spacing, Typography } from '@/lib/theme';
 import type { DailyNote, RentalRecord, RentalStatus } from '@/lib/types';
+import { InvestigationReturnActions } from '@/components/InvestigationReturnActions';
 
 type ApprovalRental = RentalRecord & { car_name: string };
 type ApprovalInvestigation = DailyNote & { car_name: string };
@@ -43,6 +44,7 @@ export default function ApprovalScreen() {
   const [investigationDecision, setInvestigationDecision] = useState<{ note: ApprovalInvestigation; status: 'approved' | 'rejected' } | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [processingInvestigationId, setProcessingInvestigationId] = useState<string | null>(null);
+  const [returningRentalId, setReturningRentalId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [notificationError, setNotificationError] = useState<string | null>(null);
 
@@ -53,8 +55,12 @@ export default function ApprovalScreen() {
         apiClient.cars.getAll(),
         apiClient.notes.getAll(),
       ]);
-      setRentals(canApprove() ? rentalData.filter((rental) => rental.status === 'pending') : rentalData);
-      setInvestigations(canApprove() ? investigationData.filter((note) => note.status === 'pending_approval') : investigationData);
+      setRentals(canApprove()
+        ? rentalData.filter((rental) => ['pending', 'approved', 'active', 'overdue'].includes(rental.status))
+        : rentalData);
+      setInvestigations(canApprove()
+        ? investigationData.filter((note) => note.status === 'pending_approval' || note.status === 'active')
+        : investigationData);
       setCars(carData);
       setSelectedCars((current) => Object.fromEntries(rentalData.map((rental) => [rental.id, current[rental.id] ?? rental.car_id])));
     } catch (error) {
@@ -131,6 +137,19 @@ export default function ApprovalScreen() {
     }
   };
 
+  const confirmRentalReturn = async (rental: ApprovalRental) => {
+    setReturningRentalId(rental.id);
+    setErrorMessage(null);
+    try {
+      await apiClient.rentals.confirmReturn(rental.id);
+      await fetchApprovals();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Gagal mengonfirmasi pengembalian Transportation.');
+    } finally {
+      setReturningRentalId(null);
+    }
+  };
+
   const approvalItems: ApprovalQueueItem[] = activeTab === 'transportation'
     ? rentals.map((item) => ({ kind: 'transportation' as const, item }))
     : investigations.map((item) => ({ kind: 'investigation' as const, item }));
@@ -140,7 +159,7 @@ export default function ApprovalScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.greeting}>Persetujuan Transportation dan Investigation</Text>
-        <Text style={styles.title}>{canApprove() ? 'Review Permintaan' : `Riwayat ${activeTab === 'transportation' ? 'Transportation' : 'Investigation'}`}</Text>
+        <Text style={styles.title}>{canApprove() ? 'Approval & Pengembalian' : `Riwayat ${activeTab === 'transportation' ? 'Transportation' : 'Investigation'}`}</Text>
       </View>
       {notificationError ? (
         <View style={styles.notificationError}>
@@ -182,7 +201,7 @@ export default function ApprovalScreen() {
             </View>
             <Text style={styles.meta}>{formatDate(entry.item.start_date)}{entry.item.end_date ? ` - ${formatDate(entry.item.end_date)}` : ''}</Text>
             <Text style={styles.purpose}>{entry.item.purpose || 'Tanpa tujuan Transportation'}</Text>
-            {canApprove() ? (
+            {canApprove() && entry.item.status === 'pending' ? (
               <>
                 <Text style={styles.label}>Mobil yang disetujui</Text>
                 <View style={styles.carPicker}>
@@ -196,7 +215,22 @@ export default function ApprovalScreen() {
                   <TouchableOpacity style={[styles.action, styles.approve, processingId === entry.item.id && styles.actionDisabled]} onPress={() => confirmDecision(entry.item, 'approved')} disabled={processingId === entry.item.id}><Check size={17} color={Colors.white} /><Text style={[styles.actionText, { color: Colors.white }]}>{processingId === entry.item.id ? 'Memproses...' : 'Approve'}</Text></TouchableOpacity>
                 </View>
               </>
-            ) : <Text style={styles.waiting}>{entry.item.status === 'pending' ? 'Menunggu Admin memilih dan menyetujui mobil.' : entry.item.status === 'approved' || entry.item.status === 'completed' ? 'Permintaan Anda sudah disetujui.' : 'Permintaan Anda ditolak.'}</Text>}
+            ) : entry.item.status === 'pending' ? (
+              <Text style={styles.waiting}>Menunggu Admin memilih dan menyetujui mobil.</Text>
+            ) : ['approved', 'active', 'overdue'].includes(entry.item.status) ? (
+              <>
+                <Text style={styles.waiting}>Transportation disetujui. Pengembalian menunggu konfirmasi Admin.</Text>
+                {canApprove() ? (
+                  <TouchableOpacity
+                    style={[styles.returnButton, returningRentalId === entry.item.id && styles.actionDisabled]}
+                    onPress={() => { void confirmRentalReturn(entry.item); }}
+                    disabled={returningRentalId === entry.item.id}
+                  >
+                    <Text style={styles.returnButtonText}>{returningRentalId === entry.item.id ? 'Memproses...' : 'Unit sudah diterima'}</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </>
+            ) : <Text style={styles.waiting}>{entry.item.status === 'completed' ? 'Transportation selesai.' : 'Permintaan Anda ditolak.'}</Text>}
           </View>
         ) : (
           <View style={styles.card}>
@@ -232,9 +266,11 @@ export default function ApprovalScreen() {
                   <Text style={[styles.actionText, { color: Colors.white }]}>{processingInvestigationId === entry.item.id ? 'Memproses...' : 'Approve'}</Text>
                 </TouchableOpacity>
               </View>
+            ) : entry.item.status === 'active' ? (
+              <InvestigationReturnActions note={entry.item} isAdmin={canApprove()} onUpdated={fetchApprovals} />
             ) : (
               <Text style={styles.waiting}>
-                {entry.item.status === 'pending_approval' ? 'Menunggu persetujuan Admin.' : entry.item.status === 'active' ? 'Investigation Anda sudah disetujui.' : entry.item.status === 'completed' ? 'Investigation selesai.' : 'Pengajuan Investigation ditolak.'}
+                {entry.item.status === 'pending_approval' ? 'Menunggu persetujuan Admin.' : entry.item.status === 'completed' ? 'Investigation selesai.' : 'Pengajuan Investigation ditolak.'}
               </Text>
             )}
           </View>
@@ -243,9 +279,9 @@ export default function ApprovalScreen() {
           <View style={styles.emptyList}>
             <ClipboardCheck size={22} color={Colors.primary} strokeWidth={2} />
             <Text style={styles.emptyTitle}>{activeTab === 'investigation'
-              ? canApprove() ? 'Tidak ada Investigation yang menunggu persetujuan.' : 'Belum ada riwayat Investigation.'
-              : canApprove() ? 'Tidak ada Transportation yang menunggu persetujuan.' : 'Belum ada riwayat Transportation.'}</Text>
-            {canApprove() ? <Text style={styles.emptySubtitle}>Permintaan {activeTab === 'transportation' ? 'Transportation' : 'Investigation'} dari role 3 dan 4 akan muncul di sini.</Text> : null}
+              ? canApprove() ? 'Tidak ada Investigation yang menunggu approval atau pengembalian.' : 'Belum ada riwayat Investigation.'
+              : canApprove() ? 'Tidak ada Transportation yang menunggu approval atau pengembalian.' : 'Belum ada riwayat Transportation.'}</Text>
+            {canApprove() ? <Text style={styles.emptySubtitle}>Permintaan baru dan pengembalian yang masih aktif akan muncul di sini.</Text> : null}
           </View>
         )}
       />
@@ -338,6 +374,8 @@ const styles = StyleSheet.create({
   approve: { backgroundColor: Colors.primary },
   actionText: { fontSize: Typography.sm, fontFamily: Typography.fontSemiBold },
   waiting: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textSecondary, marginTop: Spacing.md, lineHeight: 20 },
+  returnButton: { alignSelf: 'flex-start', marginTop: Spacing.sm, backgroundColor: Colors.primary, borderRadius: Radius.md, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs },
+  returnButtonText: { color: Colors.white, fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
   actionDisabled: { opacity: 0.6 },
   modalOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: Spacing.lg },
   confirmModal: { width: '100%', maxWidth: 430, backgroundColor: Colors.white, borderRadius: Radius.xl, padding: Spacing.xl, alignItems: 'center', elevation: 12 },
