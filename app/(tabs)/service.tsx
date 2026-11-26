@@ -7,6 +7,7 @@ import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
 import { dateRangesOverlap, formatDate, formatCurrency } from '@/lib/format';
 import { Sheet } from '@/components/Sheet';
 import { Field } from '@/components/Field';
+import { PercentageField } from '@/components/PercentageField';
 import { DateField } from '@/components/DateField';
 import { TimeField } from '@/components/TimeField';
 import { Button } from '@/components/Button';
@@ -364,7 +365,7 @@ export default function RentalScreen() {
             <TimeField label="Jam Mulai (WIB)*" value={duplicateForm.start_time} onChange={(value) => setDuplicateForm({ ...duplicateForm, start_time: value })} />
             <TimeField label="Jam Selesai (WIB)*" value={duplicateForm.end_time} onChange={(value) => setDuplicateForm({ ...duplicateForm, end_time: value })} />
             <Field label="KM Awal*" value={duplicateForm.start_km} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, start_km: t })} placeholder="Contoh: 12000" keyboardType="numeric" />
-            <Field label="Fuel Awal*" value={duplicateForm.start_fuel} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, start_fuel: t })} placeholder="0-100" keyboardType="numeric" />
+            <PercentageField label="Fuel Awal*" value={duplicateForm.start_fuel} onChange={(value) => setDuplicateForm({ ...duplicateForm, start_fuel: value })} />
             <Text style={styles.label}>Need trial Outside?*</Text>
             <TouchableOpacity
               style={styles.trialDropdown}

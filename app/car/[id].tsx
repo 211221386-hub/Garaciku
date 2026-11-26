@@ -32,6 +32,7 @@ import type { Car, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStat
 import { formatDate, formatShortDate, formatCurrency, todayISO } from '@/lib/format';
 import { Sheet } from '@/components/Sheet';
 import { Field } from '@/components/Field';
+import { PercentageField } from '@/components/PercentageField';
 import { DateField } from '@/components/DateField';
 import { Button } from '@/components/Button';
 import { getSession } from '@/lib/auth';
@@ -404,15 +405,6 @@ export default function CarDetailScreen() {
       need_trial_outside: note.need_trial_outside ?? false,
     });
     setNoteSheet(true);
-  };
-
-  const updateFuelPercentage = (field: 'start_fuel' | 'end_fuel', value: string) => {
-    const sanitized = value.replace(',', '.').replace(/[^\d.]/g, '');
-    const decimalIndex = sanitized.indexOf('.');
-    const normalized = decimalIndex < 0
-      ? sanitized
-      : `${sanitized.slice(0, decimalIndex)}.${sanitized.slice(decimalIndex + 1).replace(/\./g, '')}`;
-    setNewNote({ ...newNote, [field]: normalized && Number(normalized) > 100 ? '100' : normalized });
   };
 
   // --- Completeness CRUD ---
@@ -974,8 +966,8 @@ export default function CarDetailScreen() {
         ) : null}
         <Field label="KM Awal*" value={newNote.start_km} onChangeText={(value) => setNewNote({ ...newNote, start_km: value })} placeholder="Contoh: 12000" keyboardType="numeric" />
         <Field label="KM Akhir*" value={newNote.end_km} onChangeText={(value) => setNewNote({ ...newNote, end_km: value })} placeholder="Contoh: 12150" keyboardType="numeric" />
-        <Field label="Fuel Awal (%)*" value={newNote.start_fuel} onChangeText={(value) => updateFuelPercentage('start_fuel', value)} placeholder="0-100" keyboardType="numeric" />
-        <Field label="Fuel Akhir (%)*" value={newNote.end_fuel} onChangeText={(value) => updateFuelPercentage('end_fuel', value)} placeholder="0-100" keyboardType="numeric" />
+        <PercentageField label="Fuel Awal (%)*" value={newNote.start_fuel} onChange={(value) => setNewNote({ ...newNote, start_fuel: value })} />
+        <PercentageField label="Fuel Akhir (%)*" value={newNote.end_fuel} onChange={(value) => setNewNote({ ...newNote, end_fuel: value })} />
         <Field
           label="Aktivitas*"
           value={newNote.content}

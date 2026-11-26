@@ -3,6 +3,7 @@ import { Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-na
 import { ImagePlus, Plus, X } from 'lucide-react-native';
 import { Button } from '@/components/Button';
 import { Field } from '@/components/Field';
+import { PercentageField } from '@/components/PercentageField';
 import { Sheet } from '@/components/Sheet';
 import { apiClient } from '@/lib/api';
 import { getSession } from '@/lib/auth';
@@ -249,7 +250,7 @@ export function InvestigationReturnActions({ note, isAdmin, onUpdated }: Props) 
       >
         <Text style={styles.helpText}>Isi KM akhir, fuel akhir, dan minimal satu part yang dibongkar. Foto bersifat opsional dan itinerary masih dapat diubah sampai Admin mengonfirmasi penerimaan unit.</Text>
         <Field label="Kilometer Akhir*" value={endKm} onChangeText={setEndKm} placeholder="Contoh: 12150" keyboardType="numeric" />
-        <Field label="Fuel Akhir (%) *" value={endFuel} onChangeText={setEndFuel} placeholder="0-100" keyboardType="numeric" />
+        <PercentageField label="Fuel Akhir (%) *" value={endFuel} onChange={setEndFuel} />
         <Text style={styles.label}>Part yang dibongkar*</Text>
         {parts.map((part, index) => (
           <View key={`part-${index}`} style={styles.partRow}>
