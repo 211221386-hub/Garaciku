@@ -796,7 +796,7 @@ export default function RentalScreen() {
           </>
         ) : (
           <>
-            <Field label="Bagian*" value={duplicateForm.section} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, section: t })} placeholder="Contoh: Maintenance / Ops" />
+            <Field label="Section*" value={duplicateForm.section} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, section: t })} placeholder="Contoh: Maintenance / Ops" />
             <TimeField label="Jam Mulai (WIB)*" value={duplicateForm.start_time} onChange={(value) => setDuplicateForm({ ...duplicateForm, start_time: value })} />
             <TimeField label="Jam Selesai (WIB)*" value={duplicateForm.end_time} onChange={(value) => setDuplicateForm({ ...duplicateForm, end_time: value })} />
             <Field label="KM Awal*" value={duplicateForm.start_km} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, start_km: t })} placeholder="Contoh: 12000" keyboardType="numeric" />
