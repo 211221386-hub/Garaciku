@@ -43,7 +43,6 @@ export function InvestigationReturnActions({ note, isAdmin, onUpdated }: Props) 
   const [endFuel, setEndFuel] = useState('');
   const [parts, setParts] = useState<string[]>([]);
   const [newPart, setNewPart] = useState('');
-  const [newPhotos, setNewPhotos] = useState<CompressedPhotoDraft[]>([]);
   const [damageDrafts, setDamageDrafts] = useState<DamageDraft[]>([]);
   const userId = getSession()?.user.id;
   const itinerary = details?.itinerary ?? null;
@@ -98,7 +97,6 @@ export function InvestigationReturnActions({ note, isAdmin, onUpdated }: Props) 
     setEndFuel(itinerary?.end_fuel === null || itinerary?.end_fuel === undefined ? '' : String(itinerary.end_fuel));
     setParts(details?.parts.map((part) => part.part_name) ?? []);
     setNewPart('');
-    setNewPhotos([]);
     setDamageDrafts((details?.damages ?? []).map((damage) => ({
       id: damage.id,
       description: damage.description,
@@ -120,18 +118,6 @@ export function InvestigationReturnActions({ note, isAdmin, onUpdated }: Props) 
       await onUpdated();
     } catch (error) {
       Alert.alert('Gagal mengonfirmasi pengembalian Investigation', error instanceof Error ? error.message : 'Terjadi kesalahan.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const deletePhoto = async (photoId: string) => {
-    setSaving(true);
-    try {
-      await apiClient.notes.deleteReturnPhoto(note.id, photoId);
-      await refreshDetails();
-    } catch (error) {
-      Alert.alert('Gagal menghapus foto', error instanceof Error ? error.message : 'Terjadi kesalahan.');
     } finally {
       setSaving(false);
     }
@@ -172,14 +158,8 @@ export function InvestigationReturnActions({ note, isAdmin, onUpdated }: Props) 
     }
 
     setSaving(true);
-    const uploadedPhotoIds: string[] = [];
     let itinerarySaved = false;
     try {
-      for (const photo of newPhotos) {
-        if (!photo.base64) throw new Error('Data foto tidak valid. Pilih ulang foto tersebut.');
-        const uploaded = await apiClient.notes.uploadReturnPhoto(note.id, photo.base64);
-        uploadedPhotoIds.push(uploaded.id);
-      }
       await apiClient.notes.saveReturnItinerary(
         note.id,
         startKmValue,
@@ -191,43 +171,31 @@ export function InvestigationReturnActions({ note, isAdmin, onUpdated }: Props) 
         submit,
       );
       itinerarySaved = true;
-      uploadedPhotoIds.length = 0;
       for (const damage of damageDrafts) {
         for (const photo of damage.newPhotos) {
           if (!photo.base64) throw new Error('Data foto kerusakan tidak valid. Pilih ulang foto tersebut.');
           await apiClient.notes.uploadReturnDamagePhoto(note.id, damage.id, photo.id, photo.base64);
         }
       }
+      setEditing(false);
+      setDamageDrafts([]);
+      let refreshError: unknown = null;
       try {
         await refreshDetails();
-      } catch {
-        setLoadError(true);
+      } catch (error) {
+        refreshError = error;
       }
-      setNewPhotos([]);
-      setDamageDrafts([]);
-      setEditing(false);
-      Alert.alert(
-        submit ? 'Itinerary dikirim' : 'Draft tersimpan',
-        submit
-          ? 'Itinerary pengembalian Investigation berhasil dikirim dan menunggu Admin menerima unit.'
-          : 'KM Awal dan Fuel Awal Investigation tersimpan sebagai draft. Lengkapi KM Akhir dan Fuel Akhir saat unit dikembalikan.',
-      );
+      if (submit) {
+        Alert.alert('Itinerary dikirim', 'Itinerary pengembalian Investigation berhasil dikirim dan menunggu Admin menerima unit.');
+      } else if (refreshError) {
+        Alert.alert('Draft tersimpan', `KM Awal dan Fuel Awal sudah tersimpan, tetapi status terbaru gagal dimuat. ${refreshError instanceof Error ? refreshError.message : 'Coba muat ulang itinerary.'}`);
+      }
       try {
         await onUpdated();
       } catch (error) {
         Alert.alert('Itinerary tersimpan, daftar approval gagal diperbarui', error instanceof Error ? error.message : 'Muat ulang tab Approval.');
       }
     } catch (error) {
-      const cleanupErrors: string[] = [];
-      if (!itinerarySaved) {
-        for (const photoId of uploadedPhotoIds) {
-          try {
-            await apiClient.notes.deleteReturnPhoto(note.id, photoId);
-          } catch (cleanupError) {
-            cleanupErrors.push(cleanupError instanceof Error ? cleanupError.message : 'Gagal membersihkan foto yang sudah terunggah.');
-          }
-        }
-      }
       const message = error instanceof Error ? error.message : 'Terjadi kesalahan.';
       if (itinerarySaved) {
         try {
@@ -237,24 +205,9 @@ export function InvestigationReturnActions({ note, isAdmin, onUpdated }: Props) 
           return;
         }
       }
-      Alert.alert('Gagal menyimpan itinerary', cleanupErrors.length
-        ? `${message}\n\nSebagian foto sementara tidak dapat dibersihkan: ${cleanupErrors.join('; ')}`
-        : message);
+      Alert.alert('Gagal menyimpan itinerary', message);
     } finally {
       setSaving(false);
-    }
-  };
-
-  const addPhoto = async () => {
-    if ((details?.photos.length ?? 0) + newPhotos.length >= 5) {
-      Alert.alert('Batas foto tercapai', 'Maksimal 5 foto untuk satu itinerary.');
-      return;
-    }
-    try {
-      const photo = await pickCompressedPhoto();
-      if (photo) setNewPhotos((current) => [...current, photo]);
-    } catch (error) {
-      Alert.alert('Gagal memilih foto', error instanceof Error ? error.message : 'Terjadi kesalahan saat memproses foto.');
     }
   };
 
@@ -380,7 +333,6 @@ export function InvestigationReturnActions({ note, isAdmin, onUpdated }: Props) 
         onClose={() => {
           if (saving) return;
           setEditing(false);
-          setNewPhotos([]);
           setDamageDrafts([]);
         }}
         title="Itinerary Pengembalian"
@@ -480,31 +432,6 @@ export function InvestigationReturnActions({ note, isAdmin, onUpdated }: Props) 
             </View>
           </View>
         ))}
-        <Text style={styles.label}>Foto part (opsional, maksimal 5)</Text>
-        <View style={styles.photoRow}>
-          {details?.photos.map((photo) => (
-            <View key={photo.id} style={styles.photoContainer}>
-              <Image source={{ uri: photo.url }} style={styles.photoPreview} />
-              <TouchableOpacity style={styles.removePhotoButton} onPress={() => { void deletePhoto(photo.id); }} disabled={saving} accessibilityLabel="Hapus foto">
-                <X size={14} color={Colors.white} />
-              </TouchableOpacity>
-            </View>
-          ))}
-          {newPhotos.map((photo, index) => (
-            <View key={`new-photo-${index}`} style={styles.photoContainer}>
-              <Image source={{ uri: photo.preview }} style={styles.photoPreview} />
-              <TouchableOpacity style={styles.removePhotoButton} onPress={() => setNewPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))} accessibilityLabel="Hapus foto baru">
-                <X size={14} color={Colors.white} />
-              </TouchableOpacity>
-            </View>
-          ))}
-          {(details?.photos.length ?? 0) + newPhotos.length < 5 ? (
-            <TouchableOpacity style={styles.addPhotoButton} onPress={() => { void addPhoto(); }} disabled={saving}>
-              <ImagePlus size={22} color={Colors.primary} />
-              <Text style={styles.addPhotoText}>Tambah foto</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
         <View style={{ height: Spacing.md }} />
         {!isSubmitted ? (
           <Button label="Simpan draft KM/Fuel Awal" onPress={() => { void saveItinerary(false); }} loading={saving} disabled={loading || saving} />

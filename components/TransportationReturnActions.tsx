@@ -168,15 +168,19 @@ export function TransportationReturnActions({ rental, isAdmin, onUpdated }: Prop
           });
         }
       }
-      await refreshDetails();
       setEditing(false);
       setDamageDrafts([]);
-      Alert.alert(
-        submit ? 'Itinerary dikirim' : 'Draft tersimpan',
-        submit
-          ? 'Itinerary pengembalian berhasil dikirim dan menunggu Admin menerima unit.'
-          : 'KM Awal dan Fuel Awal tersimpan sebagai draft. Lengkapi KM Akhir dan Fuel Akhir saat unit dikembalikan.',
-      );
+      let refreshError: unknown = null;
+      try {
+        await refreshDetails();
+      } catch (error) {
+        refreshError = error;
+      }
+      if (submit) {
+        Alert.alert('Itinerary dikirim', 'Itinerary pengembalian berhasil dikirim dan menunggu Admin menerima unit.');
+      } else if (refreshError) {
+        Alert.alert('Draft tersimpan', `KM Awal dan Fuel Awal sudah tersimpan, tetapi status terbaru gagal dimuat. ${refreshError instanceof Error ? refreshError.message : 'Coba muat ulang itinerary.'}`);
+      }
       try {
         await onUpdated();
       } catch (error) {
