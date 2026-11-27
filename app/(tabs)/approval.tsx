@@ -8,6 +8,7 @@ import { differenceInCalendarDays, formatDate } from '@/lib/format';
 import { Colors, Radius, Spacing, Typography } from '@/lib/theme';
 import type { DailyNote, RentalRecord, RentalStatus } from '@/lib/types';
 import { InvestigationReturnActions } from '@/components/InvestigationReturnActions';
+import { TransportationReturnActions } from '@/components/TransportationReturnActions';
 
 type ApprovalRental = RentalRecord & { car_name: string };
 type ApprovalInvestigation = DailyNote & { car_name: string };
@@ -44,7 +45,6 @@ export default function ApprovalScreen() {
   const [investigationDecision, setInvestigationDecision] = useState<{ note: ApprovalInvestigation; status: 'approved' | 'rejected' } | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [processingInvestigationId, setProcessingInvestigationId] = useState<string | null>(null);
-  const [returningRentalId, setReturningRentalId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [notificationError, setNotificationError] = useState<string | null>(null);
 
@@ -137,19 +137,6 @@ export default function ApprovalScreen() {
     }
   };
 
-  const confirmRentalReturn = async (rental: ApprovalRental) => {
-    setReturningRentalId(rental.id);
-    setErrorMessage(null);
-    try {
-      await apiClient.rentals.confirmReturn(rental.id);
-      await fetchApprovals();
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Gagal mengonfirmasi pengembalian Transportation.');
-    } finally {
-      setReturningRentalId(null);
-    }
-  };
-
   const approvalItems: ApprovalQueueItem[] = activeTab === 'transportation'
     ? rentals.map((item) => ({ kind: 'transportation' as const, item }))
     : investigations.map((item) => ({ kind: 'investigation' as const, item }));
@@ -219,18 +206,15 @@ export default function ApprovalScreen() {
               <Text style={styles.waiting}>Menunggu Admin memilih dan menyetujui mobil.</Text>
             ) : ['approved', 'active', 'overdue'].includes(entry.item.status) ? (
               <>
-                <Text style={styles.waiting}>Transportation disetujui. Pengembalian menunggu konfirmasi Admin.</Text>
-                {canApprove() ? (
-                  <TouchableOpacity
-                    style={[styles.returnButton, returningRentalId === entry.item.id && styles.actionDisabled]}
-                    onPress={() => { void confirmRentalReturn(entry.item); }}
-                    disabled={returningRentalId === entry.item.id}
-                  >
-                    <Text style={styles.returnButtonText}>{returningRentalId === entry.item.id ? 'Memproses...' : 'Unit sudah diterima'}</Text>
-                  </TouchableOpacity>
-                ) : null}
+                <Text style={styles.waiting}>Transportation disetujui. Peminjam mengisi itinerary dan Admin mengonfirmasi penerimaan unit.</Text>
+                <TransportationReturnActions rental={entry.item} isAdmin={canApprove()} onUpdated={fetchApprovals} />
               </>
-            ) : <Text style={styles.waiting}>{entry.item.status === 'completed' ? 'Transportation selesai.' : 'Permintaan Anda ditolak.'}</Text>}
+            ) : entry.item.status === 'completed' ? (
+              <>
+                <Text style={styles.waiting}>Transportation selesai.</Text>
+                <TransportationReturnActions rental={entry.item} isAdmin={false} onUpdated={fetchApprovals} />
+              </>
+            ) : <Text style={styles.waiting}>Permintaan Anda ditolak.</Text>}
           </View>
         ) : (
           <View style={styles.card}>
@@ -374,8 +358,6 @@ const styles = StyleSheet.create({
   approve: { backgroundColor: Colors.primary },
   actionText: { fontSize: Typography.sm, fontFamily: Typography.fontSemiBold },
   waiting: { fontSize: Typography.sm, fontFamily: Typography.fontRegular, color: Colors.textSecondary, marginTop: Spacing.md, lineHeight: 20 },
-  returnButton: { alignSelf: 'flex-start', marginTop: Spacing.sm, backgroundColor: Colors.primary, borderRadius: Radius.md, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs },
-  returnButtonText: { color: Colors.white, fontSize: Typography.xs, fontFamily: Typography.fontSemiBold },
   actionDisabled: { opacity: 0.6 },
   modalOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: Spacing.lg },
   confirmModal: { width: '100%', maxWidth: 430, backgroundColor: Colors.white, borderRadius: Radius.xl, padding: Spacing.xl, alignItems: 'center', elevation: 12 },

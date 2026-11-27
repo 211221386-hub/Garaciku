@@ -69,6 +69,7 @@ function mockFetch(role, databaseRows = [], userOverrides = {}, responseOverride
     if ([
       '/rest/v1/rpc/create_rental_cycle',
       '/rest/v1/rpc/confirm_rental_return',
+      '/rest/v1/rpc/save_rental_return_itinerary',
       '/rest/v1/rpc/approve_rental_cycle_unit',
       '/rest/v1/rpc/reject_rental_cycle_unit',
     ].includes(url.pathname)) {
@@ -814,6 +815,126 @@ test('Investigation return itinerary cannot be edited by another user', async ()
     }, token), envFor(3));
     assert.equal(response.status, 403);
     assert.equal(mock.calls.some((call) => call.url.pathname === '/rest/v1/rpc/save_daily_note_return_itinerary'), false);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('Transportation owners can save a draft with initial readings without submitting a return', async () => {
+  const rentalId = '11111111-1111-4111-8111-111111111111';
+  const mock = mockFetch(4, {
+    rental_records: [{ id: rentalId, user_id: profile.id, car_id: 'car-1', status: 'active' }],
+  });
+  try {
+    const token = await login(envFor(4), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/rentals/return-itinerary', {
+      action: 'save',
+      rental_id: rentalId,
+      start_km: 12000,
+      start_fuel: 80,
+      end_km: null,
+      end_fuel: null,
+      submit: false,
+      damages: [
+        { id: '22222222-2222-4222-8222-222222222222', description: 'Baret pintu kiri', severity: 'low' },
+        { id: '33333333-3333-4333-8333-333333333333', description: 'Lampu belakang retak', severity: 'medium' },
+      ],
+    }, token), envFor(4));
+    const rpc = mock.calls.find((call) => call.url.pathname === '/rest/v1/rpc/save_rental_return_itinerary');
+    assert.equal(response.status, 200);
+    assert.deepEqual(JSON.parse(rpc.options.body), {
+      _rental_id: rentalId,
+      _user_id: profile.id,
+      _start_km: 12000,
+      _start_fuel: 80,
+      _end_km: null,
+      _end_fuel: null,
+      _submit: false,
+      _damage_reports: [
+        { id: '22222222-2222-4222-8222-222222222222', description: 'Baret pintu kiri', severity: 'low' },
+        { id: '33333333-3333-4333-8333-333333333333', description: 'Lampu belakang retak', severity: 'medium' },
+      ],
+    });
+  } finally {
+    mock.restore();
+  }
+});
+
+test('completed Transportation itinerary includes readings and the authenticated receiver name', async () => {
+  const rentalId = '11111111-1111-4111-8111-111111111111';
+  const mock = mockFetch(4, {
+    rental_records: [{ id: rentalId, user_id: profile.id, car_id: 'car-1', status: 'completed', return_confirmed_by: profile.id }],
+    rental_return_itineraries: [{
+      rental_id: rentalId,
+      start_km: 12000,
+      start_fuel: 80,
+      end_km: 12100,
+      end_fuel: 60,
+      submitted_by: profile.id,
+      submitted_at: '2026-11-26T08:00:00Z',
+      updated_at: '2026-11-26T08:00:00Z',
+    }],
+    damages: [],
+  });
+  try {
+    const token = await login(envFor(4), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/rentals/return-itinerary', {
+      action: 'get',
+      rental_id: rentalId,
+    }, token), envFor(4));
+    const result = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(result.data.itinerary.start_km, 12000);
+    assert.equal(result.data.itinerary.end_fuel, 60);
+    assert.equal(result.data.return_confirmed_by_name, profile.full_name);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('Transportation return submission requires complete valid end readings', async () => {
+  const rentalId = '11111111-1111-4111-8111-111111111111';
+  const mock = mockFetch(3, {
+    rental_records: [{ id: rentalId, user_id: profile.id, car_id: 'car-1', status: 'active' }],
+  });
+  try {
+    const token = await login(envFor(3), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/rentals/return-itinerary', {
+      action: 'save',
+      rental_id: rentalId,
+      start_km: 12000,
+      start_fuel: 80,
+      end_km: null,
+      end_fuel: null,
+      submit: true,
+      damages: [],
+    }, token), envFor(3));
+    assert.equal(response.status, 400);
+    assert.equal(mock.calls.some((call) => call.url.pathname === '/rest/v1/rpc/save_rental_return_itinerary'), false);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('Transportation return itinerary cannot be edited by a different user', async () => {
+  const rentalId = '11111111-1111-4111-8111-111111111111';
+  const mock = mockFetch(3, {
+    rental_records: [{ id: rentalId, user_id: 'another-user', car_id: 'car-1', status: 'active' }],
+  });
+  try {
+    const token = await login(envFor(3), mock.calls);
+    const response = await worker.fetch(makeRequest('/api/rentals/return-itinerary', {
+      action: 'save',
+      rental_id: rentalId,
+      start_km: 12000,
+      start_fuel: 80,
+      end_km: null,
+      end_fuel: null,
+      submit: false,
+      damages: [],
+    }, token), envFor(3));
+    assert.equal(response.status, 403);
+    assert.equal(mock.calls.some((call) => call.url.pathname === '/rest/v1/rpc/save_rental_return_itinerary'), false);
   } finally {
     mock.restore();
   }

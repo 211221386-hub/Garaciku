@@ -16,7 +16,7 @@ const COLUMNS = {
   cars: new Set(['id', 'name', 'brand', 'model', 'year', 'plate_number', 'color', 'photo_url', 'operational_status', 'periodic_service_start_date', 'annual_tax_due_date', 'plate_tax_due_date', 'created_at']),
   daily_notes: new Set(['id', 'car_id', 'created_by', 'created_name', 'section', 'note_date', 'start_date', 'start_time', 'end_date', 'end_time', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'detail', 'status', 'return_confirmed_by', 'return_confirmed_at', 'reviewed_by', 'reviewed_at', 'created_at']),
   completeness_items: new Set(['id', 'car_id', 'name', 'is_present', 'reminder_type', 'next_due_date', 'created_at']),
-  damages: new Set(['id', 'car_id', 'description', 'severity', 'status', 'reported_date', 'resolved_date', 'created_at']),
+  damages: new Set(['id', 'car_id', 'rental_id', 'is_return_draft', 'description', 'severity', 'status', 'reported_date', 'resolved_date', 'created_at']),
   service_records: new Set(['id', 'car_id', 'service_date', 'service_type', 'description', 'cost', 'mileage', 'workshop', 'status', 'next_service_date', 'next_service_mileage', 'reminder_enabled', 'is_recurring', 'reminder_interval_months', 'reminder_interval_mileage', 'created_name', 'created_at']),
   rental_records: new Set(['id', 'car_id', 'user_id', 'renter_name', 'renter_email', 'renter_phone', 'start_date', 'start_time', 'end_date', 'end_time', 'total_cost', 'purpose', 'status', 'approved_by', 'approved_at', 'return_confirmed_by', 'return_confirmed_at', 'notes', 'created_at']),
   vehicle_inspections: new Set(['id', 'car_id', 'inspector_user_id', 'inspector_name', 'inspection_date', 'mileage', 'model_snapshot', 'plate_snapshot', 'status', 'checked_prepared_by', 'checked_prepared_name', 'checked_prepared_at', 'approved_by', 'approved_name', 'approved_at', 'created_at']),
@@ -205,7 +205,7 @@ async function getDashboard(env, request) {
     ['service_records', 'id,car_id,service_date,service_type,description,cost,status,created_name,created_at'],
     ['daily_notes', 'id,car_id,note_date,created_name,section,content,detail,status,start_date,end_date,created_at'],
     ['vehicle_inspections', 'id,car_id,inspection_date,status,mileage,inspector_name,created_at'],
-    ['damages', 'id,car_id,reported_date,description,severity,status,created_at'],
+    ['damages', 'id,car_id,reported_date,description,severity,status,created_at,is_return_draft'],
     ['completeness_items', 'car_id,is_present'],
     ['users', 'id,full_name'],
   ];
@@ -227,7 +227,7 @@ async function getDashboard(env, request) {
   const filteredServices = filtered(services, 'service_date');
   const filteredNotes = filtered(notes, 'start_date');
   const filteredInspections = filtered(inspections, 'inspection_date');
-  const filteredDamages = filtered(damages, 'reported_date');
+  const filteredDamages = filtered(damages.filter((row) => row.is_return_draft !== true), 'reported_date');
   const activeStatuses = new Set(['active', 'approved', 'overdue']);
   const units = visibleCars.map((car) => {
     const unitServices = filteredServices.filter((row) => row.car_id === car.id);
@@ -404,6 +404,13 @@ async function proxyMutation(env, user, body) {
     for (const record of records) {
       if (operation === 'insert' || record.status === 'completed') record.created_name = createdName;
       else delete record.created_name;
+    }
+  }
+  if (table === 'damages' && operation !== 'delete') {
+    const records = Array.isArray(values) ? values : [values];
+    for (const record of records) {
+      delete record.rental_id;
+      delete record.is_return_draft;
     }
   }
   if (table === 'daily_notes' && operation !== 'delete') {
@@ -776,6 +783,286 @@ async function confirmRentalReturn(request, env, user) {
   const result = await response.json().catch(() => null);
   if (!response.ok) return { status: 409, error: typeof result?.message === 'string' ? result.message : 'Konfirmasi pengembalian gagal.' };
   return { status: 200, data: result };
+}
+
+async function getRentalForReturnItinerary(env, rentalId) {
+  const rentalUrl = new URL(`${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rental_records`);
+  rentalUrl.searchParams.set('id', `eq.${rentalId}`);
+  rentalUrl.searchParams.set('select', 'id,user_id,car_id,status,return_confirmed_by,return_confirmed_at');
+  const response = await fetch(rentalUrl, { headers: serviceHeaders(env) });
+  const rows = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(rows)) return { error: { status: 503, message: 'Gagal memeriksa Transportation.' } };
+  if (!rows[0]) return { error: { status: 404, message: 'Transportation tidak ditemukan.' } };
+  return { rental: rows[0] };
+}
+
+function isRentalReturnEditable(rental, user) {
+  return rental.user_id === user.id
+    && ['approved', 'active', 'overdue'].includes(rental.status)
+    && !rental.return_confirmed_at;
+}
+
+async function signRentalDamagePhoto(env, photo) {
+  const baseUrl = env.SUPABASE_URL.replace(/\/$/, '');
+  const bucket = 'rental-return-damage-photos';
+  const signResponse = await fetch(`${baseUrl}/storage/v1/object/sign/${bucket}/${photo.object_path}`, {
+    method: 'POST',
+    headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ expiresIn: 3600 }),
+  });
+  const signed = await signResponse.json().catch(() => null);
+  if (!signResponse.ok || typeof signed?.signedURL !== 'string') return null;
+  return {
+    id: photo.id,
+    damage_id: photo.damage_id,
+    url: signed.signedURL.startsWith('http') ? signed.signedURL : `${baseUrl}/storage/v1${signed.signedURL}`,
+  };
+}
+
+async function handleRentalReturnItinerary(request, env, user) {
+  const baseUrl = env.SUPABASE_URL.replace(/\/$/, '');
+  const bucket = 'rental-return-damage-photos';
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  let body;
+  try { body = await request.json(); } catch { return { status: 400, error: 'Invalid JSON body.' }; }
+  if (!body || typeof body.rental_id !== 'string' || !uuidPattern.test(body.rental_id)
+    || !['get', 'save', 'upload-photo', 'delete-photo'].includes(body.action)) {
+    return { status: 400, error: 'Data itinerary pengembalian Transportation tidak valid.' };
+  }
+  if (![1, 2, 3, 4].includes(user.role)) return { status: 403, error: 'Role ini tidak dapat mengakses itinerary Transportation.' };
+
+  const rentalResult = await getRentalForReturnItinerary(env, body.rental_id);
+  if (rentalResult.error) return { status: rentalResult.error.status, error: rentalResult.error.message };
+  const { rental } = rentalResult;
+  const isAdmin = [1, 2].includes(user.role);
+  if (body.action === 'get') {
+    if (!isAdmin && rental.user_id !== user.id) return { status: 403, error: 'Itinerary ini bukan milik akun Anda.' };
+  } else if (!isRentalReturnEditable(rental, user)) {
+    return { status: 403, error: 'Hanya peminjam Transportation yang masih aktif dapat mengubah itinerary.' };
+  }
+
+  if (body.action === 'get') {
+    const itineraryUrl = new URL(`${baseUrl}/rest/v1/rental_return_itineraries`);
+    itineraryUrl.searchParams.set('rental_id', `eq.${rental.id}`);
+    itineraryUrl.searchParams.set('select', 'rental_id,start_km,start_fuel,end_km,end_fuel,submitted_by,submitted_at,updated_at');
+    const damagesUrl = new URL(`${baseUrl}/rest/v1/damages`);
+    damagesUrl.searchParams.set('rental_id', `eq.${rental.id}`);
+    damagesUrl.searchParams.set('select', 'id,rental_id,is_return_draft,description,severity,status,reported_date');
+    const [itineraryResponse, damagesResponse] = await Promise.all([
+      fetch(itineraryUrl, { headers: serviceHeaders(env) }),
+      fetch(damagesUrl, { headers: serviceHeaders(env) }),
+    ]);
+    const [itineraries, damages] = await Promise.all([
+      itineraryResponse.json().catch(() => null),
+      damagesResponse.json().catch(() => null),
+    ]);
+    if (!itineraryResponse.ok || !damagesResponse.ok || !Array.isArray(itineraries) || !Array.isArray(damages)) {
+      return { status: 503, error: 'Gagal memuat itinerary atau laporan kerusakan Transportation.' };
+    }
+
+    const damageIds = damages.map((damage) => damage.id);
+    let photos = [];
+    if (damageIds.length) {
+      const photosUrl = new URL(`${baseUrl}/rest/v1/damage_photos`);
+      photosUrl.searchParams.set('damage_id', `in.(${damageIds.join(',')})`);
+      photosUrl.searchParams.set('select', 'id,damage_id,object_path');
+      const photosResponse = await fetch(photosUrl, { headers: serviceHeaders(env) });
+      photos = await photosResponse.json().catch(() => null);
+      if (!photosResponse.ok || !Array.isArray(photos)) return { status: 503, error: 'Gagal memuat foto kerusakan Transportation.' };
+    }
+    const signedPhotos = await Promise.all(photos.map(async (photo) => {
+      const expectedPath = `${rental.id}/${photo.damage_id}/${photo.id}.jpg`;
+      if (photo.object_path !== expectedPath) return null;
+      return signRentalDamagePhoto(env, photo);
+    }));
+    if (signedPhotos.some((photo, index) => photos[index] && !photo)) {
+      return { status: 503, error: 'Gagal membuat tautan aman untuk foto kerusakan Transportation.' };
+    }
+    let returnConfirmedByName = null;
+    if (rental.return_confirmed_by) {
+      const userUrl = new URL(`${baseUrl}/rest/v1/users`);
+      userUrl.searchParams.set('id', `eq.${rental.return_confirmed_by}`);
+      userUrl.searchParams.set('select', 'full_name');
+      const userResponse = await fetch(userUrl, { headers: serviceHeaders(env) });
+      const [confirmedBy] = await userResponse.json().catch(() => []);
+      if (!userResponse.ok) return { status: 503, error: 'Gagal memuat nama Admin penerima unit.' };
+      returnConfirmedByName = confirmedBy?.full_name ?? null;
+    }
+    const photosByDamageId = new Map();
+    for (const photo of signedPhotos.filter(Boolean)) {
+      photosByDamageId.set(photo.damage_id, [...(photosByDamageId.get(photo.damage_id) ?? []), { id: photo.id, url: photo.url }]);
+    }
+    return {
+      status: 200,
+      data: {
+        itinerary: itineraries[0] ?? null,
+        damages: damages.map((damage) => ({ ...damage, photos: photosByDamageId.get(damage.id) ?? [] })),
+        return_confirmed_by_name: returnConfirmedByName,
+      },
+    };
+  }
+
+  if (body.action === 'save') {
+    const endKm = body.end_km === null ? null : body.end_km;
+    const endFuel = body.end_fuel === null ? null : body.end_fuel;
+    if (!Number.isInteger(body.start_km) || body.start_km < 0
+      || !Number.isInteger(body.start_fuel) || body.start_fuel < 0 || body.start_fuel > 100
+      || (endKm !== null && (!Number.isInteger(endKm) || endKm < body.start_km))
+      || (endFuel !== null && (!Number.isInteger(endFuel) || endFuel < 0 || endFuel > 100))
+      || ((endKm === null) !== (endFuel === null))
+      || typeof body.submit !== 'boolean'
+      || (body.submit && (endKm === null || endFuel === null))
+      || !Array.isArray(body.damages) || body.damages.length > 20
+      || body.damages.some((damage) => !damage || typeof damage !== 'object'
+        || typeof damage.id !== 'string' || !uuidPattern.test(damage.id)
+        || typeof damage.description !== 'string' || !damage.description.trim() || damage.description.trim().length > 500
+        || !['low', 'medium', 'high'].includes(damage.severity))
+      || new Set(body.damages.map((damage) => damage.id)).size !== body.damages.length) {
+      return { status: 400, error: 'KM awal/fuel awal, KM akhir/fuel akhir, atau laporan kerusakan tidak valid.' };
+    }
+
+    const response = await fetch(`${baseUrl}/rest/v1/rpc/save_rental_return_itinerary`, {
+      method: 'POST',
+      headers: serviceHeaders(env, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        _rental_id: rental.id,
+        _user_id: user.id,
+        _start_km: body.start_km,
+        _start_fuel: body.start_fuel,
+        _end_km: endKm,
+        _end_fuel: endFuel,
+        _submit: body.submit,
+        _damage_reports: body.damages.map((damage) => ({
+          id: damage.id,
+          description: damage.description.trim(),
+          severity: damage.severity,
+        })),
+      }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) return { status: 409, error: typeof result?.message === 'string' ? result.message : 'Gagal menyimpan itinerary pengembalian.' };
+    return { status: 200, data: result };
+  }
+
+  if (body.action === 'upload-photo') {
+    if (!uuidPattern.test(body.damage_id ?? '') || !uuidPattern.test(body.photo_id ?? '')
+      || typeof body.base64 !== 'string' || body.content_type !== 'image/jpeg'
+      || body.base64.length > 2800000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(body.base64)) {
+      return { status: 400, error: 'Data foto kerusakan tidak valid atau melebihi batas ukuran.' };
+    }
+    const damageUrl = new URL(`${baseUrl}/rest/v1/damages`);
+    damageUrl.searchParams.set('id', `eq.${body.damage_id}`);
+    damageUrl.searchParams.set('rental_id', `eq.${rental.id}`);
+    damageUrl.searchParams.set('select', 'id,rental_id,is_return_draft');
+    const damageResponse = await fetch(damageUrl, { headers: serviceHeaders(env) });
+    const [damage] = await damageResponse.json().catch(() => []);
+    if (!damageResponse.ok) return { status: 503, error: 'Gagal memeriksa laporan kerusakan.' };
+    if (!damage) return { status: 404, error: 'Laporan kerusakan tidak ditemukan.' };
+
+    const existingPhotoUrl = new URL(`${baseUrl}/rest/v1/damage_photos`);
+    existingPhotoUrl.searchParams.set('id', `eq.${body.photo_id}`);
+    existingPhotoUrl.searchParams.set('select', 'id,damage_id');
+    const existingPhotoResponse = await fetch(existingPhotoUrl, { headers: serviceHeaders(env) });
+    const [existingPhoto] = await existingPhotoResponse.json().catch(() => []);
+    if (!existingPhotoResponse.ok) return { status: 503, error: 'Gagal memeriksa foto kerusakan.' };
+    if (existingPhoto) {
+      if (existingPhoto.damage_id !== damage.id) return { status: 409, error: 'ID foto sudah digunakan untuk laporan lain.' };
+      return { status: 200, data: existingPhoto };
+    }
+
+    const photoCountUrl = new URL(`${baseUrl}/rest/v1/damage_photos`);
+    photoCountUrl.searchParams.set('damage_id', `eq.${damage.id}`);
+    photoCountUrl.searchParams.set('select', 'id');
+    const photoCountResponse = await fetch(photoCountUrl, { headers: serviceHeaders(env) });
+    const photos = await photoCountResponse.json().catch(() => null);
+    if (!photoCountResponse.ok || !Array.isArray(photos)) return { status: 503, error: 'Gagal memeriksa jumlah foto kerusakan.' };
+    if (photos.length >= 5) return { status: 409, error: 'Maksimal 5 foto untuk setiap laporan kerusakan.' };
+    const bytes = Uint8Array.from(atob(body.base64), (character) => character.charCodeAt(0));
+    if (bytes.byteLength > 2 * 1024 * 1024) return { status: 413, error: 'Ukuran foto melebihi batas 2 MB.' };
+    const objectPath = `${rental.id}/${damage.id}/${body.photo_id}.jpg`;
+    const uploadUrl = `${baseUrl}/storage/v1/object/${bucket}/${objectPath}`;
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: serviceHeaders(env, { 'Content-Type': body.content_type, 'x-upsert': 'false' }),
+      body: bytes,
+    });
+    if (!uploadResponse.ok) {
+      const result = await uploadResponse.json().catch(() => null);
+      return { status: uploadResponse.status, error: result?.message ?? 'Gagal mengunggah foto kerusakan.' };
+    }
+    const photoResponse = await fetch(`${baseUrl}/rest/v1/damage_photos`, {
+      method: 'POST',
+      headers: serviceHeaders(env, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+      body: JSON.stringify({ id: body.photo_id, damage_id: damage.id, object_path: objectPath }),
+    });
+    const [photo] = await photoResponse.json().catch(() => []);
+    if (!photoResponse.ok || !photo) {
+      await fetch(uploadUrl, { method: 'DELETE', headers: serviceHeaders(env) });
+      return { status: 503, error: 'Gagal menyimpan catatan foto kerusakan.' };
+    }
+    return { status: 201, data: photo };
+  }
+
+  if (!uuidPattern.test(body.damage_id ?? '') || !uuidPattern.test(body.photo_id ?? '')) {
+    return { status: 400, error: 'ID laporan atau foto tidak valid.' };
+  }
+  const photoUrl = new URL(`${baseUrl}/rest/v1/damage_photos`);
+  photoUrl.searchParams.set('id', `eq.${body.photo_id}`);
+  photoUrl.searchParams.set('damage_id', `eq.${body.damage_id}`);
+  photoUrl.searchParams.set('select', 'id,damage_id,object_path');
+  const photoResponse = await fetch(photoUrl, { headers: serviceHeaders(env) });
+  const [photo] = await photoResponse.json().catch(() => []);
+  if (!photoResponse.ok) return { status: 503, error: 'Gagal memeriksa foto kerusakan.' };
+  if (!photo || photo.object_path !== `${rental.id}/${body.damage_id}/${body.photo_id}.jpg`) {
+    return { status: 404, error: 'Foto kerusakan tidak ditemukan.' };
+  }
+  const storageUrl = `${baseUrl}/storage/v1/object/${bucket}/${photo.object_path}`;
+  const storageResponse = await fetch(storageUrl, { method: 'DELETE', headers: serviceHeaders(env) });
+  if (!storageResponse.ok) return { status: 503, error: 'Gagal menghapus file foto kerusakan.' };
+  const deleteResponse = await fetch(photoUrl, { method: 'DELETE', headers: serviceHeaders(env) });
+  if (!deleteResponse.ok) return { status: 503, error: 'File foto terhapus tetapi catatan foto gagal diperbarui.' };
+  return { status: 200, data: { id: photo.id } };
+}
+
+async function getDamagePhotos(request, env, user) {
+  const baseUrl = env.SUPABASE_URL.replace(/\/$/, '');
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  let body;
+  try { body = await request.json(); } catch { return { status: 400, error: 'Invalid JSON body.' }; }
+  if (!body || !Array.isArray(body.damage_ids) || body.damage_ids.length > 100
+    || body.damage_ids.some((id) => typeof id !== 'string' || !uuidPattern.test(id))) {
+    return { status: 400, error: 'Daftar laporan kerusakan tidak valid.' };
+  }
+  if (![1, 2, 3, 4].includes(user.role)) return { status: 403, error: 'Role ini tidak dapat mengakses foto kerusakan.' };
+  if (!body.damage_ids.length) return { status: 200, data: [] };
+  const damageUrl = new URL(`${baseUrl}/rest/v1/damages`);
+  damageUrl.searchParams.set('id', `in.(${body.damage_ids.join(',')})`);
+  damageUrl.searchParams.set('is_return_draft', 'eq.false');
+  damageUrl.searchParams.set('select', 'id,rental_id');
+  const damageResponse = await fetch(damageUrl, { headers: serviceHeaders(env) });
+  const damages = await damageResponse.json().catch(() => null);
+  if (!damageResponse.ok || !Array.isArray(damages)) return { status: 503, error: 'Gagal memeriksa laporan kerusakan.' };
+  const visibleDamageIds = new Set(damages.map((damage) => damage.id));
+  const photoUrl = new URL(`${baseUrl}/rest/v1/damage_photos`);
+  photoUrl.searchParams.set('damage_id', `in.(${[...visibleDamageIds].join(',')})`);
+  photoUrl.searchParams.set('select', 'id,damage_id,object_path');
+  if (!visibleDamageIds.size) return { status: 200, data: [] };
+  const photoResponse = await fetch(photoUrl, { headers: serviceHeaders(env) });
+  const photos = await photoResponse.json().catch(() => null);
+  if (!photoResponse.ok || !Array.isArray(photos)) return { status: 503, error: 'Gagal memuat foto kerusakan.' };
+  const damageById = new Map(damages.map((damage) => [damage.id, damage]));
+  const signedPhotos = await Promise.all(photos.map(async (photo) => {
+    const damage = damageById.get(photo.damage_id);
+    const validPath = damage?.rental_id
+      ? photo.object_path === `${damage.rental_id}/${photo.damage_id}/${photo.id}.jpg`
+      : Boolean(damage && new RegExp(`^[0-9a-f-]{36}/${photo.damage_id}/${photo.id}\\.jpg$`, 'i').test(photo.object_path));
+    if (!validPath) return null;
+    return signRentalDamagePhoto(env, photo);
+  }));
+  if (signedPhotos.some((photo, index) => photos[index] && !photo)) {
+    return { status: 503, error: 'Gagal membuat tautan aman untuk foto kerusakan.' };
+  }
+  return { status: 200, data: signedPhotos.filter(Boolean) };
 }
 
 async function confirmDailyNoteReturn(request, env, user) {
@@ -1262,7 +1549,9 @@ export default {
       '/api/data/delete',
       '/api/rentals/create-cycle',
       '/api/rentals/confirm-return',
+      '/api/rentals/return-itinerary',
       '/api/rentals/reject-unit',
+      '/api/damages/photos',
       '/api/cars/confirm-tax',
       '/api/daily-notes/confirm-return',
       '/api/daily-notes/return-itinerary',
@@ -1361,6 +1650,26 @@ export default {
       } catch (error) {
         console.error('Rental return confirmation failed:', error);
         return Response.json({ error: 'Rental return confirmation failed.' }, { status: 503, headers });
+      }
+    }
+
+    if (url.pathname === '/api/rentals/return-itinerary') {
+      try {
+        const result = await handleRentalReturnItinerary(request, env, user);
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Rental return itinerary failed:', error);
+        return Response.json({ error: 'Rental return itinerary could not be processed.' }, { status: 503, headers });
+      }
+    }
+
+    if (url.pathname === '/api/damages/photos') {
+      try {
+        const result = await getDamagePhotos(request, env, user);
+        return Response.json(result.status >= 400 ? { error: result.error } : { data: result.data }, { status: result.status, headers });
+      } catch (error) {
+        console.error('Damage photos could not be loaded:', error);
+        return Response.json({ error: 'Damage photos are temporarily unavailable.' }, { status: 503, headers });
       }
     }
 

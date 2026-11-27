@@ -124,6 +124,7 @@ export default function CarDetailScreen() {
   const [notes, setNotes] = useState<DailyNote[]>([]);
   const [completeness, setCompleteness] = useState<CompletenessItem[]>([]);
   const [damages, setDamages] = useState<Damage[]>([]);
+  const [damagePhotos, setDamagePhotos] = useState<Record<string, { id: string; url: string }[]>>({});
   const [rentals, setRentals] = useState<RentalRecord[]>([]);
   const [inspections, setInspections] = useState<VehicleInspection[]>([]);
   const [inspectionDraft, setInspectionDraft] = useState<InspectionItemDraft[]>([]);
@@ -180,6 +181,17 @@ export default function CarDetailScreen() {
       setDamages(dmgData);
       setRentals(rentalData);
       setInspections(inspectionData);
+      try {
+        const signedDamagePhotos = await apiClient.damages.getSignedPhotos(dmgData.map((damage) => damage.id));
+        const groupedDamagePhotos = signedDamagePhotos.reduce<Record<string, { id: string; url: string }[]>>((grouped, photo) => {
+          grouped[photo.damage_id] = [...(grouped[photo.damage_id] ?? []), { id: photo.id, url: photo.url }];
+          return grouped;
+        }, {});
+        setDamagePhotos(groupedDamagePhotos);
+      } catch (error) {
+        setDamagePhotos({});
+        Alert.alert('Gagal memuat foto kerusakan', error instanceof Error ? error.message : 'Terjadi kesalahan.');
+      }
     } catch (error) {
       console.error('Error fetching car details:', error);
     }
@@ -855,6 +867,12 @@ export default function CarDetailScreen() {
                         </View>
                       )}
                     </View>
+                    {dmg.rental_id ? <Text style={styles.metaText}>Dilaporkan melalui itinerary Transportation.</Text> : null}
+                    {(damagePhotos[dmg.id] ?? []).length ? (
+                      <View style={styles.damagePhotoRow}>
+                        {damagePhotos[dmg.id].map((photo) => <Image key={photo.id} source={{ uri: photo.url }} style={styles.damagePhoto} />)}
+                      </View>
+                    ) : null}
                   </View>
                 );
               })
@@ -1434,6 +1452,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: Spacing.xs,
   },
+  damagePhotoRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginTop: Spacing.sm },
+  damagePhoto: { width: 82, height: 82, borderRadius: Radius.md, backgroundColor: Colors.surfaceAlt },
   metaText: {
     fontSize: Typography.sm,
     fontFamily: Typography.fontRegular,

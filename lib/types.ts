@@ -126,12 +126,35 @@ export type DamageStatus = 'open' | 'repairing' | 'fixed';
 export type Damage = {
   id: string;
   car_id: string;
+  rental_id: string | null;
+  is_return_draft: boolean;
   description: string;
   severity: DamageSeverity;
   status: DamageStatus;
   reported_date: string;
   resolved_date: string | null;
   created_at: string;
+};
+
+export type RentalReturnDamageReport = Pick<Damage, 'id' | 'rental_id' | 'is_return_draft' | 'description' | 'severity' | 'status' | 'reported_date'> & {
+  photos: { id: string; url: string }[];
+};
+
+export type RentalReturnItinerary = {
+  rental_id: string;
+  start_km: number;
+  start_fuel: number;
+  end_km: number | null;
+  end_fuel: number | null;
+  submitted_by: string | null;
+  submitted_at: string | null;
+  updated_at: string;
+};
+
+export type RentalReturnItineraryDetails = {
+  itinerary: RentalReturnItinerary | null;
+  damages: RentalReturnDamageReport[];
+  return_confirmed_by_name: string | null;
 };
 
 export type RentalStatus = 'pending' | 'active' | 'approved' | 'overdue' | 'rejected' | 'returned' | 'cancelled' | 'completed';

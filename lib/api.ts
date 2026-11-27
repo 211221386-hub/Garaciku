@@ -1,5 +1,5 @@
 import { supabase, workerApiUrl } from '@/lib/supabase';
-import type { AppUser, Car, CarDisplayStatus, DailyNote, DailyNoteReturnItineraryDetails, CompletenessItem, Damage, RentalRecord, RentalStatus, ServiceRecord, VehicleInspection, VehicleInspectionItem, VehicleInspectionPhoto } from '@/lib/types';
+import type { AppUser, Car, CarDisplayStatus, DailyNote, DailyNoteReturnItineraryDetails, CompletenessItem, Damage, RentalRecord, RentalReturnItineraryDetails, RentalStatus, ServiceRecord, VehicleInspection, VehicleInspectionItem, VehicleInspectionPhoto } from '@/lib/types';
 import { addDaysToISO, getRentalStatus, todayISO } from '@/lib/format';
 import { getSession } from '@/lib/auth';
 
@@ -502,6 +502,70 @@ class ApiClient {
       if (!result?.data) throw new Error('Worker mengembalikan data rental yang tidak valid.');
       return result.data;
     },
+    getReturnItinerary: async (id: string): Promise<RentalReturnItineraryDetails> => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/rentals/return-itinerary'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ action: 'get', rental_id: id }),
+      });
+      const result = await response.json().catch(() => null) as { data?: RentalReturnItineraryDetails; error?: string } | null;
+      if (!response.ok || !result?.data) throw new Error(result?.error ?? 'Gagal memuat itinerary pengembalian Transportation.');
+      return result.data;
+    },
+    saveReturnItinerary: async (data: {
+      rentalId: string;
+      startKm: number;
+      startFuel: number;
+      endKm: number | null;
+      endFuel: number | null;
+      submit: boolean;
+      damages: { id: string; description: string; severity: Damage['severity'] }[];
+    }) => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/rentals/return-itinerary'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({
+          action: 'save',
+          rental_id: data.rentalId,
+          start_km: data.startKm,
+          start_fuel: data.startFuel,
+          end_km: data.endKm,
+          end_fuel: data.endFuel,
+          submit: data.submit,
+          damages: data.damages,
+        }),
+      });
+      const result = await response.json().catch(() => null) as { data?: unknown; error?: string } | null;
+      if (!response.ok || !result?.data) throw new Error(result?.error ?? 'Gagal menyimpan itinerary pengembalian Transportation.');
+      return result.data;
+    },
+    uploadReturnDamagePhoto: async (data: { rentalId: string; damageId: string; photoId: string; base64: string }) => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/rentals/return-itinerary'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ action: 'upload-photo', rental_id: data.rentalId, damage_id: data.damageId, photo_id: data.photoId, base64: data.base64, content_type: 'image/jpeg' }),
+      });
+      const result = await response.json().catch(() => null) as { data?: { id: string }; error?: string } | null;
+      if (!response.ok || !result?.data?.id) throw new Error(result?.error ?? 'Gagal mengunggah foto kerusakan.');
+      return result.data;
+    },
+    deleteReturnDamagePhoto: async (rentalId: string, damageId: string, photoId: string) => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/rentals/return-itinerary'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ action: 'delete-photo', rental_id: rentalId, damage_id: damageId, photo_id: photoId }),
+      });
+      const result = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) throw new Error(result?.error ?? 'Gagal menghapus foto kerusakan.');
+    },
     delete: async (id: string) => {
       const session = getSession();
       if (!session || ![1, 2].includes(session.user.role)) {
@@ -722,8 +786,26 @@ class ApiClient {
   };
 
   damages = {
-    getAll: async () => (await unwrap<(Damage & { cars: { name: string } | null })[]>(supabase.from('damages').select('*, cars(name)').order('reported_date', { ascending: false }))).map(withCarName),
-    getByCar: (carId: string) => unwrap<Damage[]>(supabase.from('damages').select('*').eq('car_id', carId).order('reported_date', { ascending: false })),
+    getAll: async () => (await unwrap<(Damage & { cars: { name: string } | null })[]>(supabase.from('damages').select('*, cars(name)').eq('is_return_draft', false).order('reported_date', { ascending: false }))).map(withCarName),
+    getByCar: (carId: string) => unwrap<Damage[]>(supabase.from('damages').select('*').eq('car_id', carId).eq('is_return_draft', false).order('reported_date', { ascending: false })),
+    getSignedPhotos: async (damageIds: string[]) => {
+      if (!damageIds.length) return [] as { id: string; damage_id: string; url: string }[];
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const batches: string[][] = [];
+      for (let index = 0; index < damageIds.length; index += 100) batches.push(damageIds.slice(index, index + 100));
+      const results = await Promise.all(batches.map(async (batch) => {
+        const response = await fetch(workerApiUrl('/api/damages/photos'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+          body: JSON.stringify({ damage_ids: batch }),
+        });
+        const result = await response.json().catch(() => null) as { data?: { id: string; damage_id: string; url: string }[]; error?: string } | null;
+        if (!response.ok || !Array.isArray(result?.data)) throw new Error(result?.error ?? 'Gagal memuat foto kerusakan.');
+        return result.data;
+      }));
+      return results.flat();
+    },
     create: (data: Record<string, unknown>) => {
       const session = getSession();
       const role = session?.user.role ?? 0;
