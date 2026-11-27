@@ -689,6 +689,10 @@ test('daily note creator and return status are controlled by the Worker', async 
       table: 'daily_notes',
       values: {
         car_id: 'car-1',
+        start_km: 500,
+        start_fuel: 90,
+        end_km: 600,
+        end_fuel: 80,
         created_name: 'Spoofed Name',
         status: 'completed',
         return_confirmed_by: 'spoofed-user',
@@ -703,6 +707,10 @@ test('daily note creator and return status are controlled by the Worker', async 
       filters: [{ column: 'id', operator: 'eq', value: 'note-1' }],
       values: {
         content: 'Updated activity',
+        start_km: 500,
+        start_fuel: 90,
+        end_km: 600,
+        end_fuel: 80,
         created_name: 'Spoofed Name',
         status: 'completed',
         return_confirmed_by: 'spoofed-user',
@@ -719,6 +727,8 @@ test('daily note creator and return status are controlled by the Worker', async 
       car_id: 'car-1',
       created_name: 'Test User',
       status: 'active',
+      start_km: null,
+      start_fuel: null,
       end_km: null,
       end_fuel: null,
     });
@@ -753,6 +763,8 @@ test('roles 3 and 4 Investigation submissions wait for approval and cannot spoof
         car_id: 'car-1',
         created_name: 'Test User',
         status: 'pending_approval',
+        start_km: null,
+        start_fuel: null,
         end_km: null,
         end_fuel: null,
       });
@@ -762,37 +774,95 @@ test('roles 3 and 4 Investigation submissions wait for approval and cannot spoof
   }
 });
 
-test('Investigation return itinerary requires its creator and validates the required parts', async () => {
+test('Investigation return itinerary saves initial readings as draft and validates final readings and parts', async () => {
   const rows = {
-    daily_notes: [{ id: '11111111-1111-4111-8111-111111111111', created_by: profile.id, status: 'active', start_km: 12000 }],
+    daily_notes: [{ id: '11111111-1111-4111-8111-111111111111', created_by: profile.id, status: 'active' }],
   };
   const mock = mockFetch(4, rows);
   try {
     const token = await login(envFor(4), mock.calls);
+    const draftResponse = await worker.fetch(makeRequest('/api/daily-notes/return-itinerary', {
+      action: 'save',
+      note_id: rows.daily_notes[0].id,
+      start_km: 12000,
+      start_fuel: 80,
+      end_km: null,
+      end_fuel: null,
+      submit: false,
+      parts: [],
+      damages: [],
+    }, token), envFor(4));
+    assert.equal(draftResponse.status, 200);
+    const draftRpc = mock.calls.find((call) => call.url.pathname === '/rest/v1/rpc/save_daily_note_return_itinerary');
+    assert.deepEqual(JSON.parse(draftRpc.options.body), {
+      _note_id: rows.daily_notes[0].id,
+      _user_id: profile.id,
+      _start_km: 12000,
+      _start_fuel: 80,
+      _end_km: null,
+      _end_fuel: null,
+      _submit: false,
+      _parts: [],
+      _damage_reports: [],
+    });
+
     const invalidResponse = await worker.fetch(makeRequest('/api/daily-notes/return-itinerary', {
       action: 'save',
       note_id: rows.daily_notes[0].id,
+      start_km: 12000,
+      start_fuel: 80,
       end_km: 11999,
       end_fuel: 40,
+      submit: true,
       parts: [],
+      damages: [],
     }, token), envFor(4));
     assert.equal(invalidResponse.status, 400);
+
+    const invalidDamageResponse = await worker.fetch(makeRequest('/api/daily-notes/return-itinerary', {
+      action: 'save',
+      note_id: rows.daily_notes[0].id,
+      start_km: 12000,
+      start_fuel: 80,
+      end_km: 12100,
+      end_fuel: 40,
+      submit: true,
+      parts: ['Bumper depan'],
+      damages: [{ id: '22222222-2222-4222-8222-222222222222', description: ' ', severity: 'low' }],
+    }, token), envFor(4));
+    assert.equal(invalidDamageResponse.status, 400);
 
     const response = await worker.fetch(makeRequest('/api/daily-notes/return-itinerary', {
       action: 'save',
       note_id: rows.daily_notes[0].id,
+      start_km: 12000,
+      start_fuel: 80,
       end_km: 12100,
       end_fuel: 40,
+      submit: true,
       parts: ['Bumper depan'],
+      damages: [{
+        id: '22222222-2222-4222-8222-222222222222',
+        description: 'Baret bumper',
+        severity: 'medium',
+      }],
     }, token), envFor(4));
-    const rpc = mock.calls.find((call) => call.url.pathname === '/rest/v1/rpc/save_daily_note_return_itinerary');
+    const rpc = mock.calls.filter((call) => call.url.pathname === '/rest/v1/rpc/save_daily_note_return_itinerary').at(-1);
     assert.equal(response.status, 200);
     assert.deepEqual(JSON.parse(rpc.options.body), {
       _note_id: rows.daily_notes[0].id,
       _user_id: profile.id,
+      _start_km: 12000,
+      _start_fuel: 80,
       _end_km: 12100,
       _end_fuel: 40,
+      _submit: true,
       _parts: ['Bumper depan'],
+      _damage_reports: [{
+        id: '22222222-2222-4222-8222-222222222222',
+        description: 'Baret bumper',
+        severity: 'medium',
+      }],
     });
   } finally {
     mock.restore();
@@ -801,7 +871,7 @@ test('Investigation return itinerary requires its creator and validates the requ
 
 test('Investigation return itinerary cannot be edited by another user', async () => {
   const rows = {
-    daily_notes: [{ id: '11111111-1111-4111-8111-111111111111', created_by: 'another-user', status: 'active', start_km: 12000 }],
+    daily_notes: [{ id: '11111111-1111-4111-8111-111111111111', created_by: 'another-user', status: 'active' }],
   };
   const mock = mockFetch(3, rows);
   try {
@@ -809,9 +879,13 @@ test('Investigation return itinerary cannot be edited by another user', async ()
     const response = await worker.fetch(makeRequest('/api/daily-notes/return-itinerary', {
       action: 'save',
       note_id: rows.daily_notes[0].id,
+      start_km: 12000,
+      start_fuel: 80,
       end_km: 12100,
       end_fuel: 40,
+      submit: true,
       parts: ['Bumper depan'],
+      damages: [],
     }, token), envFor(3));
     assert.equal(response.status, 403);
     assert.equal(mock.calls.some((call) => call.url.pathname === '/rest/v1/rpc/save_daily_note_return_itinerary'), false);

@@ -32,7 +32,6 @@ import type { Car, DailyNote, CompletenessItem, Damage, RentalRecord, RentalStat
 import { formatDate, formatShortDate, formatCurrency, todayISO } from '@/lib/format';
 import { Sheet } from '@/components/Sheet';
 import { Field } from '@/components/Field';
-import { PercentageField } from '@/components/PercentageField';
 import { DateField } from '@/components/DateField';
 import { Button } from '@/components/Button';
 import { getSession } from '@/lib/auth';
@@ -141,7 +140,7 @@ export default function CarDetailScreen() {
   const [noteSheet, setNoteSheet] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [trialDropdownOpen, setTrialDropdownOpen] = useState(false);
-  const [newNote, setNewNote] = useState({ section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '', need_trial_outside: null as boolean | null });
+  const [newNote, setNewNote] = useState({ section: '', start_date: '', end_date: '', content: '', detail: '', need_trial_outside: null as boolean | null });
   const [completenessSheet, setCompletenessSheet] = useState(false);
   const [newItem, setNewItem] = useState('');
   const [newReminderType, setNewReminderType] = useState<CompletenessReminderType>('general');
@@ -332,29 +331,12 @@ export default function CarDetailScreen() {
   // --- Notes CRUD ---
   const addNote = async () => {
     if (submitting) return;
-    if (!newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.start_km || !newNote.end_km || !newNote.start_fuel || !newNote.end_fuel || !newNote.content.trim() || newNote.need_trial_outside === null) {
+    if (!newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.content.trim() || newNote.need_trial_outside === null) {
       Alert.alert('Data belum lengkap', 'Isi semua field catatan sebelum menyimpan.');
       return;
     }
     if (newNote.end_date < newNote.start_date) {
       Alert.alert('Rentang tanggal tidak valid', 'Tanggal selesai harus sama atau setelah tanggal mulai.');
-      return;
-    }
-
-    const startKm = Number(newNote.start_km);
-    const endKm = Number(newNote.end_km);
-    const startFuel = Number(newNote.start_fuel);
-    const endFuel = Number(newNote.end_fuel);
-    if ([startKm, endKm, startFuel, endFuel].some((value) => !Number.isFinite(value) || value < 0)) {
-      Alert.alert('Angka tidak valid', 'KM dan Fuel harus berupa angka nol atau lebih.');
-      return;
-    }
-    if (startFuel > 100 || endFuel > 100) {
-      Alert.alert('Persentase Fuel tidak valid', 'Fuel Awal dan Fuel Akhir harus berada di antara 0% dan 100%.');
-      return;
-    }
-    if (endKm < startKm) {
-      Alert.alert('KM tidak valid', 'KM Akhir harus sama atau lebih besar dari KM Awal.');
       return;
     }
 
@@ -366,18 +348,14 @@ export default function CarDetailScreen() {
         note_date: newNote.start_date,
         start_date: newNote.start_date,
         end_date: newNote.end_date,
-        start_km: startKm,
-        end_km: endKm,
-        start_fuel: startFuel,
-        end_fuel: endFuel,
         content: newNote.content.trim(),
         detail: newNote.detail.trim(),
         need_trial_outside: newNote.need_trial_outside,
       };
       if (editingNoteId) await apiClient.notes.update(editingNoteId, noteData);
-      else await apiClient.notes.create(noteData);
+      else await apiClient.notes.create({ ...noteData, start_km: null, end_km: null, start_fuel: null, end_fuel: null });
       setEditingNoteId(null);
-      setNewNote({ section: '', start_date: '', end_date: '', start_km: '', end_km: '', start_fuel: '', end_fuel: '', content: '', detail: '', need_trial_outside: null });
+      setNewNote({ section: '', start_date: '', end_date: '', content: '', detail: '', need_trial_outside: null });
       setNoteSheet(false);
       await fetchAll();
     } catch (error) { Alert.alert('Gagal menyimpan catatan', error instanceof Error ? error.message : 'Terjadi kesalahan.'); }
@@ -408,10 +386,6 @@ export default function CarDetailScreen() {
       section: note.section ?? '',
       start_date: note.start_date || note.note_date,
       end_date: note.end_date || note.note_date,
-      start_km: note.start_km === null ? '' : String(note.start_km),
-      end_km: note.end_km === null ? '' : String(note.end_km),
-      start_fuel: note.start_fuel === null ? '' : String(note.start_fuel),
-      end_fuel: note.end_fuel === null ? '' : String(note.end_fuel),
       content: note.content ?? '',
       detail: note.detail ?? '',
       need_trial_outside: note.need_trial_outside ?? false,
@@ -676,8 +650,8 @@ export default function CarDetailScreen() {
                   <View style={styles.serviceMeta}>
                     <Text style={styles.metaText}>Tanggal: {formatDate(note.start_date || note.note_date)} {note.start_time?.slice(0, 5) || ''} - {formatDate(note.end_date || note.note_date)} {note.end_time?.slice(0, 5) || ''}</Text>
                   </View>
-                  {note.start_km !== null && note.end_km !== null ? <Text style={styles.metaText}>KM: {note.start_km.toLocaleString('id-ID')} - {note.end_km.toLocaleString('id-ID')}</Text> : null}
-                  {note.start_fuel !== null && note.end_fuel !== null ? <Text style={styles.metaText}>Fuel: {note.start_fuel}% - {note.end_fuel}%</Text> : null}
+                  {note.start_km !== null ? <Text style={styles.metaText}>KM: {note.start_km.toLocaleString('id-ID')} - {note.end_km === null ? 'Belum diisi' : note.end_km.toLocaleString('id-ID')}</Text> : null}
+                  {note.start_fuel !== null ? <Text style={styles.metaText}>Fuel: {note.start_fuel}% - {note.end_fuel === null ? 'Belum diisi' : `${note.end_fuel}%`}</Text> : null}
                   {note.detail ? <Text style={styles.metaText}>Detail: {note.detail}</Text> : null}
                   {note.status === 'active' && [1, 2].includes(sessionRole) ? (
                     <TouchableOpacity style={[styles.returnButton, returningNoteId === note.id && styles.actionDisabled]} onPress={() => { void confirmNoteReturn(note); }} disabled={returningNoteId === note.id}>
@@ -868,6 +842,7 @@ export default function CarDetailScreen() {
                       )}
                     </View>
                     {dmg.rental_id ? <Text style={styles.metaText}>Dilaporkan melalui itinerary Transportation.</Text> : null}
+                    {dmg.daily_note_id ? <Text style={styles.metaText}>Dilaporkan melalui itinerary Investigation.</Text> : null}
                     {(damagePhotos[dmg.id] ?? []).length ? (
                       <View style={styles.damagePhotoRow}>
                         {damagePhotos[dmg.id].map((photo) => <Image key={photo.id} source={{ uri: photo.url }} style={styles.damagePhoto} />)}
@@ -982,10 +957,6 @@ export default function CarDetailScreen() {
           })}
           </View>
         ) : null}
-        <Field label="KM Awal*" value={newNote.start_km} onChangeText={(value) => setNewNote({ ...newNote, start_km: value })} placeholder="Contoh: 12000" keyboardType="numeric" />
-        <Field label="KM Akhir*" value={newNote.end_km} onChangeText={(value) => setNewNote({ ...newNote, end_km: value })} placeholder="Contoh: 12150" keyboardType="numeric" />
-        <PercentageField label="Fuel Awal (%)*" value={newNote.start_fuel} onChange={(value) => setNewNote({ ...newNote, start_fuel: value })} />
-        <PercentageField label="Fuel Akhir (%)*" value={newNote.end_fuel} onChange={(value) => setNewNote({ ...newNote, end_fuel: value })} />
         <Field
           label="Aktivitas*"
           value={newNote.content}
@@ -994,7 +965,7 @@ export default function CarDetailScreen() {
           multiline
         />
         <Field label="Detail" value={newNote.detail} onChangeText={(value) => setNewNote({ ...newNote, detail: value })} placeholder="Detail atau keterangan tambahan..." multiline />
-        <Button label={editingNoteId ? 'Simpan Perubahan' : 'Simpan Catatan'} onPress={addNote} loading={submitting} disabled={!newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.start_km || !newNote.end_km || !newNote.start_fuel || !newNote.end_fuel || !newNote.content.trim() || newNote.need_trial_outside === null} />
+        <Button label={editingNoteId ? 'Simpan Perubahan' : 'Simpan Catatan'} onPress={addNote} loading={submitting} disabled={!newNote.section.trim() || !newNote.start_date || !newNote.end_date || !newNote.content.trim() || newNote.need_trial_outside === null} />
       </Sheet>
 
       {/* Completeness Sheet */}

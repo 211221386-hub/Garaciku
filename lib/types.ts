@@ -64,10 +64,12 @@ export type DailyNote = {
 
 export type DailyNoteReturnItinerary = {
   note_id: string;
-  end_km: number;
-  end_fuel: number;
-  submitted_by: string;
-  submitted_at: string;
+  start_km: number | null;
+  start_fuel: number | null;
+  end_km: number | null;
+  end_fuel: number | null;
+  submitted_by: string | null;
+  submitted_at: string | null;
   updated_at: string;
 };
 
@@ -82,10 +84,15 @@ export type DailyNoteReturnPhoto = {
   url: string;
 };
 
+export type DailyNoteReturnDamageReport = Pick<Damage, 'id' | 'daily_note_id' | 'is_return_draft' | 'description' | 'severity' | 'status' | 'reported_date'> & {
+  photos: { id: string; url: string }[];
+};
+
 export type DailyNoteReturnItineraryDetails = {
   itinerary: DailyNoteReturnItinerary | null;
   parts: DailyNoteDismantledPart[];
   photos: DailyNoteReturnPhoto[];
+  damages: DailyNoteReturnDamageReport[];
 };
 
 export type ServiceRecord = {
@@ -127,6 +134,7 @@ export type Damage = {
   id: string;
   car_id: string;
   rental_id: string | null;
+  daily_note_id: string | null;
   is_return_draft: boolean;
   description: string;
   severity: DamageSeverity;

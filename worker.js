@@ -16,7 +16,7 @@ const COLUMNS = {
   cars: new Set(['id', 'name', 'brand', 'model', 'year', 'plate_number', 'color', 'photo_url', 'operational_status', 'periodic_service_start_date', 'annual_tax_due_date', 'plate_tax_due_date', 'created_at']),
   daily_notes: new Set(['id', 'car_id', 'created_by', 'created_name', 'section', 'note_date', 'start_date', 'start_time', 'end_date', 'end_time', 'start_km', 'end_km', 'start_fuel', 'end_fuel', 'content', 'detail', 'status', 'return_confirmed_by', 'return_confirmed_at', 'reviewed_by', 'reviewed_at', 'created_at']),
   completeness_items: new Set(['id', 'car_id', 'name', 'is_present', 'reminder_type', 'next_due_date', 'created_at']),
-  damages: new Set(['id', 'car_id', 'rental_id', 'is_return_draft', 'description', 'severity', 'status', 'reported_date', 'resolved_date', 'created_at']),
+  damages: new Set(['id', 'car_id', 'rental_id', 'daily_note_id', 'is_return_draft', 'description', 'severity', 'status', 'reported_date', 'resolved_date', 'created_at']),
   service_records: new Set(['id', 'car_id', 'service_date', 'service_type', 'description', 'cost', 'mileage', 'workshop', 'status', 'next_service_date', 'next_service_mileage', 'reminder_enabled', 'is_recurring', 'reminder_interval_months', 'reminder_interval_mileage', 'created_name', 'created_at']),
   rental_records: new Set(['id', 'car_id', 'user_id', 'renter_name', 'renter_email', 'renter_phone', 'start_date', 'start_time', 'end_date', 'end_time', 'total_cost', 'purpose', 'status', 'approved_by', 'approved_at', 'return_confirmed_by', 'return_confirmed_at', 'notes', 'created_at']),
   vehicle_inspections: new Set(['id', 'car_id', 'inspector_user_id', 'inspector_name', 'inspection_date', 'mileage', 'model_snapshot', 'plate_snapshot', 'status', 'checked_prepared_by', 'checked_prepared_name', 'checked_prepared_at', 'approved_by', 'approved_name', 'approved_at', 'created_at']),
@@ -410,6 +410,7 @@ async function proxyMutation(env, user, body) {
     const records = Array.isArray(values) ? values : [values];
     for (const record of records) {
       delete record.rental_id;
+      delete record.daily_note_id;
       delete record.is_return_draft;
     }
   }
@@ -422,6 +423,8 @@ async function proxyMutation(env, user, body) {
         record.created_by = user.id;
         record.created_name = createdName;
         record.status = [3, 4].includes(user.role) ? 'pending_approval' : 'active';
+        record.start_km = null;
+        record.start_fuel = null;
         record.end_km = null;
         record.end_fuel = null;
         delete record.return_confirmed_by;
@@ -433,6 +436,10 @@ async function proxyMutation(env, user, body) {
       for (const record of records) {
         delete record.created_name;
         delete record.created_by;
+        delete record.start_km;
+        delete record.start_fuel;
+        delete record.end_km;
+        delete record.end_fuel;
         delete record.status;
         delete record.return_confirmed_by;
         delete record.return_confirmed_at;
@@ -819,9 +826,78 @@ async function signRentalDamagePhoto(env, photo) {
   };
 }
 
-async function handleRentalReturnItinerary(request, env, user) {
+async function uploadReturnDamagePhoto(env, parentId, damageId, photoId, base64) {
   const baseUrl = env.SUPABASE_URL.replace(/\/$/, '');
   const bucket = 'rental-return-damage-photos';
+  const expectedPath = `${parentId}/${damageId}/${photoId}.jpg`;
+  const existingPhotoUrl = new URL(`${baseUrl}/rest/v1/damage_photos`);
+  existingPhotoUrl.searchParams.set('id', `eq.${photoId}`);
+  existingPhotoUrl.searchParams.set('select', 'id,damage_id,object_path');
+  const existingPhotoResponse = await fetch(existingPhotoUrl, { headers: serviceHeaders(env) });
+  const [existingPhoto] = await existingPhotoResponse.json().catch(() => []);
+  if (!existingPhotoResponse.ok) return { status: 503, error: 'Gagal memeriksa foto kerusakan.' };
+  if (existingPhoto) {
+    if (existingPhoto.damage_id !== damageId || existingPhoto.object_path !== expectedPath) {
+      return { status: 409, error: 'ID foto sudah digunakan untuk laporan lain.' };
+    }
+    return { status: 200, data: existingPhoto };
+  }
+
+  const photoCountUrl = new URL(`${baseUrl}/rest/v1/damage_photos`);
+  photoCountUrl.searchParams.set('damage_id', `eq.${damageId}`);
+  photoCountUrl.searchParams.set('select', 'id');
+  const photoCountResponse = await fetch(photoCountUrl, { headers: serviceHeaders(env) });
+  const photos = await photoCountResponse.json().catch(() => null);
+  if (!photoCountResponse.ok || !Array.isArray(photos)) return { status: 503, error: 'Gagal memeriksa jumlah foto kerusakan.' };
+  if (photos.length >= 5) return { status: 409, error: 'Maksimal 5 foto untuk setiap laporan kerusakan.' };
+  const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+  if (bytes.byteLength > 2 * 1024 * 1024) return { status: 413, error: 'Ukuran foto melebihi batas 2 MB.' };
+  const uploadUrl = `${baseUrl}/storage/v1/object/${bucket}/${expectedPath}`;
+  const uploadResponse = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: serviceHeaders(env, { 'Content-Type': 'image/jpeg', 'x-upsert': 'false' }),
+    body: bytes,
+  });
+  if (!uploadResponse.ok) {
+    const result = await uploadResponse.json().catch(() => null);
+    return { status: uploadResponse.status, error: result?.message ?? 'Gagal mengunggah foto kerusakan.' };
+  }
+  const photoResponse = await fetch(`${baseUrl}/rest/v1/damage_photos`, {
+    method: 'POST',
+    headers: serviceHeaders(env, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+    body: JSON.stringify({ id: photoId, damage_id: damageId, object_path: expectedPath }),
+  });
+  const [photo] = await photoResponse.json().catch(() => []);
+  if (!photoResponse.ok || !photo) {
+    await fetch(uploadUrl, { method: 'DELETE', headers: serviceHeaders(env) });
+    return { status: 503, error: 'Gagal menyimpan catatan foto kerusakan.' };
+  }
+  return { status: 201, data: photo };
+}
+
+async function deleteReturnDamagePhoto(env, parentId, damageId, photoId) {
+  const baseUrl = env.SUPABASE_URL.replace(/\/$/, '');
+  const bucket = 'rental-return-damage-photos';
+  const photoUrl = new URL(`${baseUrl}/rest/v1/damage_photos`);
+  photoUrl.searchParams.set('id', `eq.${photoId}`);
+  photoUrl.searchParams.set('damage_id', `eq.${damageId}`);
+  photoUrl.searchParams.set('select', 'id,damage_id,object_path');
+  const photoResponse = await fetch(photoUrl, { headers: serviceHeaders(env) });
+  const [photo] = await photoResponse.json().catch(() => []);
+  if (!photoResponse.ok) return { status: 503, error: 'Gagal memeriksa foto kerusakan.' };
+  if (!photo || photo.object_path !== `${parentId}/${damageId}/${photoId}.jpg`) {
+    return { status: 404, error: 'Foto kerusakan tidak ditemukan.' };
+  }
+  const storageUrl = `${baseUrl}/storage/v1/object/${bucket}/${photo.object_path}`;
+  const storageResponse = await fetch(storageUrl, { method: 'DELETE', headers: serviceHeaders(env) });
+  if (!storageResponse.ok) return { status: 503, error: 'Gagal menghapus file foto kerusakan.' };
+  const deleteResponse = await fetch(photoUrl, { method: 'DELETE', headers: serviceHeaders(env) });
+  if (!deleteResponse.ok) return { status: 503, error: 'File foto terhapus tetapi catatan foto gagal diperbarui.' };
+  return { status: 200, data: { id: photo.id } };
+}
+
+async function handleRentalReturnItinerary(request, env, user) {
+  const baseUrl = env.SUPABASE_URL.replace(/\/$/, '');
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   let body;
   try { body = await request.json(); } catch { return { status: 400, error: 'Invalid JSON body.' }; }
@@ -958,70 +1034,13 @@ async function handleRentalReturnItinerary(request, env, user) {
     const [damage] = await damageResponse.json().catch(() => []);
     if (!damageResponse.ok) return { status: 503, error: 'Gagal memeriksa laporan kerusakan.' };
     if (!damage) return { status: 404, error: 'Laporan kerusakan tidak ditemukan.' };
-
-    const existingPhotoUrl = new URL(`${baseUrl}/rest/v1/damage_photos`);
-    existingPhotoUrl.searchParams.set('id', `eq.${body.photo_id}`);
-    existingPhotoUrl.searchParams.set('select', 'id,damage_id');
-    const existingPhotoResponse = await fetch(existingPhotoUrl, { headers: serviceHeaders(env) });
-    const [existingPhoto] = await existingPhotoResponse.json().catch(() => []);
-    if (!existingPhotoResponse.ok) return { status: 503, error: 'Gagal memeriksa foto kerusakan.' };
-    if (existingPhoto) {
-      if (existingPhoto.damage_id !== damage.id) return { status: 409, error: 'ID foto sudah digunakan untuk laporan lain.' };
-      return { status: 200, data: existingPhoto };
-    }
-
-    const photoCountUrl = new URL(`${baseUrl}/rest/v1/damage_photos`);
-    photoCountUrl.searchParams.set('damage_id', `eq.${damage.id}`);
-    photoCountUrl.searchParams.set('select', 'id');
-    const photoCountResponse = await fetch(photoCountUrl, { headers: serviceHeaders(env) });
-    const photos = await photoCountResponse.json().catch(() => null);
-    if (!photoCountResponse.ok || !Array.isArray(photos)) return { status: 503, error: 'Gagal memeriksa jumlah foto kerusakan.' };
-    if (photos.length >= 5) return { status: 409, error: 'Maksimal 5 foto untuk setiap laporan kerusakan.' };
-    const bytes = Uint8Array.from(atob(body.base64), (character) => character.charCodeAt(0));
-    if (bytes.byteLength > 2 * 1024 * 1024) return { status: 413, error: 'Ukuran foto melebihi batas 2 MB.' };
-    const objectPath = `${rental.id}/${damage.id}/${body.photo_id}.jpg`;
-    const uploadUrl = `${baseUrl}/storage/v1/object/${bucket}/${objectPath}`;
-    const uploadResponse = await fetch(uploadUrl, {
-      method: 'POST',
-      headers: serviceHeaders(env, { 'Content-Type': body.content_type, 'x-upsert': 'false' }),
-      body: bytes,
-    });
-    if (!uploadResponse.ok) {
-      const result = await uploadResponse.json().catch(() => null);
-      return { status: uploadResponse.status, error: result?.message ?? 'Gagal mengunggah foto kerusakan.' };
-    }
-    const photoResponse = await fetch(`${baseUrl}/rest/v1/damage_photos`, {
-      method: 'POST',
-      headers: serviceHeaders(env, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
-      body: JSON.stringify({ id: body.photo_id, damage_id: damage.id, object_path: objectPath }),
-    });
-    const [photo] = await photoResponse.json().catch(() => []);
-    if (!photoResponse.ok || !photo) {
-      await fetch(uploadUrl, { method: 'DELETE', headers: serviceHeaders(env) });
-      return { status: 503, error: 'Gagal menyimpan catatan foto kerusakan.' };
-    }
-    return { status: 201, data: photo };
+    return uploadReturnDamagePhoto(env, rental.id, damage.id, body.photo_id, body.base64);
   }
 
   if (!uuidPattern.test(body.damage_id ?? '') || !uuidPattern.test(body.photo_id ?? '')) {
     return { status: 400, error: 'ID laporan atau foto tidak valid.' };
   }
-  const photoUrl = new URL(`${baseUrl}/rest/v1/damage_photos`);
-  photoUrl.searchParams.set('id', `eq.${body.photo_id}`);
-  photoUrl.searchParams.set('damage_id', `eq.${body.damage_id}`);
-  photoUrl.searchParams.set('select', 'id,damage_id,object_path');
-  const photoResponse = await fetch(photoUrl, { headers: serviceHeaders(env) });
-  const [photo] = await photoResponse.json().catch(() => []);
-  if (!photoResponse.ok) return { status: 503, error: 'Gagal memeriksa foto kerusakan.' };
-  if (!photo || photo.object_path !== `${rental.id}/${body.damage_id}/${body.photo_id}.jpg`) {
-    return { status: 404, error: 'Foto kerusakan tidak ditemukan.' };
-  }
-  const storageUrl = `${baseUrl}/storage/v1/object/${bucket}/${photo.object_path}`;
-  const storageResponse = await fetch(storageUrl, { method: 'DELETE', headers: serviceHeaders(env) });
-  if (!storageResponse.ok) return { status: 503, error: 'Gagal menghapus file foto kerusakan.' };
-  const deleteResponse = await fetch(photoUrl, { method: 'DELETE', headers: serviceHeaders(env) });
-  if (!deleteResponse.ok) return { status: 503, error: 'File foto terhapus tetapi catatan foto gagal diperbarui.' };
-  return { status: 200, data: { id: photo.id } };
+  return deleteReturnDamagePhoto(env, rental.id, body.damage_id, body.photo_id);
 }
 
 async function getDamagePhotos(request, env, user) {
@@ -1038,7 +1057,7 @@ async function getDamagePhotos(request, env, user) {
   const damageUrl = new URL(`${baseUrl}/rest/v1/damages`);
   damageUrl.searchParams.set('id', `in.(${body.damage_ids.join(',')})`);
   damageUrl.searchParams.set('is_return_draft', 'eq.false');
-  damageUrl.searchParams.set('select', 'id,rental_id');
+  damageUrl.searchParams.set('select', 'id,rental_id,daily_note_id');
   const damageResponse = await fetch(damageUrl, { headers: serviceHeaders(env) });
   const damages = await damageResponse.json().catch(() => null);
   if (!damageResponse.ok || !Array.isArray(damages)) return { status: 503, error: 'Gagal memeriksa laporan kerusakan.' };
@@ -1055,7 +1074,9 @@ async function getDamagePhotos(request, env, user) {
     const damage = damageById.get(photo.damage_id);
     const validPath = damage?.rental_id
       ? photo.object_path === `${damage.rental_id}/${photo.damage_id}/${photo.id}.jpg`
-      : Boolean(damage && new RegExp(`^[0-9a-f-]{36}/${photo.damage_id}/${photo.id}\\.jpg$`, 'i').test(photo.object_path));
+      : damage?.daily_note_id
+        ? photo.object_path === `${damage.daily_note_id}/${photo.damage_id}/${photo.id}.jpg`
+        : false;
     if (!validPath) return null;
     return signRentalDamagePhoto(env, photo);
   }));
@@ -1127,13 +1148,13 @@ async function handleDailyNoteReturnItinerary(request, env, user) {
   let body;
   try { body = await request.json(); } catch { return { status: 400, error: 'Invalid JSON body.' }; }
   if (!body || typeof body.note_id !== 'string' || !uuidPattern.test(body.note_id)
-    || !['get', 'save', 'upload', 'delete-photo'].includes(body.action)) {
+    || !['get', 'save', 'upload', 'delete-photo', 'upload-damage-photo', 'delete-damage-photo'].includes(body.action)) {
     return { status: 400, error: 'Data itinerary pengembalian tidak valid.' };
   }
 
   const noteUrl = new URL(`${baseUrl}/rest/v1/daily_notes`);
   noteUrl.searchParams.set('id', `eq.${body.note_id}`);
-  noteUrl.searchParams.set('select', 'id,created_by,status,start_km');
+  noteUrl.searchParams.set('select', 'id,created_by,status');
   const noteResponse = await fetch(noteUrl, { headers: serviceHeaders(env) });
   const [note] = await noteResponse.json().catch(() => []);
   if (!noteResponse.ok) return { status: 503, error: 'Gagal memeriksa Investigation.' };
@@ -1145,12 +1166,24 @@ async function handleDailyNoteReturnItinerary(request, env, user) {
   }
 
   if (body.action === 'save') {
-    if (!Number.isInteger(body.end_km) || body.end_km < 0
-      || (Number.isInteger(note.start_km) && body.end_km < note.start_km)
-      || !Number.isInteger(body.end_fuel) || body.end_fuel < 0 || body.end_fuel > 100
-      || !Array.isArray(body.parts) || body.parts.length < 1 || body.parts.length > 50
-      || body.parts.some((part) => typeof part !== 'string' || !part.trim() || part.trim().length > 160)) {
-      return { status: 400, error: 'KM akhir, fuel akhir, dan minimal satu nama part wajib diisi dengan benar.' };
+    const endKm = body.end_km === null ? null : body.end_km;
+    const endFuel = body.end_fuel === null ? null : body.end_fuel;
+    if (!Number.isInteger(body.start_km) || body.start_km < 0
+      || !Number.isInteger(body.start_fuel) || body.start_fuel < 0 || body.start_fuel > 100
+      || ((endKm === null) !== (endFuel === null))
+      || (endKm !== null && (!Number.isInteger(endKm) || endKm < body.start_km))
+      || (endFuel !== null && (!Number.isInteger(endFuel) || endFuel < 0 || endFuel > 100))
+      || typeof body.submit !== 'boolean'
+      || (body.submit && (endKm === null || endFuel === null))
+      || !Array.isArray(body.parts) || (body.submit && body.parts.length < 1) || body.parts.length > 50
+      || body.parts.some((part) => typeof part !== 'string' || !part.trim() || part.trim().length > 160)
+      || !Array.isArray(body.damages) || body.damages.length > 20
+      || body.damages.some((damage) => !damage || typeof damage !== 'object'
+        || typeof damage.id !== 'string' || !uuidPattern.test(damage.id)
+        || typeof damage.description !== 'string' || !damage.description.trim() || damage.description.trim().length > 500
+        || !['low', 'medium', 'high'].includes(damage.severity))
+      || new Set(body.damages.map((damage) => damage.id)).size !== body.damages.length) {
+      return { status: 400, error: 'KM awal/fuel awal, KM akhir/fuel akhir, daftar part, atau laporan kerusakan tidak valid.' };
     }
     const response = await fetch(`${baseUrl}/rest/v1/rpc/save_daily_note_return_itinerary`, {
       method: 'POST',
@@ -1158,14 +1191,54 @@ async function handleDailyNoteReturnItinerary(request, env, user) {
       body: JSON.stringify({
         _note_id: note.id,
         _user_id: user.id,
-        _end_km: body.end_km,
-        _end_fuel: body.end_fuel,
+        _start_km: body.start_km,
+        _start_fuel: body.start_fuel,
+        _end_km: endKm,
+        _end_fuel: endFuel,
+        _submit: body.submit,
         _parts: body.parts.map((part) => part.trim()),
+        _damage_reports: body.damages.map((damage) => ({
+          id: damage.id,
+          description: damage.description.trim(),
+          severity: damage.severity,
+        })),
       }),
     });
     const result = await response.json().catch(() => null);
     if (!response.ok) return { status: 409, error: typeof result?.message === 'string' ? result.message : 'Gagal menyimpan itinerary pengembalian.' };
     return { status: 200, data: result };
+  }
+
+  if (body.action === 'upload-damage-photo') {
+    if (!uuidPattern.test(body.damage_id ?? '') || !uuidPattern.test(body.photo_id ?? '')
+      || typeof body.base64 !== 'string' || body.content_type !== 'image/jpeg'
+      || body.base64.length > 2800000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(body.base64)) {
+      return { status: 400, error: 'Data foto kerusakan tidak valid atau melebihi batas ukuran.' };
+    }
+    const damageUrl = new URL(`${baseUrl}/rest/v1/damages`);
+    damageUrl.searchParams.set('id', `eq.${body.damage_id}`);
+    damageUrl.searchParams.set('daily_note_id', `eq.${note.id}`);
+    damageUrl.searchParams.set('select', 'id,daily_note_id');
+    const damageResponse = await fetch(damageUrl, { headers: serviceHeaders(env) });
+    const [damage] = await damageResponse.json().catch(() => []);
+    if (!damageResponse.ok) return { status: 503, error: 'Gagal memeriksa laporan kerusakan Investigation.' };
+    if (!damage) return { status: 404, error: 'Laporan kerusakan Investigation tidak ditemukan.' };
+    return uploadReturnDamagePhoto(env, note.id, damage.id, body.photo_id, body.base64);
+  }
+
+  if (body.action === 'delete-damage-photo') {
+    if (!uuidPattern.test(body.damage_id ?? '') || !uuidPattern.test(body.photo_id ?? '')) {
+      return { status: 400, error: 'ID laporan atau foto tidak valid.' };
+    }
+    const damageUrl = new URL(`${baseUrl}/rest/v1/damages`);
+    damageUrl.searchParams.set('id', `eq.${body.damage_id}`);
+    damageUrl.searchParams.set('daily_note_id', `eq.${note.id}`);
+    damageUrl.searchParams.set('select', 'id');
+    const damageResponse = await fetch(damageUrl, { headers: serviceHeaders(env) });
+    const [damage] = await damageResponse.json().catch(() => []);
+    if (!damageResponse.ok) return { status: 503, error: 'Gagal memeriksa laporan kerusakan Investigation.' };
+    if (!damage) return { status: 404, error: 'Laporan kerusakan Investigation tidak ditemukan.' };
+    return deleteReturnDamagePhoto(env, note.id, damage.id, body.photo_id);
   }
 
   if (body.action === 'upload') {
@@ -1229,17 +1302,47 @@ async function handleDailyNoteReturnItinerary(request, env, user) {
 
   const itineraryUrl = new URL(`${baseUrl}/rest/v1/daily_note_return_itineraries`);
   itineraryUrl.searchParams.set('note_id', `eq.${note.id}`);
-  itineraryUrl.searchParams.set('select', 'note_id,end_km,end_fuel,submitted_by,submitted_at,updated_at');
-  const [itineraryResponse, partsResponse] = await Promise.all([
+  itineraryUrl.searchParams.set('select', 'note_id,start_km,start_fuel,end_km,end_fuel,submitted_by,submitted_at,updated_at');
+  const damagesUrl = new URL(`${baseUrl}/rest/v1/damages`);
+  damagesUrl.searchParams.set('daily_note_id', `eq.${note.id}`);
+  damagesUrl.searchParams.set('select', 'id,daily_note_id,is_return_draft,description,severity,status,reported_date');
+  const [itineraryResponse, partsResponse, damagesResponse] = await Promise.all([
     fetch(itineraryUrl, { headers: serviceHeaders(env) }),
     fetch(`${baseUrl}/rest/v1/daily_note_dismantled_parts?note_id=eq.${note.id}&select=id,part_name,sort_order&order=sort_order.asc`, { headers: serviceHeaders(env) }),
+    fetch(damagesUrl, { headers: serviceHeaders(env) }),
   ]);
-  const [itineraries, parts] = await Promise.all([
+  const [itineraries, parts, damages] = await Promise.all([
     itineraryResponse.json().catch(() => null),
     partsResponse.json().catch(() => null),
+    damagesResponse.json().catch(() => null),
   ]);
-  if (!itineraryResponse.ok || !partsResponse.ok || !Array.isArray(itineraries) || !Array.isArray(parts)) {
+  if (!itineraryResponse.ok || !partsResponse.ok || !damagesResponse.ok
+    || !Array.isArray(itineraries) || !Array.isArray(parts) || !Array.isArray(damages)) {
     return { status: 503, error: 'Gagal memuat itinerary pengembalian.' };
+  }
+  let damagePhotos = [];
+  if (damages.length) {
+    const damageIds = damages.map((damage) => damage.id);
+    const damagePhotosUrl = new URL(`${baseUrl}/rest/v1/damage_photos`);
+    damagePhotosUrl.searchParams.set('damage_id', `in.(${damageIds.join(',')})`);
+    damagePhotosUrl.searchParams.set('select', 'id,damage_id,object_path');
+    const damagePhotosResponse = await fetch(damagePhotosUrl, { headers: serviceHeaders(env) });
+    damagePhotos = await damagePhotosResponse.json().catch(() => null);
+    if (!damagePhotosResponse.ok || !Array.isArray(damagePhotos)) {
+      return { status: 503, error: 'Gagal memuat foto laporan kerusakan Investigation.' };
+    }
+  }
+  const signedDamagePhotos = await Promise.all(damagePhotos.map(async (photo) => {
+    const expectedPath = `${note.id}/${photo.damage_id}/${photo.id}.jpg`;
+    if (photo.object_path !== expectedPath) return null;
+    return signRentalDamagePhoto(env, photo);
+  }));
+  if (signedDamagePhotos.some((photo, index) => damagePhotos[index] && !photo)) {
+    return { status: 503, error: 'Gagal membuat tautan aman untuk foto kerusakan Investigation.' };
+  }
+  const photosByDamageId = new Map();
+  for (const photo of signedDamagePhotos.filter(Boolean)) {
+    photosByDamageId.set(photo.damage_id, [...(photosByDamageId.get(photo.damage_id) ?? []), { id: photo.id, url: photo.url }]);
   }
   const signedPhotos = await Promise.all(photos.map(async (photo) => {
     if (typeof photo.object_path !== 'string' || !photo.object_path.startsWith(`${note.id}/`)) return null;
@@ -1258,7 +1361,15 @@ async function handleDailyNoteReturnItinerary(request, env, user) {
   if (signedPhotos.some((photo, index) => photos[index] && !photo)) {
     return { status: 503, error: 'Gagal membuat tautan aman untuk foto itinerary.' };
   }
-  return { status: 200, data: { itinerary: itineraries[0] ?? null, parts, photos: signedPhotos.filter(Boolean) } };
+  return {
+    status: 200,
+    data: {
+      itinerary: itineraries[0] ?? null,
+      parts,
+      photos: signedPhotos.filter(Boolean),
+      damages: damages.map((damage) => ({ ...damage, photos: photosByDamageId.get(damage.id) ?? [] })),
+    },
+  };
 }
 
 async function reviewDailyNote(request, env, user) {

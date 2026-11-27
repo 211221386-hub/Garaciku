@@ -592,17 +592,66 @@ class ApiClient {
       if (!response.ok || !result?.data) throw new Error(result?.error ?? 'Gagal memuat itinerary pengembalian.');
       return result.data;
     },
-    saveReturnItinerary: async (id: string, endKm: number, endFuel: number, parts: string[]) => {
+    saveReturnItinerary: async (
+      id: string,
+      startKm: number,
+      startFuel: number,
+      endKm: number | null,
+      endFuel: number | null,
+      parts: string[],
+      damages: { id: string; description: string; severity: Damage['severity'] }[],
+      submit: boolean,
+    ) => {
       const session = getSession();
       if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
       const response = await fetch(workerApiUrl('/api/daily-notes/return-itinerary'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
-        body: JSON.stringify({ action: 'save', note_id: id, end_km: endKm, end_fuel: endFuel, parts }),
+        body: JSON.stringify({
+          action: 'save',
+          note_id: id,
+          start_km: startKm,
+          start_fuel: startFuel,
+          end_km: endKm,
+          end_fuel: endFuel,
+          parts,
+          damages,
+          submit,
+        }),
       });
       const result = await response.json().catch(() => null) as { data?: unknown; error?: string } | null;
       if (!response.ok || !result?.data) throw new Error(result?.error ?? 'Gagal menyimpan itinerary pengembalian.');
       return result.data;
+    },
+    uploadReturnDamagePhoto: async (noteId: string, damageId: string, photoId: string, base64: string) => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/daily-notes/return-itinerary'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({
+          action: 'upload-damage-photo',
+          note_id: noteId,
+          damage_id: damageId,
+          photo_id: photoId,
+          base64,
+          content_type: 'image/jpeg',
+        }),
+      });
+      const result = await response.json().catch(() => null) as { data?: unknown; error?: string } | null;
+      if (!response.ok || !result?.data) throw new Error(result?.error ?? 'Gagal mengunggah foto kerusakan.');
+      return result.data;
+    },
+    deleteReturnDamagePhoto: async (noteId: string, damageId: string, photoId: string) => {
+      const session = getSession();
+      if (!session?.token) throw new Error('Sesi login tidak valid. Silakan login ulang.');
+      const response = await fetch(workerApiUrl('/api/daily-notes/return-itinerary'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+        body: JSON.stringify({ action: 'delete-damage-photo', note_id: noteId, damage_id: damageId, photo_id: photoId }),
+      });
+      const result = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) throw new Error(result?.error ?? 'Gagal menghapus foto kerusakan.');
     },
     uploadReturnPhoto: async (id: string, base64: string): Promise<{ id: string; object_path: string }> => {
       const session = getSession();

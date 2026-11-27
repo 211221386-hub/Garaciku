@@ -7,7 +7,6 @@ import { Colors, Spacing, Typography, Radius } from '@/lib/theme';
 import { dateRangesOverlap, formatDate, formatCurrency } from '@/lib/format';
 import { Sheet } from '@/components/Sheet';
 import { Field } from '@/components/Field';
-import { PercentageField } from '@/components/PercentageField';
 import { DateField } from '@/components/DateField';
 import { TimeField } from '@/components/TimeField';
 import { Button } from '@/components/Button';
@@ -83,8 +82,6 @@ export default function RentalScreen() {
     start_time: '',
     end_date: '',
     end_time: '',
-    start_km: '',
-    start_fuel: '',
     content: '',
     detail: '',
     need_trial_outside: null as boolean | null,
@@ -146,7 +143,7 @@ export default function RentalScreen() {
   const resetFormState = () => {
     setForm({ car_id: '', start_date: '', start_time: '', end_date: '', end_time: '', purpose: '', notes: '' });
     setSelectedCarIds([]);
-    setDuplicateForm({ section: '', start_date: '', start_time: '', end_date: '', end_time: '', start_km: '', start_fuel: '', content: '', detail: '', need_trial_outside: null });
+    setDuplicateForm({ section: '', start_date: '', start_time: '', end_date: '', end_time: '', content: '', detail: '', need_trial_outside: null });
     setRecordKind('rental');
     setTrialDropdownOpen(false);
   };
@@ -168,21 +165,11 @@ export default function RentalScreen() {
 
     if (recordKind === 'duplicate') {
       const recorderName = getSession()?.user.full_name?.trim() ?? '';
-      if (!recorderName || !duplicateForm.section.trim() || !duplicateForm.start_date || !duplicateForm.start_time || !duplicateForm.end_date || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.start_fuel || !duplicateForm.content.trim() || duplicateForm.need_trial_outside === null) {
+      if (!recorderName || !duplicateForm.section.trim() || !duplicateForm.start_date || !duplicateForm.start_time || !duplicateForm.end_date || !duplicateForm.end_time || !duplicateForm.content.trim() || duplicateForm.need_trial_outside === null) {
         Alert.alert('Data belum lengkap', 'Isi semua field Investigation sebelum menyimpan.');
         return;
       }
 
-      const startKm = Number(duplicateForm.start_km);
-      const startFuel = Number(duplicateForm.start_fuel);
-      if ([startKm, startFuel].some((value) => !Number.isInteger(value) || value < 0)) {
-        Alert.alert('Angka tidak valid', 'KM awal dan fuel awal harus berupa bilangan bulat nol atau lebih.');
-        return;
-      }
-      if (startFuel > 100) {
-        Alert.alert('Persentase fuel tidak valid', 'Fuel awal harus berada di antara 0% dan 100%.');
-        return;
-      }
       if (duplicateForm.end_date < duplicateForm.start_date) {
         Alert.alert('Rentang tanggal tidak valid', 'Tanggal selesai harus sama atau setelah tanggal mulai.');
         return;
@@ -206,9 +193,9 @@ export default function RentalScreen() {
           start_time: duplicateForm.start_time,
           end_date: duplicateForm.end_date,
           end_time: duplicateForm.end_time,
-          start_km: startKm,
+          start_km: null,
           end_km: null,
-          start_fuel: startFuel,
+          start_fuel: null,
           end_fuel: null,
           content: duplicateForm.content.trim(),
           detail: duplicateForm.detail.trim(),
@@ -364,8 +351,6 @@ export default function RentalScreen() {
             <Field label="Section*" value={duplicateForm.section} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, section: t })} placeholder="Contoh: Maintenance / Ops" />
             <TimeField label="Jam Mulai (WIB)*" value={duplicateForm.start_time} onChange={(value) => setDuplicateForm({ ...duplicateForm, start_time: value })} />
             <TimeField label="Jam Selesai (WIB)*" value={duplicateForm.end_time} onChange={(value) => setDuplicateForm({ ...duplicateForm, end_time: value })} />
-            <Field label="KM Awal*" value={duplicateForm.start_km} onChangeText={(t) => setDuplicateForm({ ...duplicateForm, start_km: t })} placeholder="Contoh: 12000" keyboardType="numeric" />
-            <PercentageField label="Fuel Awal*" value={duplicateForm.start_fuel} onChange={(value) => setDuplicateForm({ ...duplicateForm, start_fuel: value })} />
             <Text style={styles.label}>Need trial Outside?*</Text>
             <TouchableOpacity
               style={styles.trialDropdown}
@@ -400,7 +385,7 @@ export default function RentalScreen() {
         )}
 
         <View style={{ height: Spacing.sm }} />
-        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigation'} onPress={addRecord} loading={saving} disabled={hasOpenCycle || !selectedCarAvailable || (recordKind === 'rental' ? !rentalContactComplete || !form.start_time || !form.end_time : !userProfile?.full_name?.trim() || !duplicateForm.section.trim() || !duplicateForm.start_time || !duplicateForm.end_time || !duplicateForm.start_km || !duplicateForm.start_fuel || !duplicateForm.content.trim() || duplicateForm.need_trial_outside === null)} />
+        <Button label={recordKind === 'rental' ? 'Simpan Transportation' : 'Simpan Investigation'} onPress={addRecord} loading={saving} disabled={hasOpenCycle || !selectedCarAvailable || (recordKind === 'rental' ? !rentalContactComplete || !form.start_time || !form.end_time : !userProfile?.full_name?.trim() || !duplicateForm.section.trim() || !duplicateForm.start_time || !duplicateForm.end_time || !duplicateForm.content.trim() || duplicateForm.need_trial_outside === null)} />
       </Sheet>
     </View>
   );
